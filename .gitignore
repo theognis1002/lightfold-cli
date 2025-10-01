@@ -1,0 +1,78 @@
+# Project binaries (but not cmd/lightfold/ directory)
+/lightfold
+/lightfold-*
+lightfold.exe
+lightfold-*.exe
+!cmd/lightfold/
+
+# Go binaries
+*.exe
+*.exe~
+
+# Go build artifacts
+*.o
+*.a
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go workspace file
+go.work
+
+# Dependency directories
+vendor/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+
+# Test projects and artifacts
+test-projects/
+test-pm/
+*.test-output
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Build directories
+dist/
+build/
+out/
+
+# Coverage reports
+coverage.txt
+coverage.html
+
+# Profiling data
+*.prof
+
+# Go module cache (usually handled globally)
+# Uncomment if you want to ignore local module cache
+# go.sum
