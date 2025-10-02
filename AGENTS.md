@@ -128,46 +128,129 @@ When adding framework detection:
 3. `Pipfile.lock` → pipenv
 4. Default → pip
 
-## Deployment Flow Architecture
+## Multi-Provider Architecture
 
-### Two-Step Configuration
+### Provider Registry System
+
+Lightfold uses a provider registry pattern that makes adding new cloud providers trivial. All providers implement the `Provider` interface and auto-register themselves at init time.
+
+**Key Components:**
+1. **Provider Interface** (`pkg/providers/provider.go`): Defines standard methods all providers must implement
+2. **Provider Registry** (`pkg/providers/registry.go`): Central factory for creating provider instances
+3. **Provider Implementations**: Self-contained packages (e.g., `pkg/providers/digitalocean/`, `pkg/providers/hetzner/`)
+
+**Adding a New Provider:**
+```go
+// 1. Create pkg/providers/newprovider/client.go
+package newprovider
+
+func init() {
+    providers.Register("newprovider", func(token string) providers.Provider {
+        return NewClient(token)
+    })
+}
+
+// 2. Implement the Provider interface
+type Client struct { token string }
+func (c *Client) Name() string { return "newprovider" }
+func (c *Client) DisplayName() string { return "New Provider" }
+// ... implement remaining interface methods
+```
+
+That's it! The provider is now available throughout the application with zero changes to orchestrator, CLI, or config layers.
+
+### Deployment Flow Architecture
+
+**Two-Step Configuration:**
 
 **Step 1: Deployment Type Selection**
 - **BYOS (Bring Your Own Server)**: User provides existing server details
 - **Provision for me**: Auto-provision new infrastructure
 
 **Step 2: Provider Selection**
-- **BYOS Options**: DigitalOcean (existing droplet), Custom Server
-- **Provision Options**: DigitalOcean (new droplet), S3 (static sites)
+- **BYOS Options**: DigitalOcean, Hetzner Cloud, Custom Server
+- **Provision Options**: DigitalOcean, Hetzner Cloud, S3 (static sites)
 
-### BYOS vs Provision Flows
-
-**BYOS Flow (existing behavior):**
+**BYOS Flow:**
 - Collects server IP address
 - Requests SSH key path or content
 - Asks for username (default: root)
-- Stores configuration for manual deployment
+- Stores provider-specific configuration
 
-**Provision Flow (new functionality):**
-- Collects DigitalOcean API token (stored securely)
-- Presents region selection (nyc1, ams3, sfo3, etc.)
-- Offers droplet size options (s-1vcpu-1gb, s-2vcpu-2gb, etc.)
+**Provision Flow:**
+- Collects provider API token (stored securely)
+- Presents region/location selection
+- Offers server size/type options
 - Auto-generates SSH keypairs locally
-- Stores configuration for automatic provisioning
+- Provisions server via provider API
+- Stores configuration with server details
+
+### Configuration Architecture
+
+**Project Configuration Structure:**
+```json
+{
+  "framework": "Next.js",
+  "provider": "digitalocean",
+  "provider_config": {
+    "digitalocean": {
+      "ip": "192.168.1.100",
+      "username": "deploy",
+      "ssh_key": "~/.lightfold/keys/myproject",
+      "region": "nyc1",
+      "size": "s-1vcpu-1gb",
+      "provisioned": true,
+      "droplet_id": "123456789"
+    }
+  }
+}
+```
+
+**Generic Provider Config Access:**
+- All providers implement `ProviderConfig` interface with methods: `GetIP()`, `GetUsername()`, `GetSSHKey()`, `IsProvisioned()`
+- Config stored as `map[string]json.RawMessage` to support any provider
+- Helper methods like `GetDigitalOceanConfig()`, `GetHetznerConfig()` for convenience
+- `SetProviderConfig(provider, config)` marshals and stores provider-specific configuration
 
 ### Security Architecture
 
 **API Token Storage:**
-- Tokens stored in `~/.lightfold/tokens.json`
+- Tokens stored in `~/.lightfold/tokens.json` as `map[string]string` (provider → token)
 - File permissions: 0600 (owner read/write only)
 - Separate from main configuration for security
 - Never included in project configs or logs
+- Generic methods: `SetToken(provider, token)`, `GetToken(provider)`, `HasToken(provider)`
 
 **SSH Key Management:**
-- Auto-generation of Ed25519 keypairs for provisioned droplets
+- Auto-generation of Ed25519 keypairs for provisioned servers
 - Keys stored in `~/.lightfold/keys/` with project-specific names
 - Automatic public key upload to cloud providers
 - Secure private key permissions (0600)
+
+### Deployment Orchestrator Architecture
+
+**Provider-Agnostic Design:**
+
+The deployment orchestrator (`pkg/deploy/orchestrator.go`) is completely provider-agnostic. It uses the provider registry to instantiate the correct provider client at runtime.
+
+**Deployment Flow:**
+1. **Registry Lookup**: `provider := providers.GetProvider(config.Provider, token)`
+2. **Validation**: Provider validates credentials via its API
+3. **Provisioning** (if needed): Provider creates server, uploads SSH keys, configures cloud-init
+4. **SSH Deployment**: Provider-agnostic SSH-based deployment to server
+   - Framework detection
+   - Package installation
+   - Build execution
+   - Systemd + Nginx configuration
+   - Health checks and rollback
+
+**Key Insight**: Once a server has an IP, username, and SSH key, deployment is identical across all providers. Only the provisioning step is provider-specific.
+
+**Supported Providers:**
+- ✅ DigitalOcean (fully implemented)
+- ✅ Hetzner Cloud (proof-of-concept, stub implementation)
+- 🔜 Linode, Fly.io, AWS EC2, Google Cloud, Azure (trivial to add)
+- ✅ S3 (static sites, no SSH deployment)
 
 ## Development Guidelines
 

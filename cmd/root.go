@@ -170,7 +170,7 @@ func configureDeployment(projectPath string, detection detector.Detection) error
 
 	projectConfig := config.ProjectConfig{
 		Framework: detection.Framework,
-		Target:    target,
+		Provider:  target,
 	}
 
 	projectName := sequential.GetProjectNameFromPath(projectPath)
@@ -183,15 +183,15 @@ func configureDeployment(projectPath string, detection detector.Detection) error
 			if err != nil {
 				return fmt.Errorf("DigitalOcean configuration cancelled: %w", err)
 			}
-			projectConfig.DigitalOcean = doConfig
+			projectConfig.SetProviderConfig("digitalocean", doConfig)
 
 		case "custom server":
 			doConfig, err := sequential.RunDigitalOceanFlow(projectName)
 			if err != nil {
 				return fmt.Errorf("Custom server configuration cancelled: %w", err)
 			}
-			projectConfig.DigitalOcean = doConfig
-			projectConfig.Target = "digitalocean" // Use same config structure
+			projectConfig.Provider = "digitalocean" // Use DigitalOcean provider for SSH-based custom servers
+			projectConfig.SetProviderConfig("digitalocean", doConfig)
 
 		default:
 			return fmt.Errorf("unsupported BYOS target: %s", target)
@@ -203,14 +203,14 @@ func configureDeployment(projectPath string, detection detector.Detection) error
 			if err != nil {
 				return fmt.Errorf("DigitalOcean provisioning cancelled: %w", err)
 			}
-			projectConfig.DigitalOcean = doConfig
+			projectConfig.SetProviderConfig("digitalocean", doConfig)
 
 		case "s3":
 			s3Config, err := sequential.RunS3Flow()
 			if err != nil {
 				return fmt.Errorf("S3 configuration cancelled: %w", err)
 			}
-			projectConfig.S3 = s3Config
+			projectConfig.SetProviderConfig("s3", s3Config)
 
 		default:
 			return fmt.Errorf("unsupported provision target: %s", target)

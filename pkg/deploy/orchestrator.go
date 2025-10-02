@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"lightfold/pkg/config"
+	"lightfold/pkg/detector"
 	"lightfold/pkg/providers"
 	"lightfold/pkg/providers/cloudinit"
-	"lightfold/pkg/providers/digitalocean"
-	"lightfold/pkg/ssh"
+	_ "lightfold/pkg/providers/digitalocean" // Register DigitalOcean provider
+	_ "lightfold/pkg/providers/hetzner"      // Register Hetzner provider
+	sshpkg "lightfold/pkg/ssh"
+	"os"
 	"time"
 )
 
@@ -61,91 +64,96 @@ func (o *Orchestrator) SetProgressCallback(callback ProgressCallback) {
 
 // Deploy executes the deployment
 func (o *Orchestrator) Deploy(ctx context.Context) (*DeploymentResult, error) {
+	// Validate provider is registered
+	if !providers.IsRegistered(o.config.Provider) {
+		return nil, fmt.Errorf("unknown provider: %s", o.config.Provider)
+	}
+
 	// Check if server is already provisioned to prevent duplicates
 	if err := o.checkExistingServer(); err != nil {
 		return nil, err
 	}
 
-	// Determine deployment type and execute
-	switch o.config.Target {
-	case "digitalocean":
-		return o.deployDigitalOcean(ctx)
-	case "s3":
-		return o.deployS3(ctx)
-	default:
-		return nil, fmt.Errorf("unsupported deployment target: %s", o.config.Target)
-	}
+	// Get provider-specific config
+	return o.deployWithProvider(ctx)
 }
 
-// checkExistingServer verifies if a server is already provisioned to prevent duplicate provisioning
 func (o *Orchestrator) checkExistingServer() error {
-	switch o.config.Target {
+	switch o.config.Provider {
 	case "digitalocean":
-		if o.config.DigitalOcean != nil && o.config.DigitalOcean.Provisioned {
-			// If we have both a droplet ID and IP, server already exists
-			if o.config.DigitalOcean.DropletID != "" && o.config.DigitalOcean.IP != "" {
+		doConfig, err := o.config.GetDigitalOceanConfig()
+		if err == nil && doConfig.Provisioned {
+			if doConfig.DropletID != "" && doConfig.IP != "" {
 				return fmt.Errorf("server already provisioned (ID: %s, IP: %s). Use a different command to redeploy or destroy the existing server first",
-					o.config.DigitalOcean.DropletID,
-					o.config.DigitalOcean.IP)
+					doConfig.DropletID,
+					doConfig.IP)
+			}
+		}
+	case "hetzner":
+		hetznerConfig, err := o.config.GetHetznerConfig()
+		if err == nil && hetznerConfig.Provisioned {
+			if hetznerConfig.ServerID != "" && hetznerConfig.IP != "" {
+				return fmt.Errorf("server already provisioned (ID: %s, IP: %s). Use a different command to redeploy or destroy the existing server first",
+					hetznerConfig.ServerID,
+					hetznerConfig.IP)
 			}
 		}
 	case "s3":
-		// S3 deployments don't provision servers, so no check needed
 		return nil
 	}
 	return nil
 }
 
-// deployDigitalOcean handles DigitalOcean deployment
-func (o *Orchestrator) deployDigitalOcean(ctx context.Context) (*DeploymentResult, error) {
-	result := &DeploymentResult{
-		Steps: []DeploymentStep{},
+func (o *Orchestrator) deployWithProvider(ctx context.Context) (*DeploymentResult, error) {
+	token := o.tokens.GetToken(o.config.Provider)
+
+	if o.config.Provider == "s3" {
+		return o.deployS3(ctx)
 	}
 
-	doConfig := o.config.DigitalOcean
-	if doConfig == nil {
-		return nil, fmt.Errorf("DigitalOcean configuration is missing")
+	var providerCfg config.ProviderConfig
+	var err error
+
+	switch o.config.Provider {
+	case "digitalocean":
+		providerCfg, err = o.config.GetDigitalOceanConfig()
+	case "hetzner":
+		providerCfg, err = o.config.GetHetznerConfig()
+	default:
+		return nil, fmt.Errorf("unsupported provider for SSH deployment: %s", o.config.Provider)
 	}
 
-	// If this is a provisioned droplet and no IP exists, we need to provision it
-	if doConfig.Provisioned && doConfig.IP == "" {
-		return o.provisionDigitalOceanDroplet(ctx, doConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get provider configuration: %w", err)
 	}
 
-	// Otherwise, this is BYOS - just verify connection
-	o.notifyProgress(DeploymentStep{
-		Name:        "verify_connection",
-		Description: "Verifying server connection...",
-		Progress:    10,
-	})
+	if providerCfg.IsProvisioned() && providerCfg.GetIP() == "" {
+		return o.provisionServer(ctx, token)
+	}
 
-	// For BYOS, we would SSH into the server and deploy
-	// This will be implemented as needed
-	result.Success = true
-	result.Message = fmt.Sprintf("Connected to server at %s", doConfig.IP)
-
-	return result, nil
+	return o.deployToServer(ctx, providerCfg)
 }
 
-// provisionDigitalOceanDroplet provisions a new DigitalOcean droplet
-func (o *Orchestrator) provisionDigitalOceanDroplet(ctx context.Context, doConfig *config.DigitalOceanConfig) (*DeploymentResult, error) {
+func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*DeploymentResult, error) {
 	result := &DeploymentResult{
 		Steps: []DeploymentStep{},
 	}
 
-	// Step 1: Initialize DigitalOcean client
+	// Step 1: Initialize provider client
 	o.notifyProgress(DeploymentStep{
 		Name:        "init_client",
-		Description: "Initializing DigitalOcean client...",
+		Description: fmt.Sprintf("Initializing %s client...", o.config.Provider),
 		Progress:    5,
 	})
 
-	token := o.tokens.GetDigitalOceanToken()
 	if token == "" {
-		return nil, fmt.Errorf("DigitalOcean API token not found")
+		return nil, fmt.Errorf("%s API token not found", o.config.Provider)
 	}
 
-	client := digitalocean.NewClient(token)
+	client, err := providers.GetProvider(o.config.Provider, token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize provider: %w", err)
+	}
 
 	// Step 2: Validate credentials
 	o.notifyProgress(DeploymentStep{
@@ -158,6 +166,33 @@ func (o *Orchestrator) provisionDigitalOceanDroplet(ctx context.Context, doConfi
 		return nil, fmt.Errorf("failed to validate credentials: %w", err)
 	}
 
+	var sshKeyPath, username, region, size, sshKeyName string
+
+	switch o.config.Provider {
+	case "digitalocean":
+		doConfig, err := o.config.GetDigitalOceanConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get DigitalOcean config: %w", err)
+		}
+		sshKeyPath = doConfig.SSHKey
+		username = doConfig.Username
+		region = doConfig.Region
+		size = doConfig.Size
+		sshKeyName = doConfig.SSHKeyName
+	case "hetzner":
+		hetznerConfig, err := o.config.GetHetznerConfig()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get Hetzner config: %w", err)
+		}
+		sshKeyPath = hetznerConfig.SSHKey
+		username = hetznerConfig.Username
+		region = hetznerConfig.Location
+		size = hetznerConfig.ServerType
+		sshKeyName = hetznerConfig.SSHKeyName
+	default:
+		return nil, fmt.Errorf("unsupported provider for provisioning: %s", o.config.Provider)
+	}
+
 	// Step 3: Load SSH public key
 	o.notifyProgress(DeploymentStep{
 		Name:        "load_ssh_key",
@@ -165,20 +200,19 @@ func (o *Orchestrator) provisionDigitalOceanDroplet(ctx context.Context, doConfi
 		Progress:    20,
 	})
 
-	publicKeyPath := doConfig.SSHKey + ".pub"
-	publicKey, err := ssh.LoadPublicKey(publicKeyPath)
+	publicKeyPath := sshKeyPath + ".pub"
+	publicKey, err := sshpkg.LoadPublicKey(publicKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load public key: %w", err)
 	}
 
-	// Step 4: Upload SSH key to DigitalOcean
+	// Step 4: Upload SSH key to provider
 	o.notifyProgress(DeploymentStep{
 		Name:        "upload_ssh_key",
-		Description: "Uploading SSH key to DigitalOcean...",
+		Description: fmt.Sprintf("Uploading SSH key to %s...", client.DisplayName()),
 		Progress:    30,
 	})
 
-	sshKeyName := doConfig.SSHKeyName
 	if sshKeyName == "" {
 		sshKeyName = fmt.Sprintf("lightfold-%s", o.projectName)
 	}
@@ -195,58 +229,66 @@ func (o *Orchestrator) provisionDigitalOceanDroplet(ctx context.Context, doConfi
 		Progress:    40,
 	})
 
-	userData, err := cloudinit.GenerateWebAppUserData(doConfig.Username, publicKey, o.projectName)
+	userData, err := cloudinit.GenerateWebAppUserData(username, publicKey, o.projectName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate cloud-init: %w", err)
 	}
 
-	// Step 6: Provision droplet
+	// Step 6: Provision server
 	o.notifyProgress(DeploymentStep{
-		Name:        "create_droplet",
-		Description: "Creating DigitalOcean droplet...",
+		Name:        "create_server",
+		Description: fmt.Sprintf("Creating %s server...", client.DisplayName()),
 		Progress:    50,
 	})
 
 	provisionConfig := providers.ProvisionConfig{
-		Name:     fmt.Sprintf("%s-app", o.projectName),
-		Region:   doConfig.Region,
-		Size:     doConfig.Size,
-		Image:    "ubuntu-22-04-x64",
-		SSHKeys:  []string{uploadedKey.ID},
-		UserData: userData,
-		Tags:     []string{"lightfold", "auto-provisioned", o.projectName},
+		Name:              fmt.Sprintf("%s-app", o.projectName),
+		Region:            region,
+		Size:              size,
+		Image:             "ubuntu-22-04-x64",
+		SSHKeys:           []string{uploadedKey.ID},
+		UserData:          userData,
+		Tags:              []string{"lightfold", "auto-provisioned", o.projectName},
 		BackupsEnabled:    false,
 		MonitoringEnabled: true,
 	}
 
 	server, err := client.Provision(ctx, provisionConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to provision droplet: %w", err)
+		return nil, fmt.Errorf("failed to provision server: %w", err)
 	}
 
-	// Step 7: Wait for droplet to become active
+	// Step 7: Wait for server to become active
 	o.notifyProgress(DeploymentStep{
 		Name:        "wait_active",
-		Description: fmt.Sprintf("Waiting for droplet %s to become active...", server.ID),
+		Description: fmt.Sprintf("Waiting for server %s to become active...", server.ID),
 		Progress:    70,
 	})
 
 	server, err = client.WaitForActive(ctx, server.ID, 5*time.Minute)
 	if err != nil {
-		return nil, fmt.Errorf("failed waiting for droplet: %w", err)
+		return nil, fmt.Errorf("failed waiting for server: %w", err)
 	}
 
-	// Step 8: Update configuration with server IP
+	// Step 8: Update configuration with server IP and ID
 	o.notifyProgress(DeploymentStep{
 		Name:        "update_config",
 		Description: "Updating configuration with server details...",
 		Progress:    90,
 	})
 
-	doConfig.IP = server.PublicIPv4
-	doConfig.DropletID = server.ID
-
-	// Save updated configuration
+	switch o.config.Provider {
+	case "digitalocean":
+		doConfig, _ := o.config.GetDigitalOceanConfig()
+		doConfig.IP = server.PublicIPv4
+		doConfig.DropletID = server.ID
+		o.config.SetProviderConfig("digitalocean", doConfig)
+	case "hetzner":
+		hetznerConfig, _ := o.config.GetHetznerConfig()
+		hetznerConfig.IP = server.PublicIPv4
+		hetznerConfig.ServerID = server.ID
+		o.config.SetProviderConfig("hetzner", hetznerConfig)
+	}
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
@@ -263,18 +305,17 @@ func (o *Orchestrator) provisionDigitalOceanDroplet(ctx context.Context, doConfi
 	// Step 9: Complete
 	o.notifyProgress(DeploymentStep{
 		Name:        "complete",
-		Description: "Deployment complete!",
+		Description: "Provisioning complete!",
 		Progress:    100,
 	})
 
 	result.Success = true
 	result.Server = server
-	result.Message = fmt.Sprintf("Successfully provisioned droplet at %s", server.PublicIPv4)
+	result.Message = fmt.Sprintf("Successfully provisioned server at %s", server.PublicIPv4)
 
 	return result, nil
 }
 
-// deployS3 handles S3 deployment (static sites)
 func (o *Orchestrator) deployS3(ctx context.Context) (*DeploymentResult, error) {
 	// TODO: Implement S3 deployment
 	return &DeploymentResult{
@@ -284,7 +325,176 @@ func (o *Orchestrator) deployS3(ctx context.Context) (*DeploymentResult, error) 
 	}, nil
 }
 
-// notifyProgress sends progress updates to the callback
+func (o *Orchestrator) deployToServer(ctx context.Context, providerCfg config.ProviderConfig) (*DeploymentResult, error) {
+	result := &DeploymentResult{
+		Steps: []DeploymentStep{},
+	}
+
+	// Step 1: Run detection to get build/run plans
+	o.notifyProgress(DeploymentStep{
+		Name:        "detect_framework",
+		Description: "Detecting framework configuration...",
+		Progress:    5,
+	})
+
+	detection := detector.DetectFramework(o.projectPath)
+
+	// Step 2: Connect to server via SSH
+	o.notifyProgress(DeploymentStep{
+		Name:        "connect_ssh",
+		Description: fmt.Sprintf("Connecting to server at %s...", providerCfg.GetIP()),
+		Progress:    10,
+	})
+
+	sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
+	defer sshExecutor.Disconnect()
+
+	executor := NewExecutor(sshExecutor, o.projectName, o.projectPath, &detection)
+
+	// Step 3: Install base packages
+	o.notifyProgress(DeploymentStep{
+		Name:        "install_packages",
+		Description: "Installing system packages and runtimes...",
+		Progress:    20,
+	})
+
+	if err := executor.InstallBasePackages(); err != nil {
+		return nil, fmt.Errorf("failed to install packages: %w", err)
+	}
+
+	// Step 4: Setup directory structure
+	o.notifyProgress(DeploymentStep{
+		Name:        "setup_directories",
+		Description: "Setting up deployment directories...",
+		Progress:    30,
+	})
+
+	if err := executor.SetupDirectoryStructure(); err != nil {
+		return nil, fmt.Errorf("failed to setup directories: %w", err)
+	}
+
+	// Step 5: Create and upload release tarball
+	o.notifyProgress(DeploymentStep{
+		Name:        "create_tarball",
+		Description: "Creating release tarball...",
+		Progress:    40,
+	})
+
+	tmpTarball := fmt.Sprintf("/tmp/lightfold-%s-release.tar.gz", o.projectName)
+	if err := executor.CreateReleaseTarball(tmpTarball); err != nil {
+		return nil, fmt.Errorf("failed to create tarball: %w", err)
+	}
+	defer os.Remove(tmpTarball)
+
+	o.notifyProgress(DeploymentStep{
+		Name:        "upload_release",
+		Description: "Uploading release to server...",
+		Progress:    50,
+	})
+
+	releasePath, err := executor.UploadRelease(tmpTarball)
+	if err != nil {
+		return nil, fmt.Errorf("failed to upload release: %w", err)
+	}
+
+	skipBuild := o.config.Deploy != nil && o.config.Deploy.SkipBuild
+	if !skipBuild {
+		o.notifyProgress(DeploymentStep{
+			Name:        "build_release",
+			Description: "Building application...",
+			Progress:    60,
+		})
+
+		if err := executor.BuildRelease(releasePath); err != nil {
+			return nil, fmt.Errorf("failed to build release: %w", err)
+		}
+	}
+
+	// Step 7: Write environment variables
+	o.notifyProgress(DeploymentStep{
+		Name:        "write_env",
+		Description: "Configuring environment variables...",
+		Progress:    65,
+	})
+
+	envVars := make(map[string]string)
+	if o.config.Deploy != nil && o.config.Deploy.EnvVars != nil {
+		envVars = o.config.Deploy.EnvVars
+	}
+
+	if err := executor.WriteEnvironmentFile(envVars); err != nil {
+		return nil, fmt.Errorf("failed to write environment: %w", err)
+	}
+
+	// Step 8: Configure systemd service
+	o.notifyProgress(DeploymentStep{
+		Name:        "configure_service",
+		Description: "Configuring systemd service...",
+		Progress:    70,
+	})
+
+	if err := executor.GenerateSystemdUnit(releasePath); err != nil {
+		return nil, fmt.Errorf("failed to generate systemd unit: %w", err)
+	}
+
+	if err := executor.EnableService(); err != nil {
+		return nil, fmt.Errorf("failed to enable service: %w", err)
+	}
+
+	// Step 9: Configure nginx
+	o.notifyProgress(DeploymentStep{
+		Name:        "configure_nginx",
+		Description: "Configuring nginx reverse proxy...",
+		Progress:    75,
+	})
+
+	if err := executor.GenerateNginxConfig(); err != nil {
+		return nil, fmt.Errorf("failed to generate nginx config: %w", err)
+	}
+
+	if err := executor.TestNginxConfig(); err != nil {
+		return nil, fmt.Errorf("nginx config test failed: %w", err)
+	}
+
+	if err := executor.ReloadNginx(); err != nil {
+		return nil, fmt.Errorf("failed to reload nginx: %w", err)
+	}
+
+	// Step 10: Deploy with health check
+	o.notifyProgress(DeploymentStep{
+		Name:        "deploy_app",
+		Description: "Deploying application with health check...",
+		Progress:    85,
+	})
+
+	if err := executor.DeployWithHealthCheck(releasePath, 5, 3*time.Second); err != nil {
+		return nil, fmt.Errorf("deployment failed: %w", err)
+	}
+
+	// Step 11: Cleanup old releases
+	o.notifyProgress(DeploymentStep{
+		Name:        "cleanup",
+		Description: "Cleaning up old releases...",
+		Progress:    95,
+	})
+
+	if err := executor.CleanupOldReleases(5); err != nil {
+		fmt.Printf("Warning: failed to cleanup old releases: %v\n", err)
+	}
+
+	// Step 12: Complete
+	o.notifyProgress(DeploymentStep{
+		Name:        "complete",
+		Description: "Deployment complete!",
+		Progress:    100,
+	})
+
+	result.Success = true
+	result.Message = fmt.Sprintf("Successfully deployed %s to %s", o.projectName, providerCfg.GetIP())
+
+	return result, nil
+}
+
 func (o *Orchestrator) notifyProgress(step DeploymentStep) {
 	if o.progressCallback != nil {
 		o.progressCallback(step)

@@ -121,10 +121,10 @@ func runBYOSFlow(projectPath string) error {
 	}
 
 	projectConfig := config.ProjectConfig{
-		Framework:    "Unknown",
-		Target:       "digitalocean",
-		DigitalOcean: doConfig,
+		Framework: "Unknown",
+		Provider:  "digitalocean",
 	}
+	projectConfig.SetProviderConfig("digitalocean", doConfig)
 
 	if err := cfg.SetProject(projectPath, projectConfig); err != nil {
 		return fmt.Errorf("failed to set project config: %w", err)
@@ -271,17 +271,19 @@ func runProvisionFlow(projectPath string) error {
 
 	projectConfig := config.ProjectConfig{
 		Framework: "Unknown",
-		Target:    "digitalocean",
-		DigitalOcean: &config.DigitalOceanConfig{
-			DropletID:   activeServer.ID,
-			IP:          activeServer.PublicIPv4,
-			SSHKey:      keyPair.PrivateKeyPath,
-			Username:    "deploy",
-			Region:      selectedRegion,
-			Size:        selectedSize,
-			Provisioned: true,
-		},
+		Provider:  "digitalocean",
 	}
+
+	doConfig := &config.DigitalOceanConfig{
+		DropletID:   activeServer.ID,
+		IP:          activeServer.PublicIPv4,
+		SSHKey:      keyPair.PrivateKeyPath,
+		Username:    "deploy",
+		Region:      selectedRegion,
+		Size:        selectedSize,
+		Provisioned: true,
+	}
+	projectConfig.SetProviderConfig("digitalocean", doConfig)
 
 	if err := cfg.SetProject(projectPath, projectConfig); err != nil {
 		return fmt.Errorf("failed to set project config: %w", err)
@@ -322,26 +324,45 @@ func runTargetsList() error {
 	for projectPath, project := range cfg.Projects {
 		fmt.Printf("📁 %s\n", projectPath)
 		fmt.Printf("  Framework: %s\n", project.Framework)
-		fmt.Printf("  Target: %s\n", project.Target)
+		fmt.Printf("  Provider: %s\n", project.Provider)
 
-		if project.DigitalOcean != nil {
-			fmt.Printf("  DigitalOcean:\n")
-			fmt.Printf("    IP: %s\n", project.DigitalOcean.IP)
-			fmt.Printf("    Username: %s\n", project.DigitalOcean.Username)
-			if project.DigitalOcean.Provisioned {
-				fmt.Printf("    Status: Auto-provisioned\n")
-				fmt.Printf("    Droplet ID: %s\n", project.DigitalOcean.DropletID)
-				fmt.Printf("    Region: %s\n", project.DigitalOcean.Region)
-				fmt.Printf("    Size: %s\n", project.DigitalOcean.Size)
-			} else {
-				fmt.Printf("    Status: Bring Your Own Server\n")
+		switch project.Provider {
+		case "digitalocean":
+			if doConfig, err := project.GetDigitalOceanConfig(); err == nil {
+				fmt.Printf("  DigitalOcean:\n")
+				fmt.Printf("    IP: %s\n", doConfig.IP)
+				fmt.Printf("    Username: %s\n", doConfig.Username)
+				if doConfig.Provisioned {
+					fmt.Printf("    Status: Auto-provisioned\n")
+					fmt.Printf("    Droplet ID: %s\n", doConfig.DropletID)
+					fmt.Printf("    Region: %s\n", doConfig.Region)
+					fmt.Printf("    Size: %s\n", doConfig.Size)
+				} else {
+					fmt.Printf("    Status: Bring Your Own Server\n")
+				}
 			}
-		}
 
-		if project.S3 != nil {
-			fmt.Printf("  S3:\n")
-			fmt.Printf("    Bucket: %s\n", project.S3.Bucket)
-			fmt.Printf("    Region: %s\n", project.S3.Region)
+		case "hetzner":
+			if hetznerConfig, err := project.GetHetznerConfig(); err == nil {
+				fmt.Printf("  Hetzner Cloud:\n")
+				fmt.Printf("    IP: %s\n", hetznerConfig.IP)
+				fmt.Printf("    Username: %s\n", hetznerConfig.Username)
+				if hetznerConfig.Provisioned {
+					fmt.Printf("    Status: Auto-provisioned\n")
+					fmt.Printf("    Server ID: %s\n", hetznerConfig.ServerID)
+					fmt.Printf("    Location: %s\n", hetznerConfig.Location)
+					fmt.Printf("    Server Type: %s\n", hetznerConfig.ServerType)
+				} else {
+					fmt.Printf("    Status: Bring Your Own Server\n")
+				}
+			}
+
+		case "s3":
+			if s3Config, err := project.GetS3Config(); err == nil {
+				fmt.Printf("  S3:\n")
+				fmt.Printf("    Bucket: %s\n", s3Config.Bucket)
+				fmt.Printf("    Region: %s\n", s3Config.Region)
+			}
 		}
 
 		fmt.Println()
@@ -371,11 +392,22 @@ func runTargetsRemove(projectPath string) error {
 		return nil
 	}
 
-	if project.DigitalOcean != nil && project.DigitalOcean.Provisioned {
-		fmt.Printf("\n%s\n", warningStyle.Render("⚠️  Warning: This target uses an auto-provisioned droplet."))
-		fmt.Printf("%s\n", warningStyle.Render("   The droplet will NOT be automatically destroyed."))
-		fmt.Printf("%s\n", warningStyle.Render("   You may want to manually destroy it to avoid charges."))
-		fmt.Printf("   Droplet ID: %s\n", project.DigitalOcean.DropletID)
+	// Warn about provisioned servers that won't be destroyed
+	switch project.Provider {
+	case "digitalocean":
+		if doConfig, err := project.GetDigitalOceanConfig(); err == nil && doConfig.Provisioned {
+			fmt.Printf("\n%s\n", warningStyle.Render("⚠️  Warning: This target uses an auto-provisioned droplet."))
+			fmt.Printf("%s\n", warningStyle.Render("   The droplet will NOT be automatically destroyed."))
+			fmt.Printf("%s\n", warningStyle.Render("   You may want to manually destroy it to avoid charges."))
+			fmt.Printf("   Droplet ID: %s\n", doConfig.DropletID)
+		}
+	case "hetzner":
+		if hetznerConfig, err := project.GetHetznerConfig(); err == nil && hetznerConfig.Provisioned {
+			fmt.Printf("\n%s\n", warningStyle.Render("⚠️  Warning: This target uses an auto-provisioned server."))
+			fmt.Printf("%s\n", warningStyle.Render("   The server will NOT be automatically destroyed."))
+			fmt.Printf("%s\n", warningStyle.Render("   You may want to manually destroy it to avoid charges."))
+			fmt.Printf("   Server ID: %s\n", hetznerConfig.ServerID)
+		}
 	}
 
 	delete(cfg.Projects, projectPath)
@@ -393,12 +425,9 @@ func promptForAPIToken() (string, error) {
 	var token string
 	fmt.Scanln(&token)
 
-	// Sanitize token by removing wrapper characters (brackets, quotes, whitespace)
 	for {
 		oldToken := token
 		token = strings.TrimSpace(token)
-		token = strings.TrimPrefix(token, "[")
-		token = strings.TrimSuffix(token, "]")
 		token = strings.TrimSpace(token)
 		token = strings.Trim(token, "\"'")
 		if token == oldToken {

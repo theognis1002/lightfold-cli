@@ -10,6 +10,15 @@ type Provider interface {
 	// Name returns the provider name (e.g., "digitalocean", "hetzner")
 	Name() string
 
+	// DisplayName returns the human-readable provider name (e.g., "DigitalOcean", "Hetzner Cloud")
+	DisplayName() string
+
+	// SupportsProvisioning returns true if this provider can auto-provision new servers
+	SupportsProvisioning() bool
+
+	// SupportsBYOS returns true if this provider supports bring-your-own-server deployments
+	SupportsBYOS() bool
+
 	// ValidateCredentials validates the provider's API credentials
 	ValidateCredentials(ctx context.Context) error
 
@@ -33,6 +42,9 @@ type Provider interface {
 
 	// WaitForActive polls until the server is in active state
 	WaitForActive(ctx context.Context, serverID string, timeout time.Duration) (*Server, error)
+
+	// UploadSSHKey uploads an SSH public key to the provider
+	UploadSSHKey(ctx context.Context, name, publicKey string) (*SSHKey, error)
 }
 
 // Region represents a geographical region for server deployment

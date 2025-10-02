@@ -88,7 +88,7 @@ func RunProvisionDigitalOceanFlow(projectName string) (*config.DigitalOceanConfi
 		return nil, fmt.Errorf("failed to load tokens: %w", err)
 	}
 
-	existingToken := tokens.GetDigitalOceanToken()
+	existingToken := tokens.GetToken("digitalocean")
 	hasExistingToken := existingToken != ""
 
 	flow := CreateProvisionDigitalOceanFlow(projectName, hasExistingToken)
@@ -112,7 +112,7 @@ func RunProvisionDigitalOceanFlow(projectName string) (*config.DigitalOceanConfi
 
 	// Store API token securely if a new one was provided
 	if newToken, ok := results["api_token"]; ok && newToken != "" {
-		tokens.SetDigitalOceanToken(newToken)
+		tokens.SetToken("digitalocean", newToken)
 		if err := tokens.SaveTokens(); err != nil {
 			return nil, fmt.Errorf("failed to save API token: %w", err)
 		}

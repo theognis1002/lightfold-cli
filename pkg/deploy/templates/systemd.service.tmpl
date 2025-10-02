@@ -1,0 +1,17 @@
+[Unit]
+Description={{APP_NAME}}
+After=network.target
+
+[Service]
+WorkingDirectory=/srv/{{APP_NAME}}/current
+EnvironmentFile=/srv/{{APP_NAME}}/shared/env/.env
+ExecStart={{EXEC_START}}
+Restart=always
+RestartSec=5
+User=www-data
+Group=www-data
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -8,6 +8,15 @@ import (
 	"strings"
 )
 
+// ProviderConfig is a generic interface for provider-specific configurations
+type ProviderConfig interface {
+	GetIP() string
+	GetUsername() string
+	GetSSHKey() string
+	IsProvisioned() bool
+}
+
+// DigitalOceanConfig contains DigitalOcean-specific deployment configuration
 type DigitalOceanConfig struct {
 	DropletID   string `json:"droplet_id,omitempty"` // For provisioned droplets
 	IP          string `json:"ip"`
@@ -19,6 +28,29 @@ type DigitalOceanConfig struct {
 	Provisioned bool   `json:"provisioned,omitempty"`
 }
 
+func (d *DigitalOceanConfig) GetIP() string        { return d.IP }
+func (d *DigitalOceanConfig) GetUsername() string  { return d.Username }
+func (d *DigitalOceanConfig) GetSSHKey() string    { return d.SSHKey }
+func (d *DigitalOceanConfig) IsProvisioned() bool  { return d.Provisioned }
+
+// HetznerConfig contains Hetzner-specific deployment configuration
+type HetznerConfig struct {
+	ServerID    string `json:"server_id,omitempty"`
+	IP          string `json:"ip"`
+	SSHKey      string `json:"ssh_key"`
+	SSHKeyName  string `json:"ssh_key_name,omitempty"`
+	Username    string `json:"username"`
+	Location    string `json:"location,omitempty"`
+	ServerType  string `json:"server_type,omitempty"`
+	Provisioned bool   `json:"provisioned,omitempty"`
+}
+
+func (h *HetznerConfig) GetIP() string        { return h.IP }
+func (h *HetznerConfig) GetUsername() string  { return h.Username }
+func (h *HetznerConfig) GetSSHKey() string    { return h.SSHKey }
+func (h *HetznerConfig) IsProvisioned() bool  { return h.Provisioned }
+
+// S3Config contains S3-specific deployment configuration
 type S3Config struct {
 	Bucket    string `json:"bucket"`
 	Region    string `json:"region"`
@@ -26,11 +58,82 @@ type S3Config struct {
 	SecretKey string `json:"secret_key,omitempty"`
 }
 
+// GetIP returns empty string as S3 doesn't use IP addresses
+func (s *S3Config) GetIP() string        { return "" }
+func (s *S3Config) GetUsername() string  { return "" }
+func (s *S3Config) GetSSHKey() string    { return "" }
+func (s *S3Config) IsProvisioned() bool  { return false }
+
+// DeploymentOptions contains framework-agnostic deployment settings
+type DeploymentOptions struct {
+	SkipBuild    bool              `json:"skip_build,omitempty"`
+	EnvVars      map[string]string `json:"env_vars,omitempty"`
+	BuildCommand string            `json:"build_command,omitempty"`
+	RunCommand   string            `json:"run_command,omitempty"`
+}
+
+// ProjectConfig contains the complete project deployment configuration
 type ProjectConfig struct {
-	Framework    string              `json:"framework"`
-	Target       string              `json:"target"`
-	DigitalOcean *DigitalOceanConfig `json:"digitalocean,omitempty"`
-	S3           *S3Config           `json:"s3,omitempty"`
+	Framework      string                     `json:"framework"`
+	Provider       string                     `json:"provider"`        // Provider name (e.g., "digitalocean", "hetzner", "s3")
+	ProviderConfig map[string]json.RawMessage `json:"provider_config"` // Provider-specific config as JSON
+	Deploy         *DeploymentOptions         `json:"deploy,omitempty"`
+}
+
+// GetProviderConfig unmarshals the provider-specific config into the given type
+func (p *ProjectConfig) GetProviderConfig(provider string, target interface{}) error {
+	if p.ProviderConfig == nil {
+		return fmt.Errorf("no provider configuration found")
+	}
+
+	configJSON, exists := p.ProviderConfig[provider]
+	if !exists {
+		return fmt.Errorf("no configuration found for provider: %s", provider)
+	}
+
+	return json.Unmarshal(configJSON, target)
+}
+
+// SetProviderConfig marshals and stores provider-specific configuration
+func (p *ProjectConfig) SetProviderConfig(provider string, config interface{}) error {
+	if p.ProviderConfig == nil {
+		p.ProviderConfig = make(map[string]json.RawMessage)
+	}
+
+	configJSON, err := json.Marshal(config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal provider config: %w", err)
+	}
+
+	p.ProviderConfig[provider] = configJSON
+	return nil
+}
+
+// GetDigitalOceanConfig is a convenience method to get DigitalOcean configuration
+func (p *ProjectConfig) GetDigitalOceanConfig() (*DigitalOceanConfig, error) {
+	var config DigitalOceanConfig
+	if err := p.GetProviderConfig("digitalocean", &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
+// GetHetznerConfig is a convenience method to get Hetzner configuration
+func (p *ProjectConfig) GetHetznerConfig() (*HetznerConfig, error) {
+	var config HetznerConfig
+	if err := p.GetProviderConfig("hetzner", &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
+// GetS3Config is a convenience method to get S3 configuration
+func (p *ProjectConfig) GetS3Config() (*S3Config, error) {
+	var config S3Config
+	if err := p.GetProviderConfig("s3", &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
 }
 
 type Config struct {
@@ -109,8 +212,9 @@ func (c *Config) SetProject(projectPath string, project ProjectConfig) error {
 	return nil
 }
 
+// TokenConfig stores API tokens for all providers
 type TokenConfig struct {
-	DigitalOceanToken string `json:"digitalocean_token,omitempty"`
+	Tokens map[string]string `json:"tokens,omitempty"` // provider_name -> token
 }
 
 func GetTokensPath() string {
@@ -130,7 +234,9 @@ func LoadTokens() (*TokenConfig, error) {
 	}
 
 	if _, err := os.Stat(tokensPath); os.IsNotExist(err) {
-		return &TokenConfig{}, nil
+		return &TokenConfig{
+			Tokens: make(map[string]string),
+		}, nil
 	}
 
 	data, err := os.ReadFile(tokensPath)
@@ -141,6 +247,10 @@ func LoadTokens() (*TokenConfig, error) {
 	var tokens TokenConfig
 	if err := json.Unmarshal(data, &tokens); err != nil {
 		return nil, fmt.Errorf("failed to parse tokens file: %w", err)
+	}
+
+	if tokens.Tokens == nil {
+		tokens.Tokens = make(map[string]string)
 	}
 
 	return &tokens, nil
@@ -169,9 +279,13 @@ func (t *TokenConfig) SaveTokens() error {
 	return nil
 }
 
-// SetDigitalOceanToken stores a DigitalOcean API token
+// SetToken stores an API token for a specific provider
 // Automatically trims whitespace and removes surrounding brackets/quotes
-func (t *TokenConfig) SetDigitalOceanToken(token string) {
+func (t *TokenConfig) SetToken(provider, token string) {
+	if t.Tokens == nil {
+		t.Tokens = make(map[string]string)
+	}
+
 	// Keep removing outer layers of brackets, quotes, and whitespace until nothing changes
 	for {
 		oldToken := token
@@ -195,10 +309,28 @@ func (t *TokenConfig) SetDigitalOceanToken(token string) {
 		}
 	}
 
-	t.DigitalOceanToken = token
+	t.Tokens[provider] = token
 }
 
-// GetDigitalOceanToken retrieves the DigitalOcean API token
+// GetToken retrieves an API token for a specific provider
+func (t *TokenConfig) GetToken(provider string) string {
+	if t.Tokens == nil {
+		return ""
+	}
+	return t.Tokens[provider]
+}
+
+// HasToken checks if a token exists for the given provider
+func (t *TokenConfig) HasToken(provider string) bool {
+	return t.GetToken(provider) != ""
+}
+
+// SetDigitalOceanToken is a convenience method for setting the DigitalOcean token
+func (t *TokenConfig) SetDigitalOceanToken(token string) {
+	t.SetToken("digitalocean", token)
+}
+
+// GetDigitalOceanToken is a convenience method for getting the DigitalOcean token
 func (t *TokenConfig) GetDigitalOceanToken() string {
-	return t.DigitalOceanToken
+	return t.GetToken("digitalocean")
 }
