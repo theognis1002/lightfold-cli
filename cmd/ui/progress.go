@@ -107,28 +107,31 @@ func (m progressModel) View() string {
 		progressPercent = 100
 	}
 
-	// Build the progress bar
+	// Build the progress bar with gradient colors
 	barWidth := m.width - 10 // Leave space for percentage
 	filledWidth := int((progressPercent / 100) * float64(barWidth))
 
+	// Create gradient colors: purple -> blue -> cyan -> green
+	colors := []string{"129", "63", "39", "33", "45", "51", "50", "49", "48", "47", "46", "82"}
+
 	var bar strings.Builder
 	for i := 0; i < filledWidth; i++ {
-		bar.WriteString("█")
+		colorIndex := int(float64(i) / float64(barWidth) * float64(len(colors)))
+		if colorIndex >= len(colors) {
+			colorIndex = len(colors) - 1
+		}
+
+		colorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(colors[colorIndex]))
+		bar.WriteString(colorStyle.Render("█"))
 	}
+
+	// Add empty bars for unfilled portion
+	emptyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	for i := filledWidth; i < barWidth; i++ {
-		bar.WriteString("░")
+		bar.WriteString(emptyStyle.Render("░"))
 	}
 
-	// Style the progress bar
-	progressStyle := lipgloss.NewStyle().
-		Background(lipgloss.Color("236")).
-		Foreground(lipgloss.Color("82"))
-
-	if m.completed {
-		progressStyle = progressStyle.Foreground(lipgloss.Color("86"))
-	}
-
-	s.WriteString(progressStyle.Render(bar.String()))
+	s.WriteString(bar.String())
 	s.WriteString(fmt.Sprintf(" %.0f%%", progressPercent))
 	s.WriteString("\n\n")
 

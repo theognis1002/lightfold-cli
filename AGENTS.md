@@ -28,16 +28,19 @@ Lightfold CLI is a fast, intelligent project framework detector that automatical
    - Environment variable schemas
 
 4. **CLI Interface** (`cmd/`):
-   - Cobra-based command structure
-   - Clean JSON output formatting
-   - Interactive TUI mode and non-interactive mode
-   - Error handling and validation
+   - Cobra-based command structure with root and deploy commands
+   - Clean JSON output formatting with `--json` flag
+   - Interactive TUI mode with terminal detection
+   - Non-interactive mode for CI/automation with `--no-interactive`
+   - Error handling and graceful validation
 
-5. **TUI Components** (`pkg/tui/`):
-   - Bubbletea-based interactive menus
-   - Deployment target selection (DigitalOcean, S3)
-   - Configuration input forms with validation
-   - Animated progress bars and success animations
+5. **TUI Components** (`cmd/ui/`):
+   - Bubbletea-based interactive menus and sequential flows
+   - Animated spinner during framework detection
+   - Deployment target selection with enhanced styling
+   - Step-by-step configuration forms with validation
+   - Colorful gradient progress bars for deployment
+   - SSH key management and secure input handling
 
 6. **Configuration Management** (`pkg/config/`):
    - JSON-based project configuration storage
@@ -51,26 +54,32 @@ lightfold/
 ├── cmd/
 │   ├── lightfold/
 │   │   └── main.go     # Entry point
-│   ├── root.go         # Main command with TUI integration
-│   └── deploy.go       # Deployment command
+│   ├── root.go         # Main command with detection and TUI integration
+│   ├── deploy.go       # Deployment command with progress animation
+│   ├── detect.go       # Explicit detection command
+│   ├── flags/          # Command flags and deployment targets
+│   ├── steps/          # Configuration step definitions
+│   ├── ui/             # TUI components
+│   │   ├── detection/  # Detection results display
+│   │   ├── multiInput/ # Menu selection components
+│   │   ├── sequential/ # Step-by-step configuration flows
+│   │   ├── spinner/    # Loading animations
+│   │   └── progress.go # Colorful gradient progress bars
+│   └── utils/          # Utility functions
 ├── pkg/
 │   ├── detector/       # Framework detection engine
 │   │   ├── detector.go # Core detection logic
 │   │   ├── plans.go    # Build/run plans
 │   │   └── exports.go  # Test helpers
-│   ├── tui/           # Terminal UI components
-│   │   ├── menu.go    # Deployment target selection
-│   │   ├── input.go   # Configuration forms
-│   │   ├── progress.go # Progress bars
-│   │   └── animation.go # Success animations
-│   └── config/        # Configuration management
-│       └── config.go  # JSON config storage
+│   └── config/         # Configuration management
+│       └── config.go   # JSON config storage and validation
 ├── test/
-│   └── detector/      # Comprehensive test suite
-├── go.mod             # Go module dependencies
-├── Makefile           # Build and test commands
-├── README.md          # User-facing documentation
-└── AGENTS.md          # This file
+│   └── detector/       # Comprehensive test suite
+├── go-blueprint/       # External framework examples
+├── go.mod              # Go module dependencies
+├── Makefile            # Build and test commands
+├── README.md           # User-facing documentation
+└── AGENTS.md           # This file
 ```
 
 ## Framework Detection Logic
@@ -244,9 +253,26 @@ func frameworkPlan(root string) ([]string, []string, map[string]any, []string) {
 ### TUI Component Guidelines
 
 - **Keep it simple**: Use built-in bubbletea components when possible
-- **Consistent styling**: Use the established color scheme (86 for primary, 243 for secondary)
+- **Consistent styling**: Use the established color scheme (#01FAC6 for primary/focus, 86/170 for highlights)
 - **Error handling**: Always provide clear error messages and graceful fallbacks
 - **Non-interactive fallback**: Ensure all TUI features work in CI/automation mode
+- **Terminal detection**: Check for proper TTY, TERM environment, and CI detection
+- **Graceful degradation**: Fall back to text-based output if TUI fails
+- **Enhanced visual feedback**: Use colorful gradient progress bars, spinners, and selection indicators
+- **Sequential flows**: Break complex configuration into manageable step-by-step processes
+
+### Deployment Command Behavior
+
+**Smart Project Detection:**
+- `lightfold deploy` - Auto-detects single configured project
+- `lightfold deploy <path>` - Deploys specific project
+- Shows helpful error messages with available projects list
+
+**Fallback Logic:**
+- Attempts TUI mode in interactive terminals
+- Falls back to non-interactive mode if TUI fails (e.g., TTY issues)
+- Respects `--no-interactive` flag
+- Detects CI environments automatically
 
 ## Extension Points
 

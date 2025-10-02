@@ -8,9 +8,10 @@ import (
 )
 
 type DigitalOceanConfig struct {
-	IP       string `json:"ip"`
-	SSHKey   string `json:"ssh_key"`
-	Username string `json:"username"`
+	IP         string `json:"ip"`
+	SSHKey     string `json:"ssh_key"`
+	SSHKeyName string `json:"ssh_key_name,omitempty"` // Name of managed key (for pasted keys)
+	Username   string `json:"username"`
 }
 
 type S3Config struct {

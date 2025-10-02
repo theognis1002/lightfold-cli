@@ -3,12 +3,21 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"lightfold/cmd/flags"
+	"lightfold/cmd/steps"
+	"lightfold/cmd/ui/detection"
+	"lightfold/cmd/ui/multiInput"
+	"lightfold/cmd/ui/sequential"
+	"lightfold/cmd/ui/spinner"
 	"lightfold/pkg/config"
 	"lightfold/pkg/detector"
-	"lightfold/pkg/tui"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
 
@@ -18,6 +27,11 @@ var (
 	// Flags
 	jsonOutput    bool
 	skipInteractive bool
+
+	// Styles
+	logoStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAC6")).Bold(true)
+	tipMsgStyle    = lipgloss.NewStyle().PaddingLeft(1).Foreground(lipgloss.Color("190")).Italic(true)
+	endingMsgStyle = lipgloss.NewStyle().PaddingLeft(1).Foreground(lipgloss.Color("170")).Bold(true)
 )
 
 const Logo = `
@@ -39,60 +53,7 @@ Supports 15+ popular frameworks including Next.js, Astro, Django, FastAPI, Expre
 Advanced package manager detection for JavaScript/TypeScript, Python, PHP, Ruby, Go, Java, C#, and Elixir.`,
 	Version: Version,
 	Args:    cobra.MaximumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		var projectPath string
-		if len(args) == 0 {
-			projectPath = "."
-		} else {
-			projectPath = args[0]
-		}
-
-		// Clean and validate the path
-		projectPath = filepath.Clean(projectPath)
-
-		info, err := os.Stat(projectPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: Cannot access path '%s': %v\n", projectPath, err)
-			os.Exit(1)
-		}
-
-		if !info.IsDir() {
-			fmt.Fprintf(os.Stderr, "Error: Path '%s' is not a directory\n", projectPath)
-			os.Exit(1)
-		}
-
-		// Perform framework detection
-		detection := detector.DetectFramework(projectPath)
-
-		// Handle output based on flags
-		if jsonOutput || skipInteractive || !tui.IsTerminal() {
-			// JSON output for CI/automation
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			enc.Encode(detection)
-			return
-		}
-
-		// Interactive mode: show detection results and configure deployment
-		showDetectionResults(detection)
-
-		// Ask user if they want to configure deployment
-		fmt.Println()
-		fmt.Print("Would you like to configure deployment for this project? (y/N): ")
-		var response string
-		fmt.Scanln(&response)
-
-		if response != "y" && response != "Y" && response != "yes" && response != "Yes" {
-			fmt.Println("Skipping deployment configuration.")
-			return
-		}
-
-		// Run deployment configuration flow
-		if err := configureDeployment(projectPath, detection); err != nil {
-			fmt.Fprintf(os.Stderr, "Error configuring deployment: %v\n", err)
-			os.Exit(1)
-		}
-	},
+	Run:     runRootCommand,
 }
 
 func Execute() {
@@ -102,41 +63,95 @@ func Execute() {
 	}
 }
 
-func showDetectionResults(detection detector.Detection) {
-	fmt.Printf("🔍 Framework detected: %s\n", detection.Framework)
-	fmt.Printf("📝 Language: %s\n", detection.Language)
-	fmt.Printf("⚡ Confidence: %.1f%%\n", detection.Confidence*100)
-
-	if len(detection.Signals) > 0 {
-		fmt.Println("🔧 Detection signals:")
-		for _, signal := range detection.Signals {
-			fmt.Printf("  • %s\n", signal)
-		}
+func runRootCommand(cmd *cobra.Command, args []string) {
+	var projectPath string
+	if len(args) == 0 {
+		projectPath = "."
+	} else {
+		projectPath = args[0]
 	}
 
-	if len(detection.BuildPlan) > 0 {
-		fmt.Println("🏗️  Build plan:")
-		for i, cmd := range detection.BuildPlan {
-			fmt.Printf("  %d. %s\n", i+1, cmd)
-		}
+	// Clean and validate the path
+	projectPath = filepath.Clean(projectPath)
+
+	info, err := os.Stat(projectPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Cannot access path '%s': %v\n", projectPath, err)
+		os.Exit(1)
 	}
 
-	if len(detection.RunPlan) > 0 {
-		fmt.Println("🚀 Run plan:")
-		for i, cmd := range detection.RunPlan {
-			fmt.Printf("  %d. %s\n", i+1, cmd)
+	if !info.IsDir() {
+		fmt.Fprintf(os.Stderr, "Error: Path '%s' is not a directory\n", projectPath)
+		os.Exit(1)
+	}
+
+	// Handle JSON output mode
+	if jsonOutput || skipInteractive || !isTerminal() {
+		detectionResult := detector.DetectFramework(projectPath)
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		enc.Encode(detectionResult)
+		return
+	}
+
+	// Interactive mode with TUI
+	fmt.Printf("%s\n", logoStyle.Render(Logo))
+
+	// Show spinner during detection
+	spinnerProgram := tea.NewProgram(spinner.InitialModel("Detecting framework..."))
+
+	var wg sync.WaitGroup
+	var detectionResult detector.Detection
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if _, err := spinnerProgram.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error running spinner: %v\n", err)
 		}
+	}()
+
+	// Perform detection
+	detectionResult = detector.DetectFramework(projectPath)
+
+	// Stop spinner
+	spinnerProgram.Kill()
+	wg.Wait()
+
+	// Show detection results and get user confirmation
+	wantsDeploy, err := detection.ShowDetectionResults(detectionResult)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error showing detection results: %v\n", err)
+		os.Exit(1)
+	}
+
+	if !wantsDeploy {
+		fmt.Println("Skipping deployment configuration.")
+		return
+	}
+
+	// Run deployment configuration flow
+	if err := configureDeployment(projectPath, detectionResult); err != nil {
+		fmt.Fprintf(os.Stderr, "Error configuring deployment: %v\n", err)
+		os.Exit(1)
 	}
 }
 
 func configureDeployment(projectPath string, detection detector.Detection) error {
+	var flagTarget flags.DeploymentTarget
+
+	// Initialize steps
+	stepsData := steps.InitSteps(flagTarget)
+	step := stepsData.Steps["target"]
+
 	// Show deployment target selection menu
-	target, err := tui.ShowDeploymentMenu()
+	targetChoice, err := multiInput.ShowMenu(step.Options, step.Headers)
 	if err != nil {
 		return fmt.Errorf("deployment selection cancelled: %w", err)
 	}
 
-	fmt.Printf("\nConfiguring %s deployment...\n", target)
+	target := strings.ToLower(targetChoice)
+	fmt.Printf("\n%s\n", endingMsgStyle.Render(fmt.Sprintf("Configuring %s deployment...", targetChoice)))
 
 	// Load or create config
 	cfg, err := config.LoadConfig()
@@ -150,17 +165,20 @@ func configureDeployment(projectPath string, detection detector.Detection) error
 		Target:    target,
 	}
 
-	// Get target-specific configuration
+	// Get project name for SSH key naming
+	projectName := sequential.GetProjectNameFromPath(projectPath)
+
+	// Get target-specific configuration using sequential flow
 	switch target {
-	case tui.TargetDigitalOcean:
-		doConfig, err := tui.ShowDigitalOceanInputs()
+	case "digitalocean":
+		doConfig, err := sequential.RunDigitalOceanFlow(projectName)
 		if err != nil {
 			return fmt.Errorf("DigitalOcean configuration cancelled: %w", err)
 		}
 		projectConfig.DigitalOcean = doConfig
 
-	case tui.TargetS3:
-		s3Config, err := tui.ShowS3Inputs()
+	case "s3":
+		s3Config, err := sequential.RunS3Flow()
 		if err != nil {
 			return fmt.Errorf("S3 configuration cancelled: %w", err)
 		}
@@ -179,14 +197,31 @@ func configureDeployment(projectPath string, detection detector.Detection) error
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	fmt.Printf("\n✅ Deployment configuration saved to %s\n", config.GetConfigPath())
-	fmt.Println("Run 'lightfold deploy' to deploy your application!")
+	fmt.Printf("\n%s\n", endingMsgStyle.Render("✅ Deployment configuration saved to "+config.GetConfigPath()))
+	fmt.Printf("%s\n", endingMsgStyle.Render("Run 'lightfold deploy' to deploy your application!"))
+
+	// Show tip for non-interactive command
+	fmt.Printf("\n%s\n", tipMsgStyle.Render("Tip: Use --json flag for CI/automation mode"))
 
 	return nil
 }
 
+// Helper function to check if we're in a terminal (for testing/CI)
+func isTerminal() bool {
+	// Check if it's a terminal and has a TERM environment variable
+	// Also check that we're not in a non-interactive environment
+	if os.Getenv("CI") != "" || os.Getenv("TERM") == "dumb" {
+		return false
+	}
+	return os.Getenv("TERM") != ""
+}
+
 func init() {
 	rootCmd.SetVersionTemplate("lightfold version {{.Version}}\n")
+
+	// Add commands
+	rootCmd.AddCommand(detectCmd)
+	// deployCmd is already defined in deploy.go
 
 	// Add flags
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output results as JSON (disables interactive mode)")
