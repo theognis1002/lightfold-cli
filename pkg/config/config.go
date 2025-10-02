@@ -5,13 +5,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type DigitalOceanConfig struct {
-	IP         string `json:"ip"`
-	SSHKey     string `json:"ssh_key"`
-	SSHKeyName string `json:"ssh_key_name,omitempty"` // Name of managed key (for pasted keys)
-	Username   string `json:"username"`
+	DropletID   string `json:"droplet_id,omitempty"` // For provisioned droplets
+	IP          string `json:"ip"`
+	SSHKey      string `json:"ssh_key"`
+	SSHKeyName  string `json:"ssh_key_name,omitempty"`
+	Username    string `json:"username"`
+	Region      string `json:"region,omitempty"`
+	Size        string `json:"size,omitempty"`
+	Provisioned bool   `json:"provisioned,omitempty"`
 }
 
 type S3Config struct {
@@ -43,13 +48,11 @@ func GetConfigPath() string {
 func LoadConfig() (*Config, error) {
 	configPath := GetConfigPath()
 
-	// Create directory if it doesn't exist
 	dir := filepath.Dir(configPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	// If config file doesn't exist, return empty config
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return &Config{Projects: make(map[string]ProjectConfig)}, nil
 	}
@@ -104,4 +107,98 @@ func (c *Config) SetProject(projectPath string, project ProjectConfig) error {
 
 	c.Projects[absPath] = project
 	return nil
+}
+
+type TokenConfig struct {
+	DigitalOceanToken string `json:"digitalocean_token,omitempty"`
+}
+
+func GetTokensPath() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ".lightfold/tokens.json"
+	}
+	return filepath.Join(homeDir, ".lightfold", "tokens.json")
+}
+
+func LoadTokens() (*TokenConfig, error) {
+	tokensPath := GetTokensPath()
+
+	dir := filepath.Dir(tokensPath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return nil, fmt.Errorf("failed to create tokens directory: %w", err)
+	}
+
+	if _, err := os.Stat(tokensPath); os.IsNotExist(err) {
+		return &TokenConfig{}, nil
+	}
+
+	data, err := os.ReadFile(tokensPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read tokens file: %w", err)
+	}
+
+	var tokens TokenConfig
+	if err := json.Unmarshal(data, &tokens); err != nil {
+		return nil, fmt.Errorf("failed to parse tokens file: %w", err)
+	}
+
+	return &tokens, nil
+}
+
+// SaveTokens saves API tokens to secure storage
+func (t *TokenConfig) SaveTokens() error {
+	tokensPath := GetTokensPath()
+
+	// Ensure directory exists with secure permissions
+	dir := filepath.Dir(tokensPath)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to create tokens directory: %w", err)
+	}
+
+	data, err := json.MarshalIndent(t, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal tokens: %w", err)
+	}
+
+	// Write with secure permissions (readable only by owner)
+	if err := os.WriteFile(tokensPath, data, 0600); err != nil {
+		return fmt.Errorf("failed to write tokens file: %w", err)
+	}
+
+	return nil
+}
+
+// SetDigitalOceanToken stores a DigitalOcean API token
+// Automatically trims whitespace and removes surrounding brackets/quotes
+func (t *TokenConfig) SetDigitalOceanToken(token string) {
+	// Keep removing outer layers of brackets, quotes, and whitespace until nothing changes
+	for {
+		oldToken := token
+
+		// Trim whitespace
+		token = strings.TrimSpace(token)
+
+		// Remove surrounding brackets: [token] -> token
+		token = strings.TrimPrefix(token, "[")
+		token = strings.TrimSuffix(token, "]")
+
+		// Trim whitespace again
+		token = strings.TrimSpace(token)
+
+		// Remove surrounding quotes: "token" or 'token' -> token
+		token = strings.Trim(token, "\"'")
+
+		// If nothing changed, we're done
+		if token == oldToken {
+			break
+		}
+	}
+
+	t.DigitalOceanToken = token
+}
+
+// GetDigitalOceanToken retrieves the DigitalOcean API token
+func (t *TokenConfig) GetDigitalOceanToken() string {
+	return t.DigitalOceanToken
 }

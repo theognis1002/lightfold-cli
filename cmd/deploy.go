@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
-	"lightfold/pkg/config"
 	tui "lightfold/cmd/ui"
+	"lightfold/pkg/config"
+	"lightfold/pkg/deploy"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -25,7 +28,6 @@ If no configuration exists for the project, you'll be prompted to set it up firs
 			projectPath = args[0]
 		}
 
-		// Clean and validate the path
 		projectPath = filepath.Clean(projectPath)
 
 		info, err := os.Stat(projectPath)
@@ -39,19 +41,15 @@ If no configuration exists for the project, you'll be prompted to set it up firs
 			os.Exit(1)
 		}
 
-		// Load configuration
 		cfg, err := config.LoadConfig()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Check if project is configured
 		project, exists := cfg.GetProject(projectPath)
 		if !exists {
-			// If no config found for current path, try to find any configured project
 			if len(cfg.Projects) == 1 && len(args) == 0 {
-				// If only one project is configured and no path specified, use it
 				for configuredPath, configuredProject := range cfg.Projects {
 					fmt.Printf("No configuration found for current directory.\n")
 					fmt.Printf("Using configured project: %s\n", configuredPath)
@@ -78,20 +76,29 @@ If no configuration exists for the project, you'll be prompted to set it up firs
 			}
 		}
 
-		// Validate configuration
 		if err := validateProjectConfig(project); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: Invalid project configuration: %v\n", err)
 			fmt.Println("Please run 'lightfold .' to reconfigure the project.")
 			os.Exit(1)
 		}
 
-		// Show deployment info
 		fmt.Printf("Deploying %s project to %s...\n", project.Framework, project.Target)
 		fmt.Println()
 
-		// Use TUI progress bar for deployment
-		if err := tui.ShowDeploymentProgress(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error showing deployment progress: %v\n", err)
+		// Create deployment orchestrator
+		projectName := filepath.Base(projectPath)
+		orchestrator, err := deploy.NewOrchestrator(project, projectPath, projectName)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating deployment orchestrator: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Execute deployment with progress display
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		defer cancel()
+
+		if err := tui.ShowDeploymentProgressWithOrchestrator(ctx, orchestrator); err != nil {
+			fmt.Fprintf(os.Stderr, "Error during deployment: %v\n", err)
 			os.Exit(1)
 		}
 	},
@@ -103,12 +110,31 @@ func validateProjectConfig(project config.ProjectConfig) error {
 		if project.DigitalOcean == nil {
 			return fmt.Errorf("DigitalOcean configuration is missing")
 		}
-		if project.DigitalOcean.IP == "" {
-			return fmt.Errorf("DigitalOcean IP address is required")
+
+		// For provisioned droplets, IP may be empty (will be created during deployment)
+		// For BYOS, IP is required
+		if !project.DigitalOcean.Provisioned && project.DigitalOcean.IP == "" {
+			return fmt.Errorf("DigitalOcean IP address is required for BYOS deployments")
 		}
+
 		if project.DigitalOcean.Username == "" {
 			return fmt.Errorf("DigitalOcean username is required")
 		}
+
+		if project.DigitalOcean.SSHKey == "" {
+			return fmt.Errorf("DigitalOcean SSH key is required")
+		}
+
+		// For provisioned droplets, verify we have region and size
+		if project.DigitalOcean.Provisioned {
+			if project.DigitalOcean.Region == "" {
+				return fmt.Errorf("DigitalOcean region is required for provisioned deployments")
+			}
+			if project.DigitalOcean.Size == "" {
+				return fmt.Errorf("DigitalOcean size is required for provisioned deployments")
+			}
+		}
+
 	case "s3":
 		if project.S3 == nil {
 			return fmt.Errorf("S3 configuration is missing")
@@ -121,7 +147,6 @@ func validateProjectConfig(project config.ProjectConfig) error {
 	}
 	return nil
 }
-
 
 func init() {
 	rootCmd.AddCommand(deployCmd)

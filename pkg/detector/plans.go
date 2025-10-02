@@ -2,8 +2,6 @@ package detector
 
 import "fmt"
 
-// ------- Plans (opinionated defaults) -------
-
 func djangoPlan(root string) ([]string, []string, map[string]any, []string) {
 	pm := detectPythonPackageManager(root)
 	build := []string{
@@ -29,7 +27,6 @@ func nextPlan(root string) ([]string, []string, map[string]any, []string) {
 	build := []string{
 		getJSInstallCommand(pm),
 		"next build",
-		"# if using static export in next.config: next export",
 	}
 	run := []string{"next start -p 3000"}
 	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
@@ -131,11 +128,11 @@ func expressPlan(root string) ([]string, []string, map[string]any, []string) {
 	pm := detectPackageManager(root)
 	build := []string{
 		getJSInstallCommand(pm),
-		fmt.Sprintf("# optional: %s if using TypeScript or bundling", getJSBuildCommand(pm)),
+		fmt.Sprintf("%s", getJSBuildCommand(pm)),
 	}
 	run := []string{
 		"node server.js",
-		fmt.Sprintf("# or %s if defined in package.json", getJSStartCommand(pm)),
+		fmt.Sprintf("%s", getJSStartCommand(pm)),
 	}
 	health := map[string]any{"path": "/health", "expect": 200, "timeout_seconds": 30}
 	env := []string{"NODE_ENV", "PORT", "DATABASE_URL"}
@@ -212,7 +209,7 @@ func nestjsPlan(root string) ([]string, []string, map[string]any, []string) {
 	}
 	run := []string{
 		"node dist/main",
-		"# or " + getRunCommand(pm, "start:prod"),
+		getRunCommand(pm, "start:prod"),
 	}
 	health := map[string]any{"path": "/health", "expect": 200, "timeout_seconds": 30}
 	env := []string{"NODE_ENV", "PORT", "DATABASE_URL"}

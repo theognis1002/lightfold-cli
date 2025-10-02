@@ -1,5 +1,3 @@
-// Package multiInput provides functions that
-// help define and draw a multi-input step
 package multiInput
 
 import (
@@ -10,7 +8,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// go-blueprint inspired color scheme
 var (
 	focusedStyle          = lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAC6")).Bold(true)
 	titleStyle            = lipgloss.NewStyle().Background(lipgloss.Color("#01FAC6")).Foreground(lipgloss.Color("#030303")).Bold(true).Padding(0, 1, 0)
@@ -19,19 +16,14 @@ var (
 	descriptionStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#40BDA3"))
 )
 
-// A Selection represents a choice made in a multiInput step
 type Selection struct {
 	Choice string
 }
 
-// Update changes the value of a Selection's Choice
 func (s *Selection) Update(value string) {
 	s.Choice = value
 }
 
-// A multiInput.model contains the data for the multiInput step.
-//
-// It has the required methods that make it a bubbletea.Model
 type model struct {
 	cursor      int
 	choices     []steps.Item
@@ -39,15 +31,13 @@ type model struct {
 	choice      *Selection
 	header      string
 	exit        *bool
-	multiSelect bool // Whether this is a multi-select or single-select menu
+	multiSelect bool
 }
 
 func (m model) Init() tea.Cmd {
 	return nil
 }
 
-// InitialModelMulti initializes a multiInput step with
-// the given data
 func InitialModelMulti(choices []steps.Item, selection *Selection, header string, exitPtr *bool) model {
 	return model{
 		choices:     choices,
@@ -55,11 +45,10 @@ func InitialModelMulti(choices []steps.Item, selection *Selection, header string
 		choice:      selection,
 		header:      titleStyle.Render(header),
 		exit:        exitPtr,
-		multiSelect: false, // Default to single-select
+		multiSelect: false,
 	}
 }
 
-// InitialModelMultiSelect initializes a multi-select step
 func InitialModelMultiSelect(choices []steps.Item, selection *Selection, header string, exitPtr *bool) model {
 	return model{
 		choices:     choices,
@@ -71,9 +60,6 @@ func InitialModelMultiSelect(choices []steps.Item, selection *Selection, header 
 	}
 }
 
-// Update is called when "things happen", it checks for
-// important keystrokes to signal when to quit, change selection,
-// and confirm the selection.
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
@@ -93,9 +79,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "enter":
 			if m.multiSelect {
-				// Multi-select mode: Enter confirms if something is selected
 				if len(m.selected) > 0 {
-					// Confirm selection (use first selected item for now)
 					for selectedKey := range m.selected {
 						m.choice.Update(m.choices[selectedKey].Title)
 						m.cursor = selectedKey
@@ -103,16 +87,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return m, tea.Quit
 				} else {
-					// Nothing selected, select current item
 					m.selected[m.cursor] = struct{}{}
 				}
 			} else {
-				// Single-select mode: Enter immediately selects and confirms
 				m.choice.Update(m.choices[m.cursor].Title)
 				return m, tea.Quit
 			}
 		case " ":
-			// Space toggles selection in both modes
 			if len(m.selected) == 1 && !m.multiSelect {
 				m.selected = make(map[int]struct{})
 			}
@@ -123,7 +104,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selected[m.cursor] = struct{}{}
 			}
 		case "y":
-			// Y confirms selection in both modes
 			if len(m.selected) == 1 {
 				for selectedKey := range m.selected {
 					m.choice.Update(m.choices[selectedKey].Title)
@@ -136,7 +116,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// View is called to draw the multiInput step
 func (m model) View() string {
 	s := m.header + "\n\n"
 
@@ -149,8 +128,14 @@ func (m model) View() string {
 		}
 
 		checked := " "
-		if _, ok := m.selected[i]; ok {
-			checked = focusedStyle.Render("X")
+		if m.multiSelect {
+			if _, ok := m.selected[i]; ok {
+				checked = focusedStyle.Render("X")
+			}
+		} else {
+			if m.cursor == i {
+				checked = focusedStyle.Render("X")
+			}
 		}
 
 		title := focusedStyle.Render(choice.Title)
@@ -169,9 +154,6 @@ func (m model) View() string {
 	return s
 }
 
-// ShowMenu displays a single-select menu with the given choices and returns the selected option.
-// Users can press Enter to directly select and confirm their choice.
-// Use ShowMultiSelectMenu for multi-select scenarios.
 func ShowMenu(choices []steps.Item, header string) (string, error) {
 	selection := &Selection{}
 	exit := false
@@ -192,8 +174,6 @@ func ShowMenu(choices []steps.Item, header string) (string, error) {
 	return final.choice.Choice, nil
 }
 
-// ShowMultiSelectMenu displays a multi-select menu with the given choices.
-// Users must press Space to select items and Enter/y to confirm their choices.
 func ShowMultiSelectMenu(choices []steps.Item, header string) (string, error) {
 	selection := &Selection{}
 	exit := false

@@ -29,9 +29,7 @@ type candidate struct {
 	plan     func(root string) (build []string, run []string, health map[string]any, env []string)
 }
 
-// DetectFramework performs the framework detection logic and returns the result
 func DetectFramework(root string) Detection {
-	// Pre-scan useful files and simple heuristics
 	allFiles, extCounts, err := scanTree(root)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "scan error:", err)
@@ -40,7 +38,6 @@ func DetectFramework(root string) Detection {
 	has := func(rel string) bool { return fileExists(root, rel) }
 	read := func(rel string) string { b, _ := os.ReadFile(filepath.Join(root, rel)); return string(b) }
 
-	// Build candidates
 	var cands []candidate
 
 	// Django
@@ -59,7 +56,6 @@ func DetectFramework(root string) Detection {
 			score += 1
 			signals = append(signals, "wsgi/asgi")
 		}
-		// weak content check
 		if strings.Contains(strings.ToLower(read("requirements.txt")), "django") || strings.Contains(strings.ToLower(read("pyproject.toml")), "django") {
 			score += 1.5
 			signals = append(signals, "mentions django in deps")
@@ -94,7 +90,6 @@ func DetectFramework(root string) Detection {
 				signals = append(signals, "package.json scripts for next")
 			}
 		}
-		// folder hints
 		if dirExists(root, "pages") || dirExists(root, "app") {
 			score += 0.5
 			signals = append(signals, "pages/ or app/ folder")
@@ -129,7 +124,6 @@ func DetectFramework(root string) Detection {
 				signals = append(signals, "package.json scripts for astro")
 			}
 		}
-		// typical Astro folder structure
 		if dirExists(root, "src") && dirExists(root, "public") {
 			score += 0.5
 			signals = append(signals, "src/ and public/ folders")
@@ -578,7 +572,6 @@ func DetectFramework(root string) Detection {
 		}
 	}
 
-	// If nothing scored, try generic by language
 	if len(cands) == 0 {
 		lang := dominantLanguage(extCounts)
 		out := Detection{
@@ -595,16 +588,14 @@ func DetectFramework(root string) Detection {
 		return out
 	}
 
-	// Pick best; if tie, prefer non-generic
 	best := pickBest(cands)
 
-	// Fill plans
 	build, run, health, env := best.plan(root)
 
 	out := Detection{
 		Framework:   best.name,
 		Language:    best.language,
-		Confidence:  clamp(best.score/6.0, 0, 1), // normalize roughly to [0,1]
+		Confidence:  clamp(best.score/6.0, 0, 1),
 		Signals:     best.signals,
 		BuildPlan:   build,
 		RunPlan:     run,
@@ -614,7 +605,6 @@ func DetectFramework(root string) Detection {
 	return out
 }
 
-// DetectAndPrint performs detection and prints JSON to stdout (for CLI compatibility)
 func DetectAndPrint(root string) {
 	detection := DetectFramework(root)
 	emitJSON(detection)
@@ -628,7 +618,6 @@ func pickBest(cands []candidate) candidate {
 			continue
 		}
 		if c.score == best.score {
-			// prefer non-generic when tie
 			if best.name == "Generic Docker" && c.name != "Generic Docker" {
 				best = c
 			}
@@ -661,7 +650,6 @@ func scanTree(root string) ([]string, map[string]int, error) {
 			return nil
 		}
 		rel, _ := filepath.Rel(root, p)
-		// skip some dirs
 		base := filepath.Base(p)
 		if d.IsDir() && (base == ".git" || base == "node_modules" || base == ".venv" || base == "venv" || base == "dist" || base == "build") {
 			return filepath.SkipDir
@@ -706,7 +694,6 @@ func dominantLanguage(extCounts map[string]int) string {
 	for k, v := range extCounts {
 		items = append(items, kv{k, v})
 	}
-	// simple buckets
 	langScores := map[string]int{}
 	for ext, n := range extCounts {
 		lang := mapExt(ext)

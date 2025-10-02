@@ -7,7 +7,9 @@ Framework detector and deployment tool for web applications.
 - Detects 15+ frameworks: Next.js, Astro, Django, FastAPI, Express.js, Laravel, Rails, etc.
 - Package manager detection: npm, yarn, pnpm, bun, pip, poetry, uv, pipenv
 - Generates build and run commands
-- Deployment configuration for DigitalOcean and S3
+- Two-step deployment configuration: BYOS vs Auto-provision
+- DigitalOcean auto-provisioning with API integration
+- S3 static site deployment
 - Interactive TUI and JSON output for automation
 
 ## Installation
@@ -121,12 +123,17 @@ Config stored in `~/.lightfold/config.json`:
       "digitalocean": {
         "ip": "192.168.1.100",
         "ssh_key": "~/.ssh/id_rsa",
-        "username": "root"
+        "username": "deploy",
+        "region": "nyc1",
+        "size": "s-1vcpu-1gb",
+        "provisioned": true
       }
     }
   }
 }
 ```
+
+API tokens stored securely in `~/.lightfold/tokens.json`.
 
 ## Development
 

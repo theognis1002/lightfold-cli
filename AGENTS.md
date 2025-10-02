@@ -4,7 +4,7 @@ This document provides essential context and guidelines for AI coding agents wor
 
 ## Project Overview
 
-Lightfold CLI is a fast, intelligent project framework detector that automatically identifies web frameworks and generates optimal build and deployment plans. Beyond detection, it provides an interactive TUI for configuring deployments to DigitalOcean and S3, with animated progress bars and success animations. The core goals are accuracy, speed, comprehensive framework coverage, and seamless deployment workflows.
+Lightfold CLI is a fast, intelligent project framework detector that automatically identifies web frameworks and generates optimal build and deployment plans. Beyond detection, it provides an interactive TUI with a two-step deployment flow: users first choose between BYOS (Bring Your Own Server) or auto-provisioning, then select specific providers. Features secure API token storage, DigitalOcean droplet provisioning, S3 deployment, animated progress bars, and success animations. The core goals are accuracy, speed, comprehensive framework coverage, and seamless deployment workflows.
 
 ## Architecture
 
@@ -36,16 +36,21 @@ Lightfold CLI is a fast, intelligent project framework detector that automatical
 
 5. **TUI Components** (`cmd/ui/`):
    - Bubbletea-based interactive menus and sequential flows
+   - Two-step deployment configuration: BYOS vs Provision selection
    - Animated spinner during framework detection
    - Deployment target selection with enhanced styling
    - Step-by-step configuration forms with validation
+   - DigitalOcean API token collection and secure storage
+   - Region/size selection for auto-provisioning
    - Colorful gradient progress bars for deployment
-   - SSH key management and secure input handling
+   - SSH key generation and management
+   - Secure input handling for sensitive data
 
 6. **Configuration Management** (`pkg/config/`):
    - JSON-based project configuration storage
    - Per-project deployment settings
-   - Secure credential handling
+   - Secure API token storage in separate tokens.json file
+   - Support for both BYOS and provisioned configurations
 
 ### Code Organization
 
@@ -58,11 +63,11 @@ lightfold/
 │   ├── deploy.go       # Deployment command with progress animation
 │   ├── detect.go       # Explicit detection command
 │   ├── flags/          # Command flags and deployment targets
-│   ├── steps/          # Configuration step definitions
+│   ├── steps/          # Two-step deployment configuration definitions
 │   ├── ui/             # TUI components
 │   │   ├── detection/  # Detection results display
 │   │   ├── multiInput/ # Menu selection components
-│   │   ├── sequential/ # Step-by-step configuration flows
+│   │   ├── sequential/ # Step-by-step configuration flows (BYOS + Provision)
 │   │   ├── spinner/    # Loading animations
 │   │   └── progress.go # Colorful gradient progress bars
 │   └── utils/          # Utility functions
@@ -122,6 +127,47 @@ When adding framework detection:
 2. `poetry.lock` → poetry
 3. `Pipfile.lock` → pipenv
 4. Default → pip
+
+## Deployment Flow Architecture
+
+### Two-Step Configuration
+
+**Step 1: Deployment Type Selection**
+- **BYOS (Bring Your Own Server)**: User provides existing server details
+- **Provision for me**: Auto-provision new infrastructure
+
+**Step 2: Provider Selection**
+- **BYOS Options**: DigitalOcean (existing droplet), Custom Server
+- **Provision Options**: DigitalOcean (new droplet), S3 (static sites)
+
+### BYOS vs Provision Flows
+
+**BYOS Flow (existing behavior):**
+- Collects server IP address
+- Requests SSH key path or content
+- Asks for username (default: root)
+- Stores configuration for manual deployment
+
+**Provision Flow (new functionality):**
+- Collects DigitalOcean API token (stored securely)
+- Presents region selection (nyc1, ams3, sfo3, etc.)
+- Offers droplet size options (s-1vcpu-1gb, s-2vcpu-2gb, etc.)
+- Auto-generates SSH keypairs locally
+- Stores configuration for automatic provisioning
+
+### Security Architecture
+
+**API Token Storage:**
+- Tokens stored in `~/.lightfold/tokens.json`
+- File permissions: 0600 (owner read/write only)
+- Separate from main configuration for security
+- Never included in project configs or logs
+
+**SSH Key Management:**
+- Auto-generation of Ed25519 keypairs for provisioned droplets
+- Keys stored in `~/.lightfold/keys/` with project-specific names
+- Automatic public key upload to cloud providers
+- Secure private key permissions (0600)
 
 ## Development Guidelines
 
@@ -220,35 +266,57 @@ func frameworkPlan(root string) ([]string, []string, map[string]any, []string) {
 
 ### Adding New Deployment Targets
 
-1. **Update constants** in `pkg/tui/menu.go`:
-   ```go
-   const TargetNewService = "newservice"
-   ```
+**For BYOS targets:**
 
-2. **Add to deployment targets list**:
+1. **Update steps configuration** in `cmd/steps/steps.go`:
    ```go
-   var deploymentTargets = []choice{
-       // existing targets...
-       {name: "New Service", value: TargetNewService, description: "Deploy to new service"},
+   "byos_target": {
+       StepName: "BYOS Target",
+       Options: []Item{
+           // existing options...
+           {
+               Title: "New Service",
+               Desc:  "Deploy to existing new service infrastructure",
+           },
+       },
    }
    ```
 
-3. **Create configuration struct** in `pkg/config/config.go`:
+2. **Add sequential flow** in `cmd/ui/sequential/flows.go`:
    ```go
-   type NewServiceConfig struct {
-       Endpoint string `json:"endpoint"`
-       APIKey   string `json:"api_key"`
+   func CreateNewServiceFlow(projectName string) *FlowModel {
+       steps := []Step{
+           CreateIPStep("ip", "203.0.113.1"),
+           CreateSSHKeyStep("ssh_key"),
+           CreateUsernameStep("username", "deploy"),
+       }
+       return NewFlow("Configure New Service Deployment", steps)
    }
    ```
 
-4. **Add input form** in `pkg/tui/input.go`:
+**For Provision targets:**
+
+1. **Update provision steps** in `cmd/steps/steps.go`:
    ```go
-   func ShowNewServiceInputs() (*config.NewServiceConfig, error) {
-       // Implementation similar to existing input functions
+   "provision_target": {
+       Options: []Item{
+           // existing options...
+           {
+               Title: "New Service",
+               Desc:  "Auto-provision new service infrastructure",
+           },
+       },
    }
    ```
 
-5. **Update deployment logic** in `cmd/deploy.go`
+2. **Add provision flow** in `cmd/ui/sequential/flows.go`:
+   ```go
+   func RunProvisionNewServiceFlow(projectName string) (*config.NewServiceConfig, error) {
+       // Collect API credentials, configure auto-provisioning
+   }
+   ```
+
+3. **Update configuration handling** in `cmd/root.go`
 
 ### TUI Component Guidelines
 
@@ -333,5 +401,10 @@ This approach provides better test isolation and easier maintenance.
 - Sanitize file paths and prevent directory traversal
 - Avoid reading sensitive files outside project scope
 - Validate all user inputs (file paths, etc.)
+
+## Notes & Considerations
+
+- Keep `README.md` straightforward, lean, and no-bs. Do not add excessive info there - only the most important information for the end user.
+
 
 This context should help you understand the codebase structure, patterns, and development practices for contributing effectively to Lightfold CLI.

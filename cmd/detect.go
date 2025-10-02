@@ -4,8 +4,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-
-// detectCmd defines the main detection and configuration command
 var detectCmd = &cobra.Command{
 	Use:   "detect [PROJECT_PATH]",
 	Short: "Detect framework and configure deployment",
@@ -19,11 +17,8 @@ Advanced package manager detection for JavaScript/TypeScript, Python, PHP, Ruby,
 }
 
 func runDetect(cmd *cobra.Command, args []string) {
-	// Just call the root command function
 	runRootCommand(cmd, args)
 }
 
-
 func init() {
-	// detectCmd is added to rootCmd in root.go
 }

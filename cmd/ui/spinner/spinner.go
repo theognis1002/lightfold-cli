@@ -9,6 +9,7 @@ import (
 )
 
 type errMsg error
+type quitMsg struct{}
 
 type model struct {
 	spinner  spinner.Model
@@ -42,6 +43,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+	case quitMsg:
+		m.quitting = true
+		return m, tea.Quit
+
 	case errMsg:
 		m.err = msg
 		return m, nil
@@ -62,4 +67,10 @@ func (m model) View() string {
 		return str + "\n"
 	}
 	return str
+}
+
+func QuitCmd() tea.Cmd {
+	return func() tea.Msg {
+		return quitMsg{}
+	}
 }

@@ -9,14 +9,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// go-blueprint inspired color scheme
 var (
-	titleStyle       = lipgloss.NewStyle().Background(lipgloss.Color("#01FAC6")).Foreground(lipgloss.Color("#030303")).Bold(true).Padding(0, 1, 0)
-	focusedStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAC6")).Bold(true)
+	titleStyle        = lipgloss.NewStyle().Background(lipgloss.Color("#01FAC6")).Foreground(lipgloss.Color("#030303")).Bold(true).Padding(0, 1, 0)
+	focusedStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAC6")).Bold(true)
 	selectedItemStyle = lipgloss.NewStyle().PaddingLeft(1).Foreground(lipgloss.Color("170")).Bold(true)
-	descriptionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#40BDA3"))
-	helpStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
-	successStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true) // Green
+	descriptionStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#40BDA3"))
+	helpStyle         = lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	successStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("46")).Bold(true)
 )
 
 type model struct {
@@ -63,29 +62,17 @@ func (m model) View() string {
 		Width(60)
 
 	var content strings.Builder
-	content.WriteString(focusedStyle.Render("🔍 Framework: "))
+	content.WriteString(focusedStyle.Render("Framework: "))
 	content.WriteString(selectedItemStyle.Render(m.detection.Framework))
 	content.WriteString("\n")
 
-	content.WriteString(focusedStyle.Render("📝 Language: "))
+	content.WriteString(focusedStyle.Render("Language: "))
 	content.WriteString(selectedItemStyle.Render(m.detection.Language))
-	content.WriteString("\n")
-
-	content.WriteString(focusedStyle.Render("⚡ Confidence: "))
-	confidenceColor := "46" // Green for high confidence
-	if m.detection.Confidence < 0.8 {
-		confidenceColor = "226" // Yellow for medium confidence
-	}
-	if m.detection.Confidence < 0.5 {
-		confidenceColor = "196" // Red for low confidence
-	}
-	confidenceStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(confidenceColor)).Bold(true)
-	content.WriteString(confidenceStyle.Render(fmt.Sprintf("%.1f%%", m.detection.Confidence*100)))
 	content.WriteString("\n\n")
 
 	// Detection signals
 	if len(m.detection.Signals) > 0 {
-		content.WriteString(focusedStyle.Render("🔧 Detection signals:"))
+		content.WriteString(focusedStyle.Render("Detection signals:"))
 		content.WriteString("\n")
 		for _, signal := range m.detection.Signals {
 			content.WriteString(successStyle.Render("  ✓ "))
@@ -97,7 +84,7 @@ func (m model) View() string {
 
 	// Build plan
 	if len(m.detection.BuildPlan) > 0 {
-		content.WriteString(focusedStyle.Render("🏗️  Build plan:"))
+		content.WriteString(focusedStyle.Render("Build plan:"))
 		content.WriteString("\n")
 		for i, cmd := range m.detection.BuildPlan {
 			content.WriteString(fmt.Sprintf("  %s ", successStyle.Render(fmt.Sprintf("%d.", i+1))))
@@ -109,7 +96,7 @@ func (m model) View() string {
 
 	// Run plan
 	if len(m.detection.RunPlan) > 0 {
-		content.WriteString(focusedStyle.Render("🚀 Run plan:"))
+		content.WriteString(focusedStyle.Render("Run plan:"))
 		content.WriteString("\n")
 		for i, cmd := range m.detection.RunPlan {
 			content.WriteString(fmt.Sprintf("  %s ", successStyle.Render(fmt.Sprintf("%d.", i+1))))

@@ -3,12 +3,13 @@ package sequential
 import (
 	"fmt"
 	"lightfold/pkg/config"
+	"lightfold/pkg/ssh"
 	"path/filepath"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// CreateDigitalOceanFlow creates a sequential flow for DigitalOcean configuration
 func CreateDigitalOceanFlow(projectName string) *FlowModel {
 	steps := []Step{
 		CreateIPStep("ip", "192.168.1.100"),
@@ -21,7 +22,6 @@ func CreateDigitalOceanFlow(projectName string) *FlowModel {
 	return flow
 }
 
-// CreateS3Flow creates a sequential flow for S3 configuration
 func CreateS3Flow() *FlowModel {
 	steps := []Step{
 		CreateS3BucketStep("bucket", "my-static-site"),
@@ -33,7 +33,6 @@ func CreateS3Flow() *FlowModel {
 	return NewFlow("Configure S3 Deployment", steps)
 }
 
-// RunDigitalOceanFlow runs the DigitalOcean configuration flow
 func RunDigitalOceanFlow(projectName string) (*config.DigitalOceanConfig, error) {
 	flow := CreateDigitalOceanFlow(projectName)
 
@@ -52,10 +51,8 @@ func RunDigitalOceanFlow(projectName string) (*config.DigitalOceanConfig, error)
 		return nil, fmt.Errorf("configuration not completed")
 	}
 
-	// Extract results
 	results := final.GetResults()
 
-	// Get SSH key information
 	sshKeyPath, sshKeyName := final.GetSSHKeyInfo("ssh_key")
 
 	return &config.DigitalOceanConfig{
@@ -66,7 +63,106 @@ func RunDigitalOceanFlow(projectName string) (*config.DigitalOceanConfig, error)
 	}, nil
 }
 
-// RunS3Flow runs the S3 configuration flow
+func CreateProvisionDigitalOceanFlow(projectName string, hasExistingToken bool) *FlowModel {
+	var steps []Step
+
+	// Only ask for API token if we don't have one stored
+	if !hasExistingToken {
+		steps = append(steps, CreateAPITokenStep("api_token"))
+	}
+
+	steps = append(steps,
+		CreateRegionStep("region"),
+		CreateSizeStep("size"),
+	)
+
+	flow := NewFlow("Provision DigitalOcean Droplet", steps)
+	flow.SetProjectName(projectName)
+	return flow
+}
+
+func RunProvisionDigitalOceanFlow(projectName string) (*config.DigitalOceanConfig, error) {
+	// Check if we already have a stored token
+	tokens, err := config.LoadTokens()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load tokens: %w", err)
+	}
+
+	existingToken := tokens.GetDigitalOceanToken()
+	hasExistingToken := existingToken != ""
+
+	flow := CreateProvisionDigitalOceanFlow(projectName, hasExistingToken)
+
+	p := tea.NewProgram(flow, tea.WithAltScreen())
+	finalModel, err := p.Run()
+	if err != nil {
+		return nil, err
+	}
+
+	final := finalModel.(FlowModel)
+	if final.Cancelled {
+		return nil, fmt.Errorf("provisioning cancelled")
+	}
+
+	if !final.Completed {
+		return nil, fmt.Errorf("provisioning not completed")
+	}
+
+	results := final.GetResults()
+
+	// Store API token securely if a new one was provided
+	if newToken, ok := results["api_token"]; ok && newToken != "" {
+		tokens.SetDigitalOceanToken(newToken)
+		if err := tokens.SaveTokens(); err != nil {
+			return nil, fmt.Errorf("failed to save API token: %w", err)
+		}
+	}
+
+	// Generate SSH keypair for the provisioned droplet
+	keyName := ssh.GetKeyName(projectName)
+
+	// Check if key already exists, generate if not
+	exists, err := ssh.KeyExists(keyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check SSH key existence: %w", err)
+	}
+
+	var keyPath string
+	if !exists {
+		keyPair, err := ssh.GenerateKeyPair(keyName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate SSH key pair: %w", err)
+		}
+		keyPath = keyPair.PrivateKeyPath
+	} else {
+		// Key exists, get its path
+		keysDir, err := ssh.GetKeysDirectory()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get keys directory: %w", err)
+		}
+		keyPath = filepath.Join(keysDir, keyName)
+	}
+
+	// Extract the size ID from the display string (e.g., "s-1vcpu-512mb-10gb (512 MB RAM, 1 vCPU)")
+	sizeStr := results["size"]
+	sizeID := sizeStr
+	if idx := strings.Index(sizeStr, " ("); idx > 0 {
+		sizeID = sizeStr[:idx]
+	}
+
+	// Return config with SSH key path and provisioning parameters
+	// IP will be filled in during actual provisioning in deploy command
+	return &config.DigitalOceanConfig{
+		IP:          "",                       // Will be filled by actual provisioning
+		Username:    "deploy",                 // Standard user for provisioned droplets
+		SSHKey:      keyPath,                  // Path to generated private key
+		SSHKeyName:  keyName,                  // Name of the SSH key for uploading to DO
+		Region:      results["region"],        // Store selected region
+		Size:        sizeID,                   // Store selected size ID
+		Provisioned: true,                     // Mark as provisioned
+	}, nil
+}
+
 func RunS3Flow() (*config.S3Config, error) {
 	flow := CreateS3Flow()
 
@@ -85,7 +181,6 @@ func RunS3Flow() (*config.S3Config, error) {
 		return nil, fmt.Errorf("configuration not completed")
 	}
 
-	// Extract results
 	results := final.GetResults()
 
 	return &config.S3Config{
@@ -96,12 +191,9 @@ func RunS3Flow() (*config.S3Config, error) {
 	}, nil
 }
 
-// GetProjectNameFromPath extracts a project name from a path for SSH key naming
 func GetProjectNameFromPath(projectPath string) string {
-	// Get the base directory name
 	projectName := filepath.Base(projectPath)
 	if projectName == "." || projectName == "/" {
-		// Fall back to parent directory if current dir
 		parent := filepath.Dir(projectPath)
 		projectName = filepath.Base(parent)
 	}

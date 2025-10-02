@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"context"
 	"fmt"
+	"lightfold/pkg/deploy"
 	"strings"
 	"time"
 
@@ -13,14 +15,29 @@ type progressModel struct {
 	progress      float64
 	maxProgress   float64
 	currentStep   string
+	stepHistory   []stepHistoryItem
 	completed     bool
 	countdownSecs int
 	width         int
+	orchestrator  *deploy.Orchestrator
+	ctx           context.Context
+	err           error
+	program       *tea.Program
+}
+
+type stepHistoryItem struct {
+	name        string
+	description string
+	status      string // "in_progress", "success", "error"
 }
 
 type progressMsg struct {
 	progress float64
 	step     string
+}
+
+type stepUpdateMsg struct {
+	step deploy.DeploymentStep
 }
 
 type countdownMsg struct {
@@ -29,7 +46,17 @@ type countdownMsg struct {
 
 type completeMsg struct{}
 
+type deployResultMsg struct {
+	result *deploy.DeploymentResult
+	err    error
+}
+
 func (m progressModel) Init() tea.Cmd {
+	if m.orchestrator != nil {
+		// Use real deployment with orchestrator
+		return m.startDeployment()
+	}
+	// Fallback to mock progress
 	return tea.Batch(
 		m.startProgress(),
 		tea.Tick(time.Second, func(t time.Time) tea.Msg {
@@ -46,6 +73,34 @@ func (m progressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
+	case stepUpdateMsg:
+		// Update progress
+		m.progress = float64(msg.step.Progress)
+		m.currentStep = msg.step.Description
+
+		// Mark previous step as successful if we're moving forward
+		if len(m.stepHistory) > 0 && m.stepHistory[len(m.stepHistory)-1].status == "in_progress" {
+			m.stepHistory[len(m.stepHistory)-1].status = "success"
+		}
+
+		// Add new step to history
+		m.stepHistory = append(m.stepHistory, stepHistoryItem{
+			name:        msg.step.Name,
+			description: msg.step.Description,
+			status:      "in_progress",
+		})
+
+		// Check if deployment is complete
+		if msg.step.Progress >= 100 {
+			// Mark last step as successful
+			if len(m.stepHistory) > 0 {
+				m.stepHistory[len(m.stepHistory)-1].status = "success"
+			}
+			// Don't set completed yet - wait for deployResultMsg
+		}
+
+		return m, nil
+
 	case progressMsg:
 		m.progress = msg.progress
 		m.currentStep = msg.step
@@ -59,6 +114,29 @@ func (m progressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		return m, m.continueProgress()
+
+	case deployResultMsg:
+		if msg.err != nil {
+			m.err = msg.err
+			m.completed = true
+			// Mark last step as failed
+			if len(m.stepHistory) > 0 && m.stepHistory[len(m.stepHistory)-1].status == "in_progress" {
+				m.stepHistory[len(m.stepHistory)-1].status = "error"
+			}
+			return m, tea.Quit
+		}
+
+		m.completed = true
+		m.progress = m.maxProgress
+		m.currentStep = "Deployment complete!"
+		// Mark last step as successful
+		if len(m.stepHistory) > 0 && m.stepHistory[len(m.stepHistory)-1].status == "in_progress" {
+			m.stepHistory[len(m.stepHistory)-1].status = "success"
+		}
+		m.countdownSecs = 3
+		return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
+			return countdownMsg{seconds: m.countdownSecs - 1}
+		})
 
 	case countdownMsg:
 		m.countdownSecs = msg.seconds
@@ -79,26 +157,60 @@ func (m progressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m progressModel) View() string {
 	var s strings.Builder
 
+	// Header
 	if !m.completed {
-		// Progress header
 		headerStyle := lipgloss.NewStyle().
 			Bold(true).
 			Foreground(lipgloss.Color("86"))
 		s.WriteString(headerStyle.Render("Deploying your application..."))
 		s.WriteString("\n\n")
-
-		// Current step
-		stepStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("245"))
-		s.WriteString(stepStyle.Render(m.currentStep))
-		s.WriteString("\n\n")
 	} else {
-		// Completion header
-		headerStyle := lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("82"))
-		s.WriteString(headerStyle.Render("Deployment complete!"))
-		s.WriteString("\n\n")
+		var headerStyle lipgloss.Style
+		if m.err != nil {
+			headerStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("196"))
+			s.WriteString(headerStyle.Render("Deployment failed!"))
+			s.WriteString("\n\n")
+			errorStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("203"))
+			s.WriteString(errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
+			s.WriteString("\n\n")
+		} else {
+			headerStyle = lipgloss.NewStyle().
+				Bold(true).
+				Foreground(lipgloss.Color("82"))
+			s.WriteString(headerStyle.Render("Deployment complete!"))
+			s.WriteString("\n\n")
+		}
+	}
+
+	// Step history
+	if len(m.stepHistory) > 0 {
+		successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+		inProgressStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226"))
+		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+		descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+
+		for _, step := range m.stepHistory {
+			var icon string
+			var style lipgloss.Style
+			switch step.status {
+			case "success":
+				icon = "✓"
+				style = successStyle
+			case "in_progress":
+				icon = "⋯"
+				style = inProgressStyle
+			case "error":
+				icon = "✗"
+				style = errorStyle
+			}
+			s.WriteString(style.Render(fmt.Sprintf("%s ", icon)))
+			s.WriteString(descStyle.Render(step.description))
+			s.WriteString("\n")
+		}
+		s.WriteString("\n")
 	}
 
 	// Progress bar
@@ -107,11 +219,9 @@ func (m progressModel) View() string {
 		progressPercent = 100
 	}
 
-	// Build the progress bar with gradient colors
-	barWidth := m.width - 10 // Leave space for percentage
+	barWidth := m.width - 10
 	filledWidth := int((progressPercent / 100) * float64(barWidth))
 
-	// Create gradient colors: purple -> blue -> cyan -> green
 	colors := []string{"129", "63", "39", "33", "45", "51", "50", "49", "48", "47", "46", "82"}
 
 	var bar strings.Builder
@@ -125,7 +235,6 @@ func (m progressModel) View() string {
 		bar.WriteString(colorStyle.Render("█"))
 	}
 
-	// Add empty bars for unfilled portion
 	emptyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	for i := filledWidth; i < barWidth; i++ {
 		bar.WriteString(emptyStyle.Render("░"))
@@ -135,8 +244,8 @@ func (m progressModel) View() string {
 	s.WriteString(fmt.Sprintf(" %.0f%%", progressPercent))
 	s.WriteString("\n\n")
 
-	if m.completed {
-		// Countdown
+	// Countdown or current step
+	if m.completed && m.err == nil {
 		countdownStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("245"))
 		s.WriteString(countdownStyle.Render(fmt.Sprintf("Exiting in %d seconds...", m.countdownSecs)))
@@ -179,6 +288,13 @@ func (m progressModel) continueProgress() tea.Cmd {
 	})
 }
 
+func (m progressModel) startDeployment() tea.Cmd {
+	return func() tea.Msg {
+		result, err := m.orchestrator.Deploy(m.ctx)
+		return deployResultMsg{result: result, err: err}
+	}
+}
+
 func ShowDeploymentProgress() error {
 	m := progressModel{
 		progress:    0,
@@ -189,4 +305,36 @@ func ShowDeploymentProgress() error {
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	_, err := p.Run()
 	return err
+}
+
+func ShowDeploymentProgressWithOrchestrator(ctx context.Context, orchestrator *deploy.Orchestrator) error {
+	m := progressModel{
+		progress:     0,
+		maxProgress:  100,
+		width:        60,
+		orchestrator: orchestrator,
+		ctx:          ctx,
+	}
+
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	m.program = p
+
+	// Set progress callback on orchestrator to send updates to the UI
+	orchestrator.SetProgressCallback(func(step deploy.DeploymentStep) {
+		if p != nil {
+			p.Send(stepUpdateMsg{step: step})
+		}
+	})
+
+	finalModel, err := p.Run()
+	if err != nil {
+		return err
+	}
+
+	// Check for deployment errors
+	if final, ok := finalModel.(progressModel); ok && final.err != nil {
+		return final.err
+	}
+
+	return nil
 }
