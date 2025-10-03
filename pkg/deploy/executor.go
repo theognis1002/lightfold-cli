@@ -241,8 +241,15 @@ func (e *Executor) UploadRelease(tarballPath string) (string, error) {
 	releasePath := fmt.Sprintf("/srv/%s/releases/%s", e.appName, timestamp)
 
 	result := e.ssh.ExecuteSudo(fmt.Sprintf("mkdir -p %s", releasePath))
-	if result.Error != nil || result.ExitCode != 0 {
-		return "", fmt.Errorf("failed to create release directory: %s", result.Stderr)
+	if result.Error != nil {
+		return "", fmt.Errorf("failed to create release directory: %w", result.Error)
+	}
+	if result.ExitCode != 0 {
+		errMsg := result.Stderr
+		if errMsg == "" {
+			errMsg = result.Stdout
+		}
+		return "", fmt.Errorf("failed to create release directory (exit code %d): %s", result.ExitCode, errMsg)
 	}
 
 	remoteTarball := fmt.Sprintf("/tmp/%s-release.tar.gz", e.appName)
@@ -520,7 +527,6 @@ func (e *Executor) GenerateNginxConfig() error {
 	return nil
 }
 
-// TestNginxConfig validates the nginx configuration
 func (e *Executor) TestNginxConfig() error {
 	result := e.ssh.ExecuteSudo("nginx -t")
 	if result.Error != nil || result.ExitCode != 0 {
@@ -529,7 +535,6 @@ func (e *Executor) TestNginxConfig() error {
 	return nil
 }
 
-// ReloadNginx reloads nginx configuration
 func (e *Executor) ReloadNginx() error {
 	result := e.ssh.ExecuteSudo("systemctl reload nginx")
 	if result.Error != nil || result.ExitCode != 0 {
@@ -538,7 +543,6 @@ func (e *Executor) ReloadNginx() error {
 	return nil
 }
 
-// EnableService enables the systemd service to start on boot
 func (e *Executor) EnableService() error {
 	result := e.ssh.ExecuteSudo(fmt.Sprintf("systemctl enable %s", e.appName))
 	if result.Error != nil || result.ExitCode != 0 {
@@ -547,7 +551,6 @@ func (e *Executor) EnableService() error {
 	return nil
 }
 
-// StartService starts the systemd service
 func (e *Executor) StartService() error {
 	result := e.ssh.ExecuteSudo(fmt.Sprintf("systemctl start %s", e.appName))
 	if result.Error != nil || result.ExitCode != 0 {
@@ -556,7 +559,6 @@ func (e *Executor) StartService() error {
 	return nil
 }
 
-// RestartService restarts the systemd service
 func (e *Executor) RestartService() error {
 	result := e.ssh.ExecuteSudo(fmt.Sprintf("systemctl restart %s", e.appName))
 	if result.Error != nil || result.ExitCode != 0 {
@@ -565,7 +567,6 @@ func (e *Executor) RestartService() error {
 	return nil
 }
 
-// StopService stops the systemd service
 func (e *Executor) StopService() error {
 	result := e.ssh.ExecuteSudo(fmt.Sprintf("systemctl stop %s", e.appName))
 	if result.Error != nil || result.ExitCode != 0 {
@@ -574,27 +575,21 @@ func (e *Executor) StopService() error {
 	return nil
 }
 
-// GetServiceStatus gets the status of the systemd service
 func (e *Executor) GetServiceStatus() (bool, error) {
 	result := e.ssh.Execute(fmt.Sprintf("systemctl is-active %s", e.appName))
 	isActive := result.ExitCode == 0 && strings.TrimSpace(result.Stdout) == "active"
 	return isActive, nil
 }
 
-// --- Phase 4: Release Management ---
-
-// SwitchRelease atomically switches the current symlink to a new release
 func (e *Executor) SwitchRelease(releasePath string) error {
 	currentLink := fmt.Sprintf("/srv/%s/current", e.appName)
 	tempLink := fmt.Sprintf("/srv/%s/current.tmp", e.appName)
 
-	// Create temporary symlink
 	result := e.ssh.ExecuteSudo(fmt.Sprintf("ln -sf %s %s", releasePath, tempLink))
 	if result.Error != nil || result.ExitCode != 0 {
 		return fmt.Errorf("failed to create temp symlink: %s", result.Stderr)
 	}
 
-	// Atomically replace current symlink
 	result = e.ssh.ExecuteSudo(fmt.Sprintf("mv -Tf %s %s", tempLink, currentLink))
 	if result.Error != nil || result.ExitCode != 0 {
 		return fmt.Errorf("failed to switch release: %s", result.Stderr)

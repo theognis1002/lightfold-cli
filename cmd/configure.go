@@ -57,26 +57,13 @@ Examples:
 			os.Exit(1)
 		}
 
-		// Check if already configured (skip if not forced)
 		if !configureForceFlag {
-			// Get provider config for SSH access
-			var providerCfg config.ProviderConfig
-			switch target.Provider {
-			case "digitalocean":
-				providerCfg, err = target.GetDigitalOceanConfig()
-			case "hetzner":
-				providerCfg, err = target.GetHetznerConfig()
-			default:
-				fmt.Fprintf(os.Stderr, "Error: Configure command only works with SSH-based providers (not S3)\n")
-				os.Exit(1)
-			}
-
+			providerCfg, err := target.GetSSHProviderConfig()
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error getting provider configuration: %v\n", err)
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
 
-			// Check remote marker
 			sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
 			result := sshExecutor.Execute("test -f /etc/lightfold/configured && echo 'configured'")
 			sshExecutor.Disconnect()
@@ -88,7 +75,6 @@ Examples:
 			}
 		}
 
-		// Process deployment flags (env vars, skip-build, etc.)
 		if err := processConfigureFlags(&target, projectPath); err != nil {
 			fmt.Fprintf(os.Stderr, "Error processing configuration options: %v\n", err)
 			os.Exit(1)
@@ -97,7 +83,6 @@ Examples:
 		fmt.Printf("Configuring target '%s' (%s on %s)...\n", configureTargetFlag, target.Framework, target.Provider)
 		fmt.Println()
 
-		// Create deployment orchestrator
 		projectName := filepath.Base(projectPath)
 		orchestrator, err := deploy.GetOrchestrator(target, projectPath, projectName)
 		if err != nil {
@@ -105,24 +90,12 @@ Examples:
 			os.Exit(1)
 		}
 
-		// Get provider config
-		var providerCfg config.ProviderConfig
-		switch target.Provider {
-		case "digitalocean":
-			providerCfg, err = target.GetDigitalOceanConfig()
-		case "hetzner":
-			providerCfg, err = target.GetHetznerConfig()
-		default:
-			fmt.Fprintf(os.Stderr, "Error: Configure command only works with SSH-based providers (not S3)\n")
-			os.Exit(1)
-		}
-
+		providerCfg, err := target.GetSSHProviderConfig()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error getting provider configuration: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Execute configuration with progress display
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 
@@ -131,7 +104,6 @@ Examples:
 			os.Exit(1)
 		}
 
-		// Write configured marker
 		sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
 		result := sshExecutor.Execute("echo 'configured' | sudo tee /etc/lightfold/configured > /dev/null")
 		sshExecutor.Disconnect()
@@ -140,7 +112,6 @@ Examples:
 			fmt.Printf("Warning: failed to write configured marker: %v\n", result.Error)
 		}
 
-		// Update state
 		if err := state.MarkConfigured(configureTargetFlag); err != nil {
 			fmt.Printf("Warning: failed to update state: %v\n", err)
 		}
@@ -158,46 +129,23 @@ func validateConfigureTargetConfig(target config.TargetConfig) error {
 		return fmt.Errorf("configure command does not support S3 deployments")
 	}
 
-	switch target.Provider {
-	case "digitalocean":
-		doConfig, err := target.GetDigitalOceanConfig()
-		if err != nil {
-			return fmt.Errorf("DigitalOcean configuration is missing: %w", err)
-		}
-
-		if doConfig.IP == "" {
-			return fmt.Errorf("IP address is required. Please run 'lightfold create' first")
-		}
-
-		if doConfig.Username == "" {
-			return fmt.Errorf("username is required")
-		}
-
-		if doConfig.SSHKey == "" {
-			return fmt.Errorf("SSH key is required")
-		}
-
-	case "hetzner":
-		hetznerConfig, err := target.GetHetznerConfig()
-		if err != nil {
-			return fmt.Errorf("Hetzner configuration is missing: %w", err)
-		}
-
-		if hetznerConfig.IP == "" {
-			return fmt.Errorf("IP address is required. Please run 'lightfold create' first")
-		}
-
-		if hetznerConfig.Username == "" {
-			return fmt.Errorf("username is required")
-		}
-
-		if hetznerConfig.SSHKey == "" {
-			return fmt.Errorf("SSH key is required")
-		}
-
-	default:
-		return fmt.Errorf("unknown provider: %s", target.Provider)
+	providerCfg, err := target.GetSSHProviderConfig()
+	if err != nil {
+		return err
 	}
+
+	if providerCfg.GetIP() == "" {
+		return fmt.Errorf("IP address is required. Please run 'lightfold create' first")
+	}
+
+	if providerCfg.GetUsername() == "" {
+		return fmt.Errorf("username is required")
+	}
+
+	if providerCfg.GetSSHKey() == "" {
+		return fmt.Errorf("SSH key is required")
+	}
+
 	return nil
 }
 

@@ -58,7 +58,6 @@ type S3Config struct {
 	SecretKey string `json:"secret_key,omitempty"`
 }
 
-// GetIP returns empty string as S3 doesn't use IP addresses
 func (s *S3Config) GetIP() string        { return "" }
 func (s *S3Config) GetUsername() string  { return "" }
 func (s *S3Config) GetSSHKey() string    { return "" }
@@ -74,10 +73,10 @@ type DeploymentOptions struct {
 
 // TargetConfig contains the complete target deployment configuration
 type TargetConfig struct {
-	ProjectPath    string                     `json:"project_path"`    // Path to the project on local filesystem
+	ProjectPath    string                     `json:"project_path"`
 	Framework      string                     `json:"framework"`
-	Provider       string                     `json:"provider"`        // Provider name (e.g., "digitalocean", "hetzner", "s3")
-	ProviderConfig map[string]json.RawMessage `json:"provider_config"` // Provider-specific config as JSON
+	Provider       string                     `json:"provider"`
+	ProviderConfig map[string]json.RawMessage `json:"provider_config"`
 	Deploy         *DeploymentOptions         `json:"deploy,omitempty"`
 }
 
@@ -135,6 +134,35 @@ func (t *TargetConfig) GetS3Config() (*S3Config, error) {
 		return nil, err
 	}
 	return &config, nil
+}
+
+// GetSSHProviderConfig returns the appropriate ProviderConfig for SSH-based providers
+// This eliminates the need for repetitive switch statements throughout the codebase
+func (t *TargetConfig) GetSSHProviderConfig() (ProviderConfig, error) {
+	switch t.Provider {
+	case "digitalocean":
+		return t.GetDigitalOceanConfig()
+	case "hetzner":
+		return t.GetHetznerConfig()
+	case "s3":
+		return nil, fmt.Errorf("S3 is not an SSH-based provider")
+	default:
+		return nil, fmt.Errorf("unsupported provider: %s", t.Provider)
+	}
+}
+
+// GetAnyProviderConfig returns the appropriate ProviderConfig for any provider
+func (t *TargetConfig) GetAnyProviderConfig() (ProviderConfig, error) {
+	switch t.Provider {
+	case "digitalocean":
+		return t.GetDigitalOceanConfig()
+	case "hetzner":
+		return t.GetHetznerConfig()
+	case "s3":
+		return t.GetS3Config()
+	default:
+		return nil, fmt.Errorf("unsupported provider: %s", t.Provider)
+	}
 }
 
 type Config struct {
@@ -264,11 +292,9 @@ func LoadTokens() (*TokenConfig, error) {
 	return &tokens, nil
 }
 
-// SaveTokens saves API tokens to secure storage
 func (t *TokenConfig) SaveTokens() error {
 	tokensPath := GetTokensPath()
 
-	// Ensure directory exists with secure permissions
 	dir := filepath.Dir(tokensPath)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("failed to create tokens directory: %w", err)
@@ -279,7 +305,6 @@ func (t *TokenConfig) SaveTokens() error {
 		return fmt.Errorf("failed to marshal tokens: %w", err)
 	}
 
-	// Write with secure permissions (readable only by owner)
 	if err := os.WriteFile(tokensPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write tokens file: %w", err)
 	}
@@ -287,31 +312,23 @@ func (t *TokenConfig) SaveTokens() error {
 	return nil
 }
 
-// SetToken stores an API token for a specific provider
-// Automatically trims whitespace and removes surrounding brackets/quotes
 func (t *TokenConfig) SetToken(provider, token string) {
 	if t.Tokens == nil {
 		t.Tokens = make(map[string]string)
 	}
 
-	// Keep removing outer layers of brackets, quotes, and whitespace until nothing changes
 	for {
 		oldToken := token
 
-		// Trim whitespace
 		token = strings.TrimSpace(token)
 
-		// Remove surrounding brackets: [token] -> token
 		token = strings.TrimPrefix(token, "[")
 		token = strings.TrimSuffix(token, "]")
 
-		// Trim whitespace again
 		token = strings.TrimSpace(token)
 
-		// Remove surrounding quotes: "token" or 'token' -> token
 		token = strings.Trim(token, "\"'")
 
-		// If nothing changed, we're done
 		if token == oldToken {
 			break
 		}

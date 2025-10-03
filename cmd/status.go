@@ -8,10 +8,20 @@ import (
 	"os"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
 
-var statusTargetFlag string
+var (
+	statusTargetFlag string
+
+	statusHeaderStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAC6")).Bold(true)
+	statusLabelStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Bold(true)
+	statusValueStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
+	statusMutedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	statusSuccessStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+	statusErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+)
 
 var statusCmd = &cobra.Command{
 	Use:   "status",
@@ -32,239 +42,202 @@ Examples:
 			os.Exit(1)
 		}
 
-		// If no target specified, show all targets
 		if statusTargetFlag == "" {
 			showAllTargets(cfg)
 			return
 		}
 
-		// Show detailed status for specific target
 		showTargetDetail(cfg, statusTargetFlag)
 	},
 }
 
 func showAllTargets(cfg *config.Config) {
 	if len(cfg.Targets) == 0 {
-		fmt.Println("No targets configured yet.")
-		fmt.Println("\nCreate your first target:")
-		fmt.Println("  lightfold create --target myapp --provider byos --ip YOUR_IP")
+		fmt.Println(statusMutedStyle.Render("No targets configured yet."))
+		fmt.Printf("\n%s\n", statusMutedStyle.Render("Create your first target:"))
+		fmt.Printf("  %s\n", statusValueStyle.Render("lightfold create --target myapp --provider byos --ip YOUR_IP"))
 		return
 	}
 
-	fmt.Printf("Configured Targets (%d):\n", len(cfg.Targets))
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Printf("%s\n", statusHeaderStyle.Render(fmt.Sprintf("Configured Targets (%d):", len(cfg.Targets))))
+	fmt.Println(statusMutedStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 
 	for targetName, target := range cfg.Targets {
-		fmt.Printf("\n%s\n", targetName)
+		fmt.Printf("\n%s\n", statusLabelStyle.Render(targetName))
 
-		// Load state
 		targetState, err := state.LoadState(targetName)
 		if err != nil {
-			fmt.Printf("  Error loading state: %v\n", err)
+			fmt.Printf("  %s\n", statusErrorStyle.Render(fmt.Sprintf("Error loading state: %v", err)))
 			continue
 		}
 
-		// Show basic info
-		fmt.Printf("  Provider:    %s\n", target.Provider)
-		fmt.Printf("  Framework:   %s\n", target.Framework)
+		fmt.Printf("  Provider:    %s\n", statusValueStyle.Render(target.Provider))
+		fmt.Printf("  Framework:   %s\n", statusValueStyle.Render(target.Framework))
 
-		// Show IP if available
+		providerCfg, _ := target.GetAnyProviderConfig()
 		var ip string
 		var hasIP bool
-		switch target.Provider {
-		case "digitalocean":
-			if doConfig, err := target.GetDigitalOceanConfig(); err == nil {
-				ip = doConfig.IP
-				hasIP = ip != ""
-			}
-		case "hetzner":
-			if hConfig, err := target.GetHetznerConfig(); err == nil {
-				ip = hConfig.IP
-				hasIP = ip != ""
-			}
+		if providerCfg != nil {
+			ip = providerCfg.GetIP()
+			hasIP = ip != ""
 		}
 		if ip != "" {
-			fmt.Printf("  IP:          %s\n", ip)
+			fmt.Printf("  IP:          %s\n", statusValueStyle.Render(ip))
 		}
 
-		// Show last deploy info
 		if !targetState.LastDeploy.IsZero() {
-			fmt.Printf("  Last Deploy: %s\n", targetState.LastDeploy.Format("2006-01-02 15:04"))
+			fmt.Printf("  Last Deploy: %s\n", statusValueStyle.Render(targetState.LastDeploy.Format("2006-01-02 15:04")))
 		}
 
-		// Show pipeline status
-		fmt.Printf("\n  Pipeline:\n")
+		fmt.Printf("\n  %s\n", statusLabelStyle.Render("Pipeline:"))
 
-		// 1. Detect (always complete if target exists)
-		fmt.Printf("    ✓ Detect\n")
+		fmt.Printf("    %s\n", statusSuccessStyle.Render("✓ Detect"))
 
-		// 2. Create (check both state flag and IP presence)
 		if targetState.Created || hasIP {
-			fmt.Printf("    ✓ Create\n")
+			fmt.Printf("    %s\n", statusSuccessStyle.Render("✓ Create"))
 		} else {
-			fmt.Printf("    [ ] Create\n")
+			fmt.Printf("    %s\n", statusMutedStyle.Render("[ ] Create"))
 		}
 
-		// 3. Configure
 		if targetState.Configured {
-			fmt.Printf("    ✓ Configure\n")
+			fmt.Printf("    %s\n", statusSuccessStyle.Render("✓ Configure"))
 		} else {
-			fmt.Printf("    [ ] Configure\n")
+			fmt.Printf("    %s\n", statusMutedStyle.Render("[ ] Configure"))
 		}
 
-		// 4. Push
 		if !targetState.LastDeploy.IsZero() {
-			fmt.Printf("    ✓ Push\n")
+			fmt.Printf("    %s\n", statusSuccessStyle.Render("✓ Push"))
 		} else {
-			fmt.Printf("    [ ] Push\n")
+			fmt.Printf("    %s\n", statusMutedStyle.Render("[ ] Push"))
 		}
 	}
 
-	fmt.Println("\nFor detailed status: lightfold status --target <name>")
+	fmt.Printf("\n%s\n", statusMutedStyle.Render("For detailed status: lightfold status --target <name>"))
 }
 
 func showTargetDetail(cfg *config.Config, targetName string) {
 	target, exists := cfg.GetTarget(targetName)
 	if !exists {
-		fmt.Fprintf(os.Stderr, "Error: Target '%s' not found\n", targetName)
+		fmt.Fprintf(os.Stderr, "%s\n", statusErrorStyle.Render(fmt.Sprintf("Error: Target '%s' not found", targetName)))
 		os.Exit(1)
 	}
 
-	// Load state
 	targetState, err := state.LoadState(targetName)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error loading state: %v\n", err)
+		fmt.Fprintf(os.Stderr, "%s\n", statusErrorStyle.Render(fmt.Sprintf("Error loading state: %v", err)))
 		os.Exit(1)
 	}
 
-	// Print status
-	fmt.Printf("Target: %s\n", targetName)
-	fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n")
+	fmt.Printf("%s %s\n", statusHeaderStyle.Render("Target:"), statusLabelStyle.Render(targetName))
+	fmt.Printf("%s\n\n", statusMutedStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 
-	// Configuration
-	fmt.Printf("Configuration:\n")
-	fmt.Printf("  Project:   %s\n", target.ProjectPath)
-	fmt.Printf("  Framework: %s\n", target.Framework)
-	fmt.Printf("  Provider:  %s\n", target.Provider)
+	fmt.Printf("%s\n", statusHeaderStyle.Render("Configuration:"))
+	fmt.Printf("  Project:   %s\n", statusValueStyle.Render(target.ProjectPath))
+	fmt.Printf("  Framework: %s\n", statusValueStyle.Render(target.Framework))
+	fmt.Printf("  Provider:  %s\n", statusValueStyle.Render(target.Provider))
 	fmt.Println()
 
-	// State
-	fmt.Printf("State:\n")
+	fmt.Printf("%s\n", statusHeaderStyle.Render("State:"))
 	if targetState.Created {
-		fmt.Printf("  Created:    ✓ Yes\n")
+		fmt.Printf("  Created:    %s\n", statusSuccessStyle.Render("✓ Yes"))
 	} else {
-		fmt.Printf("  Created:    ✗ No\n")
+		fmt.Printf("  Created:    %s\n", statusMutedStyle.Render("✗ No"))
 	}
 	if targetState.Configured {
-		fmt.Printf("  Configured: ✓ Yes\n")
+		fmt.Printf("  Configured: %s\n", statusSuccessStyle.Render("✓ Yes"))
 	} else {
-		fmt.Printf("  Configured: ✗ No\n")
+		fmt.Printf("  Configured: %s\n", statusMutedStyle.Render("✗ No"))
 	}
 	if targetState.ProvisionedID != "" {
-		fmt.Printf("  Server ID:  %s\n", targetState.ProvisionedID)
+		fmt.Printf("  Server ID:  %s\n", statusValueStyle.Render(targetState.ProvisionedID))
 	}
 	if targetState.LastCommit != "" {
 		commitShort := targetState.LastCommit
 		if len(commitShort) > 7 {
 			commitShort = commitShort[:7]
 		}
-		fmt.Printf("  Last Commit: %s\n", commitShort)
+		fmt.Printf("  Last Commit: %s\n", statusValueStyle.Render(commitShort))
 	}
 	if !targetState.LastDeploy.IsZero() {
-		fmt.Printf("  Last Deploy: %s\n", targetState.LastDeploy.Format("2006-01-02 15:04:05"))
+		fmt.Printf("  Last Deploy: %s\n", statusValueStyle.Render(targetState.LastDeploy.Format("2006-01-02 15:04:05")))
 	}
 	if targetState.LastRelease != "" {
-		fmt.Printf("  Last Release: %s\n", targetState.LastRelease)
+		fmt.Printf("  Last Release: %s\n", statusValueStyle.Render(targetState.LastRelease))
 	}
 	fmt.Println()
 
-	// Server status (if configured)
 	if targetState.Created {
-		fmt.Printf("Server Status:\n")
+		fmt.Printf("%s\n", statusHeaderStyle.Render("Server Status:"))
 
-		var providerCfg config.ProviderConfig
-		switch target.Provider {
-		case "digitalocean":
-			providerCfg, err = target.GetDigitalOceanConfig()
-		case "hetzner":
-			providerCfg, err = target.GetHetznerConfig()
-		case "s3":
-			fmt.Printf("  Type: S3 (static site)\n")
+		if target.Provider == "s3" {
+			fmt.Printf("  Type: %s\n", statusValueStyle.Render("S3 (static site)"))
 			s3Config, _ := target.GetS3Config()
-			fmt.Printf("  Bucket: %s\n", s3Config.Bucket)
-			fmt.Printf("  Region: %s\n", s3Config.Region)
+			fmt.Printf("  Bucket: %s\n", statusValueStyle.Render(s3Config.Bucket))
+			fmt.Printf("  Region: %s\n", statusValueStyle.Render(s3Config.Region))
 			fmt.Println()
 			return
-		default:
-			fmt.Printf("  Unknown provider: %s\n", target.Provider)
-			return
 		}
 
+		providerCfg, err := target.GetSSHProviderConfig()
 		if err != nil {
-			fmt.Printf("  Error: %v\n", err)
+			fmt.Printf("  %s\n", statusErrorStyle.Render(fmt.Sprintf("Error: %v", err)))
 			return
 		}
 
-		fmt.Printf("  IP:        %s\n", providerCfg.GetIP())
-		fmt.Printf("  Username:  %s\n", providerCfg.GetUsername())
+		fmt.Printf("  IP:        %s\n", statusValueStyle.Render(providerCfg.GetIP()))
+		fmt.Printf("  Username:  %s\n", statusValueStyle.Render(providerCfg.GetUsername()))
 
-		// Try to connect and get server status
 		if providerCfg.GetIP() != "" {
 			sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
 			defer sshExecutor.Disconnect()
 
-			// Check service status
 			appName := strings.ReplaceAll(targetName, "-", "_")
 			result := sshExecutor.Execute(fmt.Sprintf("systemctl is-active %s 2>/dev/null || echo 'not-found'", appName))
 			if result.ExitCode == 0 {
 				status := strings.TrimSpace(result.Stdout)
 				if status == "active" {
-					fmt.Printf("  Service:   ✓ Active\n")
+					fmt.Printf("  Service:   %s\n", statusSuccessStyle.Render("✓ Active"))
 				} else if status == "not-found" {
-					fmt.Printf("  Service:   - Not configured\n")
+					fmt.Printf("  Service:   %s\n", statusMutedStyle.Render("- Not configured"))
 				} else {
-					fmt.Printf("  Service:   ✗ %s\n", status)
+					fmt.Printf("  Service:   %s\n", statusErrorStyle.Render(fmt.Sprintf("✗ %s", status)))
 				}
 			} else {
-				fmt.Printf("  Service:   ? Unable to check\n")
+				fmt.Printf("  Service:   %s\n", statusMutedStyle.Render("? Unable to check"))
 			}
 
-			// Check current release
 			result = sshExecutor.Execute(fmt.Sprintf("readlink -f /srv/%s/current 2>/dev/null || echo 'none'", appName))
 			if result.ExitCode == 0 {
 				currentRelease := strings.TrimSpace(result.Stdout)
 				if currentRelease != "none" && currentRelease != "" {
 					releaseTimestamp := strings.TrimPrefix(currentRelease, fmt.Sprintf("/srv/%s/releases/", appName))
-					fmt.Printf("  Current:   %s\n", releaseTimestamp)
+					fmt.Printf("  Current:   %s\n", statusValueStyle.Render(releaseTimestamp))
 				} else {
-					fmt.Printf("  Current:   - No release deployed\n")
+					fmt.Printf("  Current:   %s\n", statusMutedStyle.Render("- No release deployed"))
 				}
 			}
 
-			// Check disk usage
 			result = sshExecutor.Execute("df -h / | tail -1 | awk '{print $5}'")
 			if result.ExitCode == 0 {
 				diskUsage := strings.TrimSpace(result.Stdout)
-				fmt.Printf("  Disk:      %s used\n", diskUsage)
+				fmt.Printf("  Disk:      %s\n", statusValueStyle.Render(diskUsage+" used"))
 			}
 
-			// Check uptime
 			result = sshExecutor.Execute("uptime -p 2>/dev/null || uptime | awk '{print $3, $4}'")
 			if result.ExitCode == 0 {
 				uptime := strings.TrimSpace(result.Stdout)
-				fmt.Printf("  Uptime:    %s\n", uptime)
+				fmt.Printf("  Uptime:    %s\n", statusValueStyle.Render(uptime))
 			}
 		}
 		fmt.Println()
 	}
 
-	// Next steps
 	if !targetState.Created {
-		fmt.Printf("Next: lightfold create --target %s\n", targetName)
+		fmt.Printf("%s %s\n", statusLabelStyle.Render("Next:"), statusValueStyle.Render(fmt.Sprintf("lightfold create --target %s", targetName)))
 	} else if !targetState.Configured {
-		fmt.Printf("Next: lightfold configure --target %s\n", targetName)
+		fmt.Printf("%s %s\n", statusLabelStyle.Render("Next:"), statusValueStyle.Render(fmt.Sprintf("lightfold configure --target %s", targetName)))
 	} else {
-		fmt.Printf("Ready to deploy: lightfold push --target %s\n", targetName)
+		fmt.Printf("%s %s\n", statusLabelStyle.Render("Ready to deploy:"), statusValueStyle.Render(fmt.Sprintf("lightfold push --target %s", targetName)))
 	}
 }
 

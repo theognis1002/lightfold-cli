@@ -69,7 +69,6 @@ Examples:
 			os.Exit(1)
 		}
 
-		// Find target
 		var target config.TargetConfig
 		var targetNameResolved string
 
@@ -82,11 +81,9 @@ Examples:
 			}
 			targetNameResolved = pushTargetFlag
 		} else {
-			// Try to find by project path
 			var exists bool
 			targetNameResolved, target, exists = cfg.FindTargetByPath(projectPath)
 			if !exists {
-				// Use directory name as default
 				targetNameResolved = filepath.Base(projectPath)
 				if absPath, err := filepath.Abs(projectPath); err == nil {
 					targetNameResolved = filepath.Base(absPath)
@@ -100,7 +97,6 @@ Examples:
 			}
 		}
 
-		// Verify target is created and configured
 		if !state.IsCreated(targetNameResolved) {
 			fmt.Fprintf(os.Stderr, "Error: Target '%s' has not been created\n", targetNameResolved)
 			fmt.Fprintf(os.Stderr, "Run 'lightfold create --target %s' first\n", targetNameResolved)
@@ -113,7 +109,6 @@ Examples:
 			os.Exit(1)
 		}
 
-		// Get current git commit for change detection
 		currentCommit := getGitCommit(projectPath)
 		lastCommit := state.GetLastCommit(targetNameResolved)
 
@@ -123,14 +118,12 @@ Examples:
 			os.Exit(0)
 		}
 
-		// Process deployment flags
 		if target.Deploy == nil {
 			target.Deploy = &config.DeploymentOptions{
 				EnvVars: make(map[string]string),
 			}
 		}
 
-		// Load env file
 		if pushEnvFile != "" {
 			envVarsFromFile, err := loadEnvFile(pushEnvFile)
 			if err != nil {
@@ -142,7 +135,6 @@ Examples:
 			}
 		}
 
-		// Process env flags
 		for _, envVar := range pushEnvVars {
 			parts := splitEnvVar(envVar)
 			if len(parts) != 2 {
@@ -177,31 +169,15 @@ Examples:
 
 		fmt.Printf("Pushing release to target '%s'...\n", targetNameResolved)
 
-		// Get provider config
-		var providerCfg config.ProviderConfig
-		switch target.Provider {
-		case "digitalocean":
-			providerCfg, err = target.GetDigitalOceanConfig()
-		case "hetzner":
-			providerCfg, err = target.GetHetznerConfig()
-		case "s3":
-			fmt.Fprintf(os.Stderr, "Error: S3 deployment not supported by push command\n")
-			os.Exit(1)
-		default:
-			fmt.Fprintf(os.Stderr, "Error: Unknown provider: %s\n", target.Provider)
-			os.Exit(1)
-		}
-
+		providerCfg, err := target.GetSSHProviderConfig()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error getting provider config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Perform detection
 		fmt.Println("Detecting framework...")
 		detection := detector.DetectFramework(target.ProjectPath)
 
-		// Connect via SSH
 		fmt.Printf("Connecting to %s...\n", providerCfg.GetIP())
 		sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
 		defer sshExecutor.Disconnect()
@@ -209,7 +185,6 @@ Examples:
 		projectName := filepath.Base(target.ProjectPath)
 		executor := deploy.NewExecutor(sshExecutor, projectName, target.ProjectPath, &detection)
 
-		// Create release tarball
 		fmt.Println("Creating release tarball...")
 		tmpTarball := fmt.Sprintf("/tmp/lightfold-%s-release.tar.gz", projectName)
 		if err := executor.CreateReleaseTarball(tmpTarball); err != nil {
@@ -218,7 +193,6 @@ Examples:
 		}
 		defer os.Remove(tmpTarball)
 
-		// Upload release
 		fmt.Println("Uploading release...")
 		releasePath, err := executor.UploadRelease(tmpTarball)
 		if err != nil {
@@ -228,7 +202,6 @@ Examples:
 
 		releaseTimestamp := filepath.Base(releasePath)
 
-		// Build release
 		if !target.Deploy.SkipBuild {
 			fmt.Println("Building application...")
 			if err := executor.BuildRelease(releasePath); err != nil {
@@ -237,7 +210,6 @@ Examples:
 			}
 		}
 
-		// Write environment variables
 		if len(target.Deploy.EnvVars) > 0 {
 			fmt.Println("Writing environment variables...")
 			if err := executor.WriteEnvironmentFile(target.Deploy.EnvVars); err != nil {
@@ -246,20 +218,17 @@ Examples:
 			}
 		}
 
-		// Deploy with health check
 		fmt.Println("Deploying with health check...")
 		if err := executor.DeployWithHealthCheck(releasePath, 5, 3*time.Second); err != nil {
 			fmt.Fprintf(os.Stderr, "Error during deployment: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Cleanup old releases
 		fmt.Println("Cleaning up old releases...")
 		if err := executor.CleanupOldReleases(5); err != nil {
 			fmt.Printf("Warning: failed to cleanup old releases: %v\n", err)
 		}
 
-		// Update state
 		if err := state.UpdateDeployment(targetNameResolved, currentCommit, releaseTimestamp); err != nil {
 			fmt.Printf("Warning: failed to update state: %v\n", err)
 		}
