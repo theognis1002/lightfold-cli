@@ -6,43 +6,35 @@ import (
 	tui "lightfold/cmd/ui"
 	"lightfold/pkg/config"
 	"lightfold/pkg/deploy"
+	"lightfold/pkg/state"
+	sshpkg "lightfold/pkg/ssh"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 )
 
+var (
+	configureTargetFlag string
+	configureForceFlag  bool
+)
+
 var configureCmd = &cobra.Command{
-	Use:   "configure [PROJECT_PATH]",
+	Use:   "configure",
 	Short: "Configure an existing VM with your application",
 	Long: `Configure an existing server with your application code and dependencies.
 
-This command is useful for:
-- Configuring a BYOS (Bring Your Own Server) VM
-- Re-configuring a VM where the process has stopped
-- Deploying to an existing VM without provisioning a new one
+This command is idempotent - it checks if the server is already configured and skips if so.
 
-The VM must already be accessible via SSH and have basic connectivity.`,
-	Args: cobra.MaximumNArgs(1),
+Examples:
+  lightfold configure --target myapp
+  lightfold configure --target myapp --force`,
+	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		var projectPath string
-		if len(args) == 0 {
-			projectPath = "."
-		} else {
-			projectPath = args[0]
-		}
-
-		projectPath = filepath.Clean(projectPath)
-
-		info, err := os.Stat(projectPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: Cannot access path '%s': %v\n", projectPath, err)
-			os.Exit(1)
-		}
-
-		if !info.IsDir() {
-			fmt.Fprintf(os.Stderr, "Error: Path '%s' is not a directory\n", projectPath)
+		if configureTargetFlag == "" {
+			fmt.Fprintf(os.Stderr, "Error: --target flag is required\n")
 			os.Exit(1)
 		}
 
@@ -52,54 +44,62 @@ The VM must already be accessible via SSH and have basic connectivity.`,
 			os.Exit(1)
 		}
 
-		project, exists := cfg.GetProject(projectPath)
-
+		target, exists := cfg.GetTarget(configureTargetFlag)
 		if !exists {
-			if len(cfg.Projects) == 1 && len(args) == 0 {
-				for configuredPath, configuredProject := range cfg.Projects {
-					fmt.Printf("No configuration found for current directory.\n")
-					fmt.Printf("Using configured project: %s\n", configuredPath)
-					projectPath = configuredPath
-					project = configuredProject
-					exists = true
-					break
-				}
-			}
-
-			if !exists {
-				fmt.Println("No configuration found for this project.")
-				if len(cfg.Projects) > 0 {
-					fmt.Println("Configured projects:")
-					for path := range cfg.Projects {
-						fmt.Printf("  - %s\n", path)
-					}
-					fmt.Println("Run 'lightfold configure <PROJECT_PATH>' to configure a specific project,")
-					fmt.Println("or 'lightfold <PROJECT_PATH>' to detect and configure this project.")
-				} else {
-					fmt.Println("Please run 'lightfold .' first to detect and configure the project.")
-				}
-				os.Exit(1)
-			}
-		}
-
-		if err := validateConfigureProjectConfig(project); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: Invalid project configuration: %v\n", err)
-			fmt.Println("Please run 'lightfold .' to reconfigure the project.")
+			fmt.Fprintf(os.Stderr, "Error: Target '%s' not found\n", configureTargetFlag)
 			os.Exit(1)
 		}
 
+		projectPath := target.ProjectPath
+
+		if err := validateConfigureTargetConfig(target); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Invalid target configuration: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Check if already configured (skip if not forced)
+		if !configureForceFlag {
+			// Get provider config for SSH access
+			var providerCfg config.ProviderConfig
+			switch target.Provider {
+			case "digitalocean":
+				providerCfg, err = target.GetDigitalOceanConfig()
+			case "hetzner":
+				providerCfg, err = target.GetHetznerConfig()
+			default:
+				fmt.Fprintf(os.Stderr, "Error: Configure command only works with SSH-based providers (not S3)\n")
+				os.Exit(1)
+			}
+
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error getting provider configuration: %v\n", err)
+				os.Exit(1)
+			}
+
+			// Check remote marker
+			sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
+			result := sshExecutor.Execute("test -f /etc/lightfold/configured && echo 'configured'")
+			sshExecutor.Disconnect()
+
+			if result.ExitCode == 0 && strings.TrimSpace(result.Stdout) == "configured" {
+				fmt.Printf("Target '%s' is already configured.\n", configureTargetFlag)
+				fmt.Println("Use --force to reconfigure")
+				os.Exit(0)
+			}
+		}
+
 		// Process deployment flags (env vars, skip-build, etc.)
-		if err := processDeploymentFlags(&project, projectPath); err != nil {
+		if err := processConfigureFlags(&target, projectPath); err != nil {
 			fmt.Fprintf(os.Stderr, "Error processing configuration options: %v\n", err)
 			os.Exit(1)
 		}
 
-		fmt.Printf("Configuring %s project on %s...\n", project.Framework, project.Provider)
+		fmt.Printf("Configuring target '%s' (%s on %s)...\n", configureTargetFlag, target.Framework, target.Provider)
 		fmt.Println()
 
 		// Create deployment orchestrator
 		projectName := filepath.Base(projectPath)
-		orchestrator, err := deploy.NewOrchestrator(project, projectPath, projectName)
+		orchestrator, err := deploy.GetOrchestrator(target, projectPath, projectName)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating orchestrator: %v\n", err)
 			os.Exit(1)
@@ -107,11 +107,11 @@ The VM must already be accessible via SSH and have basic connectivity.`,
 
 		// Get provider config
 		var providerCfg config.ProviderConfig
-		switch project.Provider {
+		switch target.Provider {
 		case "digitalocean":
-			providerCfg, err = project.GetDigitalOceanConfig()
+			providerCfg, err = target.GetDigitalOceanConfig()
 		case "hetzner":
-			providerCfg, err = project.GetHetznerConfig()
+			providerCfg, err = target.GetHetznerConfig()
 		default:
 			fmt.Fprintf(os.Stderr, "Error: Configure command only works with SSH-based providers (not S3)\n")
 			os.Exit(1)
@@ -130,31 +130,43 @@ The VM must already be accessible via SSH and have basic connectivity.`,
 			fmt.Fprintf(os.Stderr, "Error during configuration: %v\n", err)
 			os.Exit(1)
 		}
+
+		// Write configured marker
+		sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
+		result := sshExecutor.Execute("echo 'configured' | sudo tee /etc/lightfold/configured > /dev/null")
+		sshExecutor.Disconnect()
+
+		if result.Error != nil || result.ExitCode != 0 {
+			fmt.Printf("Warning: failed to write configured marker: %v\n", result.Error)
+		}
+
+		// Update state
+		if err := state.MarkConfigured(configureTargetFlag); err != nil {
+			fmt.Printf("Warning: failed to update state: %v\n", err)
+		}
+
+		fmt.Printf("\n✅ Target '%s' configured successfully!\n", configureTargetFlag)
 	},
 }
 
-func validateConfigureProjectConfig(project config.ProjectConfig) error {
-	// Validate provider is specified
-	if project.Provider == "" {
+func validateConfigureTargetConfig(target config.TargetConfig) error {
+	if target.Provider == "" {
 		return fmt.Errorf("provider is required")
 	}
 
-	// Configure only works with SSH-based providers
-	if project.Provider == "s3" {
+	if target.Provider == "s3" {
 		return fmt.Errorf("configure command does not support S3 deployments")
 	}
 
-	// Validate provider-specific configuration
-	switch project.Provider {
+	switch target.Provider {
 	case "digitalocean":
-		doConfig, err := project.GetDigitalOceanConfig()
+		doConfig, err := target.GetDigitalOceanConfig()
 		if err != nil {
 			return fmt.Errorf("DigitalOcean configuration is missing: %w", err)
 		}
 
-		// For configure, IP must exist (we're not provisioning)
 		if doConfig.IP == "" {
-			return fmt.Errorf("IP address is required. Please configure the server first with 'lightfold .'")
+			return fmt.Errorf("IP address is required. Please run 'lightfold create' first")
 		}
 
 		if doConfig.Username == "" {
@@ -166,13 +178,13 @@ func validateConfigureProjectConfig(project config.ProjectConfig) error {
 		}
 
 	case "hetzner":
-		hetznerConfig, err := project.GetHetznerConfig()
+		hetznerConfig, err := target.GetHetznerConfig()
 		if err != nil {
 			return fmt.Errorf("Hetzner configuration is missing: %w", err)
 		}
 
 		if hetznerConfig.IP == "" {
-			return fmt.Errorf("IP address is required. Please configure the server first with 'lightfold .'")
+			return fmt.Errorf("IP address is required. Please run 'lightfold create' first")
 		}
 
 		if hetznerConfig.Username == "" {
@@ -184,16 +196,51 @@ func validateConfigureProjectConfig(project config.ProjectConfig) error {
 		}
 
 	default:
-		return fmt.Errorf("unknown provider: %s", project.Provider)
+		return fmt.Errorf("unknown provider: %s", target.Provider)
 	}
+	return nil
+}
+
+func processConfigureFlags(target *config.TargetConfig, projectPath string) error {
+	if target.Deploy == nil {
+		target.Deploy = &config.DeploymentOptions{
+			EnvVars: make(map[string]string),
+		}
+	}
+
+	if skipBuild {
+		target.Deploy.SkipBuild = true
+	}
+
+	if envFile != "" {
+		envVarsFromFile, err := loadEnvFile(envFile)
+		if err != nil {
+			return fmt.Errorf("failed to load env file: %w", err)
+		}
+		for k, v := range envVarsFromFile {
+			target.Deploy.EnvVars[k] = v
+		}
+	}
+
+	for _, envVar := range envVars {
+		parts := splitEnvVar(envVar)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid env var format '%s', expected KEY=VALUE", envVar)
+		}
+		target.Deploy.EnvVars[parts[0]] = parts[1]
+	}
+
 	return nil
 }
 
 func init() {
 	rootCmd.AddCommand(configureCmd)
 
-	// Add same deployment flags as deploy command
+	configureCmd.Flags().StringVar(&configureTargetFlag, "target", "", "Target name (required)")
+	configureCmd.Flags().BoolVar(&configureForceFlag, "force", false, "Force reconfiguration even if already configured")
 	configureCmd.Flags().StringVar(&envFile, "env-file", "", "Path to .env file with environment variables")
 	configureCmd.Flags().StringArrayVar(&envVars, "env", []string{}, "Environment variables in KEY=VALUE format (can be used multiple times)")
 	configureCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "Skip the build step during configuration")
+
+	configureCmd.MarkFlagRequired("target")
 }

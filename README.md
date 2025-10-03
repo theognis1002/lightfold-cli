@@ -1,16 +1,16 @@
 # Lightfold CLI
 
-Framework detector and deployment tool for web applications.
+Framework detector and deployment tool for web applications with composable, idempotent commands.
 
 ## Features
 
-- Detects 15+ frameworks: Next.js, Astro, Django, FastAPI, Express.js, Laravel, Rails, etc.
-- Package manager detection: npm, yarn, pnpm, bun, pip, poetry, uv, pipenv
-- Generates build and run commands
-- Two-step deployment configuration: BYOS vs Auto-provision
-- DigitalOcean auto-provisioning with API integration
-- S3 static site deployment
-- Interactive TUI and JSON output for automation
+- **Framework Detection**: Detects 15+ frameworks (Next.js, Astro, Django, FastAPI, Express.js, Laravel, Rails, etc.)
+- **Package Manager Detection**: npm, yarn, pnpm, bun, pip, poetry, uv, pipenv
+- **Composable Commands**: Run deployment steps independently or orchestrated together
+- **Idempotent Operations**: Safe to rerun commands - skips already-completed steps
+- **Multi-Provider Support**: DigitalOcean, Hetzner Cloud, S3, BYOS (Bring Your Own Server)
+- **State Tracking**: Remembers what's been done, skips unnecessary work
+- **Blue/Green Deployments**: Zero-downtime releases with automatic rollback
 
 ## Installation
 
@@ -20,49 +20,90 @@ make build
 go build -o lightfold ./cmd/lightfold
 ```
 
-## Usage
+## Quick Start
+
+Deploy your application in one command:
 
 ```bash
-# Detect framework and configure deployment
-./lightfold .
-
-# Deploy application
-./lightfold deploy
-
-# JSON output for automation
-./lightfold . --json
-./lightfold deploy --no-interactive
+lightfold deploy --target myapp-prod
 ```
 
-The tool outputs a JSON structure containing:
+This will:
+1. Detect your framework automatically
+2. Create and provision infrastructure
+3. Configure the server
+4. Deploy your code
+
+For subsequent deployments, just run the same command - it intelligently skips completed steps.
+
+## Commands
+
+### Core Commands
+
+- **`lightfold deploy --target <name>`** - Full deployment orchestration
+- **`lightfold create --target <name> --provider <provider>`** - Create infrastructure
+- **`lightfold configure --target <name>`** - Configure server
+- **`lightfold push --target <name>`** - Deploy new release
+- **`lightfold status --target <name>`** - View deployment status
+- **`lightfold deploy --target <name> --rollback`** - Rollback to previous release
+
+## Configuration
+
+### Target-Based Config
+
+Config stored in `~/.lightfold/config.json`:
 
 ```json
 {
-  "framework": "Next.js",
-  "language": "JavaScript/TypeScript",
-  "confidence": 0.95,
-  "signals": [
-    "next.config",
-    "package.json has next",
-    "package.json scripts for next"
-  ],
-  "build_plan": [
-    "pnpm install",
-    "next build"
-  ],
-  "run_plan": [
-    "next start -p 3000"
-  ],
-  "healthcheck": {
-    "path": "/",
-    "expect": 200,
-    "timeout_seconds": 30
-  },
-  "env_schema": [
-    "NEXT_PUBLIC_*, any server-only envs"
-  ]
+  "targets": {
+    "myapp-prod": {
+      "project_path": "/path/to/project",
+      "framework": "Next.js",
+      "provider": "digitalocean",
+      "provider_config": {
+        "digitalocean": {
+          "ip": "192.168.1.100",
+          "ssh_key": "~/.ssh/id_rsa",
+          "username": "deploy",
+          "region": "nyc1",
+          "size": "s-1vcpu-1gb",
+          "provisioned": true,
+          "droplet_id": "123456789"
+        }
+      }
+    }
+  }
 }
 ```
+
+### API Tokens
+
+Tokens stored securely in `~/.lightfold/tokens.json` (0600 permissions):
+
+```json
+{
+  "tokens": {
+    "digitalocean": "dop_v1_...",
+    "hetzner": "..."
+  }
+}
+```
+
+### State Tracking
+
+State per target in `~/.lightfold/state/<target>.json`:
+
+```json
+{
+  "created": true,
+  "configured": true,
+  "last_commit": "abc123...",
+  "last_deploy": "2025-10-03T10:30:00Z",
+  "last_release": "20251003103000",
+  "provisioned_id": "123456789"
+}
+```
+
 
 ## Detection
 
@@ -81,63 +122,19 @@ Uses scoring system based on:
 **Backend**: Django, Flask, FastAPI, Express.js, NestJS, Laravel, Rails, Spring Boot, ASP.NET Core, Phoenix
 **Languages**: JavaScript/TypeScript, Python, PHP, Ruby, Go, Java, C#, Elixir
 
-## Commands
+## Supported Providers
 
-- `lightfold [PROJECT_PATH]` - Detect framework and configure deployment
-- `lightfold detect [PROJECT_PATH]` - Run detection flow
-- `lightfold deploy [PROJECT_PATH]` - Deploy using saved configuration
-- `lightfold configure [PROJECT_PATH]` - Configure existing VM with your application
-- `lightfold --version` - Show version
+### Available
+- **DigitalOcean** - Full provisioning support
+- **BYOS (Bring Your Own Server)** - Use any existing server
 
-## Flags
-
-- `--json` - Output JSON (for CI/automation)
-- `--no-interactive` - Skip interactive prompts
-- `-h, --help` - Help
-
-## Examples
-
-```bash
-# Interactive detection and configuration
-./lightfold ./my-app
-
-# JSON output for CI
-./lightfold ./my-app --json
-
-# Deploy configured project
-./lightfold deploy
-
-# Deploy specific project
-./lightfold deploy /path/to/project
-
-# Configure existing VM (BYOS or re-configure)
-./lightfold configure /path/to/project
-```
-
-## Configuration
-
-Config stored in `~/.lightfold/config.json`:
-
-```json
-{
-  "projects": {
-    "/path/to/project": {
-      "framework": "Next.js",
-      "target": "digitalocean",
-      "digitalocean": {
-        "ip": "192.168.1.100",
-        "ssh_key": "~/.ssh/id_rsa",
-        "username": "deploy",
-        "region": "nyc1",
-        "size": "s-1vcpu-1gb",
-        "provisioned": true
-      }
-    }
-  }
-}
-```
-
-API tokens stored securely in `~/.lightfold/tokens.json`.
+### Coming Soon
+- [ ] Hetzner Cloud
+- [ ] Vultr
+- [ ] Linode/Akamai
+- [ ] AWS EC2
+- [ ] Google Cloud Compute
+- [ ] Azure Virtual Machines
 
 ## Development
 
@@ -147,3 +144,11 @@ make test
 ```
 
 See [AGENTS.md](AGENTS.md) for architecture details.
+
+## Key Design Principles
+
+1. **Composable** - Each command works standalone
+2. **Idempotent** - Safe to rerun without side effects
+3. **Stateful** - Tracks progress, skips completed work
+4. **Provider-Agnostic** - Unified interface across clouds
+5. **Release-Based** - Timestamped releases, easy rollback

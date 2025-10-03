@@ -9,7 +9,7 @@ import (
 
 func TestCheckExistingServer_DigitalOcean_AlreadyProvisioned(t *testing.T) {
 	// Test case: Prevent duplicate provisioning when server already exists
-	projectConfig := config.ProjectConfig{
+	projectConfig := config.TargetConfig{
 		Framework: "FastAPI",
 		Provider:  "digitalocean",
 	}
@@ -24,7 +24,7 @@ func TestCheckExistingServer_DigitalOcean_AlreadyProvisioned(t *testing.T) {
 		Provisioned: true,
 	})
 
-	orchestrator, err := deploy.NewOrchestrator(projectConfig, "/tmp/test-project", "test-project")
+	orchestrator, err := deploy.GetOrchestrator(projectConfig, "/tmp/test-project", "test-project")
 	if err != nil {
 		t.Fatalf("Failed to create orchestrator: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestCheckExistingServer_DigitalOcean_AlreadyProvisioned(t *testing.T) {
 
 func TestCheckExistingServer_DigitalOcean_NewProvisioning(t *testing.T) {
 	// Test case: Allow provisioning when no server exists yet
-	projectConfig := config.ProjectConfig{
+	projectConfig := config.TargetConfig{
 		Framework: "FastAPI",
 		Provider:  "digitalocean",
 	}
@@ -58,7 +58,7 @@ func TestCheckExistingServer_DigitalOcean_NewProvisioning(t *testing.T) {
 		Provisioned: true,
 	})
 
-	orchestrator, err := deploy.NewOrchestrator(projectConfig, "/tmp/test-project", "test-project")
+	orchestrator, err := deploy.GetOrchestrator(projectConfig, "/tmp/test-project", "test-project")
 	if err != nil {
 		t.Fatalf("Failed to create orchestrator: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestCheckExistingServer_DigitalOcean_NewProvisioning(t *testing.T) {
 
 func TestCheckExistingServer_DigitalOcean_BYOS(t *testing.T) {
 	// Test case: Allow deployment to BYOS (Bring Your Own Server)
-	projectConfig := config.ProjectConfig{
+	projectConfig := config.TargetConfig{
 		Framework: "FastAPI",
 		Provider:  "digitalocean",
 	}
@@ -86,7 +86,7 @@ func TestCheckExistingServer_DigitalOcean_BYOS(t *testing.T) {
 		Provisioned: false, // BYOS, not provisioned by us
 	})
 
-	orchestrator, err := deploy.NewOrchestrator(projectConfig, "/tmp/test-project", "test-project")
+	orchestrator, err := deploy.GetOrchestrator(projectConfig, "/tmp/test-project", "test-project")
 	if err != nil {
 		t.Fatalf("Failed to create orchestrator: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestCheckExistingServer_DigitalOcean_BYOS(t *testing.T) {
 
 func TestCheckExistingServer_S3_NoCheck(t *testing.T) {
 	// Test case: S3 deployments don't provision servers, so no check needed
-	projectConfig := config.ProjectConfig{
+	projectConfig := config.TargetConfig{
 		Framework: "React",
 		Provider:  "s3",
 	}
@@ -111,7 +111,7 @@ func TestCheckExistingServer_S3_NoCheck(t *testing.T) {
 		Region: "us-east-1",
 	})
 
-	orchestrator, err := deploy.NewOrchestrator(projectConfig, "/tmp/test-project", "test-project")
+	orchestrator, err := deploy.GetOrchestrator(projectConfig, "/tmp/test-project", "test-project")
 	if err != nil {
 		t.Fatalf("Failed to create orchestrator: %v", err)
 	}

@@ -7,7 +7,6 @@ func djangoPlan(root string) ([]string, []string, map[string]any, []string) {
 	build := []string{
 		getPythonInstallCommand(pm),
 		"python manage.py collectstatic --noinput",
-		"# (optional) run tests",
 	}
 	run := []string{
 		"gunicorn <yourproject>.wsgi:application --bind 0.0.0.0:8000 --workers 2",
@@ -42,7 +41,6 @@ func astroPlan(root string) ([]string, []string, map[string]any, []string) {
 	}
 	run := []string{
 		"astro preview --port 4321",
-		"# or serve static files from dist/ with any static server",
 	}
 	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
 	env := []string{"PUBLIC_*, any server-only envs for SSR"}
@@ -57,7 +55,6 @@ func gatsbyPlan(root string) ([]string, []string, map[string]any, []string) {
 	}
 	run := []string{
 		"gatsby serve -p 9000",
-		"# or serve static files from public/ with any static server",
 	}
 	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
 	env := []string{"GATSBY_*, any build-time envs"}
@@ -72,7 +69,6 @@ func sveltePlan(root string) ([]string, []string, map[string]any, []string) {
 	}
 	run := []string{
 		getPreviewCommand(pm),
-		"# or for SvelteKit: node build",
 	}
 	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
 	env := []string{"PUBLIC_*, any server-only envs for SvelteKit SSR"}
@@ -87,7 +83,6 @@ func vuePlan(root string) ([]string, []string, map[string]any, []string) {
 	}
 	run := []string{
 		getPreviewCommand(pm),
-		"# or serve dist/ with any static server",
 	}
 	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
 	env := []string{"VUE_APP_*, VITE_* for Vite-based setups"}
@@ -102,7 +97,6 @@ func angularPlan(root string) ([]string, []string, map[string]any, []string) {
 	}
 	run := []string{
 		"ng serve --port 4200 --host 0.0.0.0",
-		"# or serve dist/ with any static server",
 	}
 	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
 	env := []string{"NG_APP_*, any environment-specific configs"}
@@ -113,11 +107,9 @@ func flaskPlan(root string) ([]string, []string, map[string]any, []string) {
 	pm := detectPythonPackageManager(root)
 	build := []string{
 		getPythonInstallCommand(pm),
-		"# optional: flask db upgrade if using Flask-Migrate",
 	}
 	run := []string{
 		"gunicorn --bind 0.0.0.0:5000 --workers 2 app:app",
-		"# or flask run --host=0.0.0.0 --port=5000 for development",
 	}
 	health := map[string]any{"path": "/health", "expect": 200, "timeout_seconds": 30}
 	env := []string{"FLASK_ENV", "FLASK_APP", "DATABASE_URL", "SECRET_KEY"}
@@ -143,7 +135,6 @@ func fastApiPlan(root string) ([]string, []string, map[string]any, []string) {
 	pm := detectPythonPackageManager(root)
 	build := []string{
 		getPythonInstallCommand(pm),
-		"# optional: alembic upgrade head if using database migrations",
 	}
 	run := []string{
 		"uvicorn main:app --host 0.0.0.0 --port 8000",
@@ -166,7 +157,6 @@ func springBootPlan(root string) ([]string, []string, map[string]any, []string) 
 	}
 	run := []string{
 		"java -jar target/*.jar",
-		"# or java -jar build/libs/*.jar for Gradle",
 	}
 	health := map[string]any{"path": "/actuator/health", "expect": 200, "timeout_seconds": 30}
 	env := []string{"SPRING_PROFILES_ACTIVE", "DATABASE_URL", "SERVER_PORT"}
@@ -219,12 +209,11 @@ func nestjsPlan(root string) ([]string, []string, map[string]any, []string) {
 func laravelPlan(root string) ([]string, []string, map[string]any, []string) {
 	build := []string{
 		"composer install --no-dev --optimize-autoloader",
-		"# optional front-end: npm ci && npm run build",
 		"php artisan migrate --force",
 		"php artisan config:cache && php artisan route:cache",
 	}
 	run := []string{
-		"php-fpm (with nginx)  # or your preferred process manager",
+		"php-fpm (with nginx)",
 	}
 	health := map[string]any{"path": "/health", "expect": 200, "timeout_seconds": 30}
 	env := []string{"APP_KEY", "APP_ENV", "DB_CONNECTION/DB_*"}

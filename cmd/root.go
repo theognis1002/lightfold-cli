@@ -3,17 +3,11 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"lightfold/cmd/flags"
-	"lightfold/cmd/steps"
 	"lightfold/cmd/ui/detection"
-	"lightfold/cmd/ui/multiInput"
-	"lightfold/cmd/ui/sequential"
 	"lightfold/cmd/ui/spinner"
-	"lightfold/pkg/config"
 	"lightfold/pkg/detector"
 	"os"
 	"path/filepath"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -118,119 +112,33 @@ func runRootCommand(cmd *cobra.Command, args []string) {
 	}
 
 	if !wantsDeploy {
-		fmt.Println("Skipping deployment configuration.")
+		fmt.Println("\nSkipping deployment configuration.")
 		return
 	}
 
-	if err := configureDeployment(projectPath, detectionResult); err != nil {
-		fmt.Fprintf(os.Stderr, "Error configuring deployment: %v\n", err)
-		os.Exit(1)
-	}
-}
-
-func configureDeployment(projectPath string, detection detector.Detection) error {
-	var flagTarget flags.DeploymentTarget
-
-	stepsData := steps.InitSteps(flagTarget)
-
-	// Step 1: Choose deployment type (BYOS vs Provision)
-	deploymentTypeStep := stepsData.Steps["deployment_type"]
-	deploymentType, err := multiInput.ShowMenu(deploymentTypeStep.Options, deploymentTypeStep.Headers)
-	if err != nil {
-		return fmt.Errorf("deployment type selection cancelled: %w", err)
+	// Show next steps
+	targetName := filepath.Base(projectPath)
+	if absPath, err := filepath.Abs(projectPath); err == nil {
+		targetName = filepath.Base(absPath)
 	}
 
-	var target string
-	var targetChoice string
-
-	// Step 2: Choose specific provider based on deployment type
-	if strings.ToLower(deploymentType) == "byos" {
-		byosStep := stepsData.Steps["byos_target"]
-		targetChoice, err = multiInput.ShowMenu(byosStep.Options, byosStep.Headers)
-		if err != nil {
-			return fmt.Errorf("BYOS target selection cancelled: %w", err)
-		}
-		target = strings.ToLower(targetChoice)
-	} else { // "Provision for me"
-		provisionStep := stepsData.Steps["provision_target"]
-		targetChoice, err = multiInput.ShowMenu(provisionStep.Options, provisionStep.Headers)
-		if err != nil {
-			return fmt.Errorf("provision target selection cancelled: %w", err)
-		}
-
-		target = strings.ToLower(targetChoice)
-	}
-
-	fmt.Printf("\n%s\n", endingMsgStyle.Render(fmt.Sprintf("Configuring %s deployment...", targetChoice)))
-
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	projectConfig := config.ProjectConfig{
-		Framework: detection.Framework,
-		Provider:  target,
-	}
-
-	projectName := sequential.GetProjectNameFromPath(projectPath)
-
-	// Handle different flows based on deployment type
-	if strings.ToLower(deploymentType) == "byos" {
-		switch target {
-		case "digitalocean":
-			doConfig, err := sequential.RunDigitalOceanFlow(projectName)
-			if err != nil {
-				return fmt.Errorf("DigitalOcean configuration cancelled: %w", err)
-			}
-			projectConfig.SetProviderConfig("digitalocean", doConfig)
-
-		case "custom server":
-			doConfig, err := sequential.RunDigitalOceanFlow(projectName)
-			if err != nil {
-				return fmt.Errorf("Custom server configuration cancelled: %w", err)
-			}
-			projectConfig.Provider = "digitalocean" // Use DigitalOcean provider for SSH-based custom servers
-			projectConfig.SetProviderConfig("digitalocean", doConfig)
-
-		default:
-			return fmt.Errorf("unsupported BYOS target: %s", target)
-		}
-	} else { // "Provision for me"
-		switch target {
-		case "digitalocean":
-			doConfig, err := sequential.RunProvisionDigitalOceanFlow(projectName)
-			if err != nil {
-				return fmt.Errorf("DigitalOcean provisioning cancelled: %w", err)
-			}
-			projectConfig.SetProviderConfig("digitalocean", doConfig)
-
-		case "s3":
-			s3Config, err := sequential.RunS3Flow()
-			if err != nil {
-				return fmt.Errorf("S3 configuration cancelled: %w", err)
-			}
-			projectConfig.SetProviderConfig("s3", s3Config)
-
-		default:
-			return fmt.Errorf("unsupported provision target: %s", target)
-		}
-	}
-
-	if err := cfg.SetProject(projectPath, projectConfig); err != nil {
-		return fmt.Errorf("failed to set project config: %w", err)
-	}
-
-	if err := cfg.SaveConfig(); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
-	}
-
-	fmt.Printf("\n%s\n", endingMsgStyle.Render("✅ Deployment configuration saved to "+config.GetConfigPath()))
-	fmt.Printf("%s\n", endingMsgStyle.Render("Run 'lightfold deploy' to deploy your application!"))
-
-	fmt.Printf("\n%s\n", tipMsgStyle.Render("Tip: Use --json flag for CI/automation mode"))
-
-	return nil
+	fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println("Next Steps - Deploy your application:")
+	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+	fmt.Println()
+	fmt.Printf("1. Create infrastructure:\n")
+	fmt.Printf("   BYOS:       lightfold create --target %s --provider byos --ip YOUR_IP --ssh-key ~/.ssh/id_rsa\n", targetName)
+	fmt.Printf("   Provision:  lightfold create --target %s --provider do --region nyc1 --size s-1vcpu-1gb\n", targetName)
+	fmt.Println()
+	fmt.Printf("2. Configure server:\n")
+	fmt.Printf("   lightfold configure --target %s\n", targetName)
+	fmt.Println()
+	fmt.Printf("3. Deploy code:\n")
+	fmt.Printf("   lightfold push --target %s\n", targetName)
+	fmt.Println()
+	fmt.Printf("Or use the orchestrator to run all steps:\n")
+	fmt.Printf("   lightfold deploy --target %s\n", targetName)
+	fmt.Println()
 }
 
 func isTerminal() bool {

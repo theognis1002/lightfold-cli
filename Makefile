@@ -6,19 +6,19 @@ build:
 
 # Run tests
 test:
-	go test ./test/detector/...
+	go test ./...
 
 # Run tests with verbose output
 test-verbose:
-	go test -v ./test/detector/...
+	go test -v ./...
 
 # Run tests with coverage
 test-cover:
-	go test ./test/detector/... -coverpkg=./pkg/detector/... -cover
+	go test ./... -cover
 
 # Run benchmark tests
 bench:
-	go test ./test/detector/... -bench=. -benchmem
+	go test ./... -bench=. -benchmem
 
 # Run all tests (verbose + coverage + bench)
 test-all: test-verbose test-cover bench

@@ -4,7 +4,7 @@ After=network.target
 
 [Service]
 WorkingDirectory=/srv/{{APP_NAME}}/current
-EnvironmentFile=/srv/{{APP_NAME}}/shared/env/.env
+EnvironmentFile=-/srv/{{APP_NAME}}/shared/env/.env
 ExecStart={{EXEC_START}}
 Restart=always
 RestartSec=5

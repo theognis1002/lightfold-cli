@@ -8,7 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"lightfold/pkg/detector"
-	"lightfold/pkg/ssh"
+	sshpkg "lightfold/pkg/ssh"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,14 +23,14 @@ var nginxTemplate string
 
 // Executor handles the actual deployment operations on a server
 type Executor struct {
-	ssh         *ssh.Executor
+	ssh         *sshpkg.Executor
 	appName     string
 	projectPath string
 	detection   *detector.Detection
 }
 
 // NewExecutor creates a new deployment executor
-func NewExecutor(sshExecutor *ssh.Executor, appName, projectPath string, detection *detector.Detection) *Executor {
+func NewExecutor(sshExecutor *sshpkg.Executor, appName, projectPath string, detection *detector.Detection) *Executor {
 	return &Executor{
 		ssh:         sshExecutor,
 		appName:     appName,
@@ -39,16 +39,38 @@ func NewExecutor(sshExecutor *ssh.Executor, appName, projectPath string, detecti
 	}
 }
 
+// formatSSHError creates a detailed error message from SSH command result
+func formatSSHError(operation string, result *sshpkg.CommandResult) error {
+	var details []string
+	if result.ExitCode != 0 {
+		details = append(details, fmt.Sprintf("exit_code=%d", result.ExitCode))
+	}
+	if result.Stdout != "" {
+		details = append(details, fmt.Sprintf("stdout=%q", result.Stdout))
+	}
+	if result.Stderr != "" {
+		details = append(details, fmt.Sprintf("stderr=%q", result.Stderr))
+	}
+	if result.Error != nil {
+		details = append(details, fmt.Sprintf("error=%v", result.Error))
+	}
+
+	if len(details) > 0 {
+		return fmt.Errorf("%s: %s", operation, strings.Join(details, ", "))
+	}
+	return fmt.Errorf("%s", operation)
+}
+
 // InstallBasePackages installs required system packages
 func (e *Executor) InstallBasePackages() error {
 	result := e.ssh.ExecuteSudo("apt-get update -y")
 	if result.Error != nil || result.ExitCode != 0 {
-		return fmt.Errorf("failed to update packages: %s", result.Stderr)
+		return formatSSHError("failed to update packages", result)
 	}
 
 	result = e.ssh.ExecuteSudo("apt-get install -y nginx")
 	if result.Error != nil || result.ExitCode != 0 {
-		return fmt.Errorf("failed to install nginx: %s", result.Stderr)
+		return formatSSHError("failed to install nginx", result)
 	}
 
 	if e.detection != nil {
@@ -56,35 +78,35 @@ func (e *Executor) InstallBasePackages() error {
 		case "JavaScript/TypeScript":
 			result = e.ssh.ExecuteSudo("curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -")
 			if result.Error != nil || result.ExitCode != 0 {
-				return fmt.Errorf("failed to setup NodeSource repository: %s", result.Stderr)
+				return formatSSHError("failed to setup NodeSource repository", result)
 			}
 			result = e.ssh.ExecuteSudo("apt-get install -y nodejs")
 			if result.Error != nil || result.ExitCode != 0 {
-				return fmt.Errorf("failed to install Node.js: %s", result.Stderr)
+				return formatSSHError("failed to install Node.js", result)
 			}
 
 		case "Python":
 			result = e.ssh.ExecuteSudo("apt-get install -y python3 python3-pip python3-venv")
 			if result.Error != nil || result.ExitCode != 0 {
-				return fmt.Errorf("failed to install Python: %s", result.Stderr)
+				return formatSSHError("failed to install Python", result)
 			}
 
 		case "Go":
 			result = e.ssh.ExecuteSudo("apt-get install -y golang-go")
 			if result.Error != nil || result.ExitCode != 0 {
-				return fmt.Errorf("failed to install Go: %s", result.Stderr)
+				return formatSSHError("failed to install Go", result)
 			}
 
 		case "PHP":
 			result = e.ssh.ExecuteSudo("apt-get install -y php php-fpm php-mysql php-xml php-mbstring")
 			if result.Error != nil || result.ExitCode != 0 {
-				return fmt.Errorf("failed to install PHP: %s", result.Stderr)
+				return formatSSHError("failed to install PHP", result)
 			}
 
 		case "Ruby":
 			result = e.ssh.ExecuteSudo("apt-get install -y ruby-full")
 			if result.Error != nil || result.ExitCode != 0 {
-				return fmt.Errorf("failed to install Ruby: %s", result.Stderr)
+				return formatSSHError("failed to install Ruby", result)
 			}
 		}
 	}
@@ -255,9 +277,14 @@ func (e *Executor) BuildRelease(releasePath string) error {
 	}
 
 	for _, cmd := range e.detection.BuildPlan {
+		trimmed := strings.TrimSpace(cmd)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+
 		buildCmd := e.adjustBuildCommand(cmd, releasePath)
 
-		result := e.ssh.ExecuteSudo(fmt.Sprintf("cd %s && %s", releasePath, buildCmd))
+		result := e.ssh.ExecuteSudo(fmt.Sprintf("sh -c 'cd %s && %s'", releasePath, buildCmd))
 		if result.Error != nil || result.ExitCode != 0 {
 			return fmt.Errorf("build command failed '%s': %s", cmd, result.Stderr)
 		}
@@ -311,6 +338,7 @@ func (e *Executor) WriteEnvironmentFile(envVars map[string]string) error {
 	if len(envVars) == 0 {
 		return nil
 	}
+
 	var envContent strings.Builder
 	for key, value := range envVars {
 		envContent.WriteString(fmt.Sprintf("%s=%s\n", key, value))
@@ -377,9 +405,6 @@ func (e *Executor) CleanupOldReleases(keepCount int) error {
 	return nil
 }
 
-// --- Phase 3: Service Configuration ---
-
-// GenerateSystemdUnit creates a systemd service unit file for the application
 func (e *Executor) GenerateSystemdUnit(releasePath string) error {
 	execStart := e.getExecStartCommand()
 
@@ -388,13 +413,21 @@ func (e *Executor) GenerateSystemdUnit(releasePath string) error {
 		"EXEC_START": execStart,
 	}
 
+	// Write to /tmp first (SCP can't write directly to /etc with sudo)
+	tmpPath := fmt.Sprintf("/tmp/%s.service", e.appName)
+	if err := e.ssh.RenderAndWriteTemplate(systemdTemplate, data, tmpPath, 0644); err != nil {
+		return fmt.Errorf("failed to write systemd unit to temp: %w", err)
+	}
+
+	// Move to final location with sudo
 	unitPath := fmt.Sprintf("/etc/systemd/system/%s.service", e.appName)
-	if err := e.ssh.RenderAndWriteTemplate(systemdTemplate, data, unitPath, 0644); err != nil {
-		return fmt.Errorf("failed to write systemd unit: %w", err)
+	result := e.ssh.ExecuteSudo(fmt.Sprintf("mv %s %s", tmpPath, unitPath))
+	if result.Error != nil || result.ExitCode != 0 {
+		return fmt.Errorf("failed to move systemd unit to /etc: %s", result.Stderr)
 	}
 
 	// Set proper ownership
-	result := e.ssh.ExecuteSudo(fmt.Sprintf("chown root:root %s", unitPath))
+	result = e.ssh.ExecuteSudo(fmt.Sprintf("chown root:root %s", unitPath))
 	if result.Error != nil || result.ExitCode != 0 {
 		return fmt.Errorf("failed to set systemd unit ownership: %s", result.Stderr)
 	}
@@ -408,7 +441,6 @@ func (e *Executor) GenerateSystemdUnit(releasePath string) error {
 	return nil
 }
 
-// getExecStartCommand returns the framework-specific ExecStart command
 func (e *Executor) getExecStartCommand() string {
 	if e.detection == nil {
 		return "/usr/bin/true"
@@ -463,19 +495,26 @@ func (e *Executor) GenerateNginxConfig() error {
 		"APP_NAME": e.appName,
 	}
 
+	// Write to /tmp first (SCP can't write directly to /etc with sudo)
+	tmpPath := fmt.Sprintf("/tmp/nginx-%s.conf", e.appName)
+	if err := e.ssh.RenderAndWriteTemplate(nginxTemplate, data, tmpPath, 0644); err != nil {
+		return fmt.Errorf("failed to write nginx config to temp: %w", err)
+	}
+
+	// Move to final location with sudo
 	configPath := fmt.Sprintf("/etc/nginx/sites-available/%s", e.appName)
-	if err := e.ssh.RenderAndWriteTemplate(nginxTemplate, data, configPath, 0644); err != nil {
-		return fmt.Errorf("failed to write nginx config: %w", err)
+	result := e.ssh.ExecuteSudo(fmt.Sprintf("mv %s %s", tmpPath, configPath))
+	if result.Error != nil || result.ExitCode != 0 {
+		return fmt.Errorf("failed to move nginx config to /etc: %s", result.Stderr)
 	}
 
 	// Create symlink to sites-enabled
 	symlinkCmd := fmt.Sprintf("ln -sf /etc/nginx/sites-available/%s /etc/nginx/sites-enabled/%s", e.appName, e.appName)
-	result := e.ssh.ExecuteSudo(symlinkCmd)
+	result = e.ssh.ExecuteSudo(symlinkCmd)
 	if result.Error != nil || result.ExitCode != 0 {
 		return fmt.Errorf("failed to enable nginx site: %s", result.Stderr)
 	}
 
-	// Remove default nginx site if exists
 	e.ssh.ExecuteSudo("rm -f /etc/nginx/sites-enabled/default")
 
 	return nil
@@ -564,10 +603,8 @@ func (e *Executor) SwitchRelease(releasePath string) error {
 	return nil
 }
 
-// PerformHealthCheck checks if the application is responding correctly
 func (e *Executor) PerformHealthCheck(maxRetries int, retryDelay time.Duration) error {
 	if e.detection == nil || e.detection.Healthcheck == nil {
-		// No healthcheck configured, assume success
 		return nil
 	}
 
@@ -608,7 +645,7 @@ func (e *Executor) PerformHealthCheck(maxRetries int, retryDelay time.Duration) 
 
 		statusCode := strings.TrimSpace(result.Stdout)
 		if statusCode == fmt.Sprintf("%d", expectedStatus) {
-			return nil // Health check passed
+			return nil
 		}
 
 		lastErr = fmt.Errorf("health check failed (attempt %d/%d): expected status %d, got %s", attempt+1, maxRetries, expectedStatus, statusCode)
@@ -628,21 +665,17 @@ func (e *Executor) RollbackToPreviousRelease() error {
 		return fmt.Errorf("no previous release available for rollback")
 	}
 
-	// Current release is the last one, previous is second-to-last
 	previousRelease := releases[len(releases)-2]
 	previousPath := fmt.Sprintf("/srv/%s/releases/%s", e.appName, previousRelease)
 
-	// Stop the service
 	if err := e.StopService(); err != nil {
 		return fmt.Errorf("failed to stop service during rollback: %w", err)
 	}
 
-	// Switch to previous release
 	if err := e.SwitchRelease(previousPath); err != nil {
 		return fmt.Errorf("failed to switch to previous release: %w", err)
 	}
 
-	// Restart the service
 	if err := e.StartService(); err != nil {
 		return fmt.Errorf("failed to start service after rollback: %w", err)
 	}
@@ -654,23 +687,19 @@ func (e *Executor) RollbackToPreviousRelease() error {
 func (e *Executor) RollbackToRelease(timestamp string) error {
 	releasePath := fmt.Sprintf("/srv/%s/releases/%s", e.appName, timestamp)
 
-	// Verify release exists
 	result := e.ssh.Execute(fmt.Sprintf("test -d %s", releasePath))
 	if result.ExitCode != 0 {
 		return fmt.Errorf("release %s does not exist", timestamp)
 	}
 
-	// Stop the service
 	if err := e.StopService(); err != nil {
 		return fmt.Errorf("failed to stop service during rollback: %w", err)
 	}
 
-	// Switch to specified release
 	if err := e.SwitchRelease(releasePath); err != nil {
 		return fmt.Errorf("failed to switch to release %s: %w", timestamp, err)
 	}
 
-	// Restart the service
 	if err := e.StartService(); err != nil {
 		return fmt.Errorf("failed to start service after rollback: %w", err)
 	}
@@ -678,32 +707,30 @@ func (e *Executor) RollbackToRelease(timestamp string) error {
 	return nil
 }
 
-// DeployWithHealthCheck performs a complete deployment with health check and rollback
 func (e *Executor) DeployWithHealthCheck(releasePath string, healthCheckRetries int, healthCheckDelay time.Duration) error {
-	// Get current release for potential rollback
 	currentRelease, err := e.GetCurrentRelease()
 	if err != nil {
 		return fmt.Errorf("failed to get current release: %w", err)
 	}
 
-	// Switch to new release
 	if err := e.SwitchRelease(releasePath); err != nil {
 		return fmt.Errorf("failed to switch release: %w", err)
 	}
 
-	// Restart service to pick up new release
-	if err := e.RestartService(); err != nil {
-		// Try to rollback
-		if currentRelease != "" {
+	isFirstDeploy := currentRelease == ""
+	if isFirstDeploy {
+		if err := e.StartService(); err != nil {
+			return fmt.Errorf("failed to start service: %w", err)
+		}
+	} else {
+		if err := e.RestartService(); err != nil {
 			e.SwitchRelease(currentRelease)
 			e.RestartService()
+			return fmt.Errorf("failed to restart service: %w", err)
 		}
-		return fmt.Errorf("failed to restart service: %w", err)
 	}
 
-	// Perform health check
 	if err := e.PerformHealthCheck(healthCheckRetries, healthCheckDelay); err != nil {
-		// Health check failed - rollback
 		if currentRelease != "" {
 			e.StopService()
 			e.SwitchRelease(currentRelease)

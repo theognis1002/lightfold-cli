@@ -26,6 +26,7 @@ type progressModel struct {
 	err           error
 	program       *tea.Program
 	spinner       spinner.Model
+	skipInit      bool // Skip auto-start in Init() when managing deployment manually
 }
 
 type stepHistoryItem struct {
@@ -55,6 +56,10 @@ type deployResultMsg struct {
 }
 
 func (m progressModel) Init() tea.Cmd {
+	if m.skipInit {
+		// Deployment managed externally (e.g., configuration mode)
+		return m.spinner.Tick
+	}
 	if m.orchestrator != nil {
 		// Use real deployment with orchestrator
 		return tea.Batch(
@@ -380,6 +385,7 @@ func ShowConfigurationProgressWithOrchestrator(ctx context.Context, orchestrator
 		orchestrator: orchestrator,
 		ctx:          ctx,
 		spinner:      s,
+		skipInit:     true, // Don't auto-start Deploy() in Init()
 	}
 
 	// Don't use tea.WithAltScreen() so output persists after exit

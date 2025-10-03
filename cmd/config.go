@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"lightfold/pkg/config"
 	"os"
-	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -47,7 +46,7 @@ var configListCmd = &cobra.Command{
 
 		if jsonOutput {
 			output := map[string]interface{}{
-				"projects": cfg.Projects,
+				"targets": cfg.Targets,
 				"providers": func() map[string]bool {
 					result := make(map[string]bool)
 					for provider := range tokens.Tokens {
@@ -62,19 +61,20 @@ var configListCmd = &cobra.Command{
 			return
 		}
 
-		fmt.Println(configStyle.Render("Configured Projects:"))
-		if len(cfg.Projects) == 0 {
-			fmt.Println(configMutedStyle.Render("  No projects configured yet"))
+		fmt.Println(configStyle.Render("Configured Targets:"))
+		if len(cfg.Targets) == 0 {
+			fmt.Println(configMutedStyle.Render("  No targets configured yet"))
 		} else {
-			for path, project := range cfg.Projects {
-				fmt.Printf("\n  %s\n", configLabelStyle.Render(path))
-				fmt.Printf("    Framework: %s\n", configValueStyle.Render(project.Framework))
-				fmt.Printf("    Provider:  %s\n", configValueStyle.Render(project.Provider))
+			for name, target := range cfg.Targets {
+				fmt.Printf("\n  %s\n", configLabelStyle.Render(name))
+				fmt.Printf("    Project:   %s\n", configValueStyle.Render(target.ProjectPath))
+				fmt.Printf("    Framework: %s\n", configValueStyle.Render(target.Framework))
+				fmt.Printf("    Provider:  %s\n", configValueStyle.Render(target.Provider))
 
 				// Show provider-specific details
-				switch project.Provider {
+				switch target.Provider {
 				case "digitalocean":
-					if doConfig, err := project.GetDigitalOceanConfig(); err == nil {
+					if doConfig, err := target.GetDigitalOceanConfig(); err == nil {
 						if doConfig.IP != "" {
 							fmt.Printf("    IP:        %s\n", configValueStyle.Render(doConfig.IP))
 						}
@@ -86,7 +86,7 @@ var configListCmd = &cobra.Command{
 						}
 					}
 				case "hetzner":
-					if hConfig, err := project.GetHetznerConfig(); err == nil {
+					if hConfig, err := target.GetHetznerConfig(); err == nil {
 						if hConfig.IP != "" {
 							fmt.Printf("    IP:        %s\n", configValueStyle.Render(hConfig.IP))
 						}
@@ -98,7 +98,7 @@ var configListCmd = &cobra.Command{
 						}
 					}
 				case "s3":
-					if s3Config, err := project.GetS3Config(); err == nil {
+					if s3Config, err := target.GetS3Config(); err == nil {
 						fmt.Printf("    Bucket:    %s\n", configValueStyle.Render(s3Config.Bucket))
 						fmt.Printf("    Region:    %s\n", configValueStyle.Render(s3Config.Region))
 					}
@@ -118,47 +118,6 @@ var configListCmd = &cobra.Command{
 	},
 }
 
-var configShowCmd = &cobra.Command{
-	Use:   "show [PROJECT_PATH]",
-	Short: "Show detailed configuration for a specific project",
-	Args:  cobra.MaximumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		var projectPath string
-		if len(args) == 0 {
-			projectPath = "."
-		} else {
-			projectPath = args[0]
-		}
-
-		cfg, err := config.LoadConfig()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Error loading config: %v", err)))
-			os.Exit(1)
-		}
-
-		project, exists := cfg.GetProject(projectPath)
-		if !exists {
-			absPath, _ := filepath.Abs(projectPath)
-			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("No configuration found for: %s", absPath)))
-			os.Exit(1)
-		}
-
-		if jsonOutput {
-			enc := json.NewEncoder(os.Stdout)
-			enc.SetIndent("", "  ")
-			enc.Encode(project)
-			return
-		}
-
-		absPath, _ := filepath.Abs(projectPath)
-		fmt.Println(configStyle.Render(fmt.Sprintf("Configuration for: %s", absPath)))
-		fmt.Println()
-
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		enc.Encode(project)
-	},
-}
 
 var configSetTokenCmd = &cobra.Command{
 	Use:   "set-token <provider> [token]",
@@ -229,7 +188,10 @@ var configGetTokenCmd = &cobra.Command{
 		}
 
 		// Mask token for security
-		maskedToken := maskToken(token)
+		maskedToken := "****" + token[len(token)-4:]
+		if len(token) < 10 {
+			maskedToken = "********"
+		}
 		fmt.Printf("%s: %s\n", configLabelStyle.Render(provider), configValueStyle.Render(maskedToken))
 	},
 }
@@ -272,255 +234,11 @@ var configDeleteTokenCmd = &cobra.Command{
 	},
 }
 
-var configDeleteProjectCmd = &cobra.Command{
-	Use:   "delete-project [PROJECT_PATH]",
-	Short: "Remove project configuration",
-	Args:  cobra.MaximumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		var projectPath string
-		if len(args) == 0 {
-			projectPath = "."
-		} else {
-			projectPath = args[0]
-		}
-
-		cfg, err := config.LoadConfig()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Error loading config: %v", err)))
-			os.Exit(1)
-		}
-
-		absPath, err := filepath.Abs(projectPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Error resolving path: %v", err)))
-			os.Exit(1)
-		}
-
-		if _, exists := cfg.Projects[absPath]; !exists {
-			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("No configuration found for: %s", absPath)))
-			os.Exit(1)
-		}
-
-		// Confirmation prompt
-		fmt.Printf("Delete configuration for %s? (y/N): ", absPath)
-		var response string
-		fmt.Scanln(&response)
-		if strings.ToLower(strings.TrimSpace(response)) != "y" {
-			fmt.Println("Cancelled")
-			return
-		}
-
-		delete(cfg.Projects, absPath)
-
-		if err := cfg.SaveConfig(); err != nil {
-			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Error saving config: %v", err)))
-			os.Exit(1)
-		}
-
-		fmt.Printf("%s\n", configSuccessStyle.Render("✓ Project configuration deleted successfully"))
-	},
-}
-
-var configUpdateProjectCmd = &cobra.Command{
-	Use:   "update-project [PROJECT_PATH]",
-	Short: "Update specific project settings",
-	Long: `Interactively update project configuration settings.
-
-This command allows you to modify provider-specific settings such as:
-- IP address (for BYOS deployments)
-- SSH username
-- Region/location
-- Server size/type
-- And more based on your provider`,
-	Args: cobra.MaximumNArgs(1),
-	Run: func(cmd *cobra.Command, args []string) {
-		var projectPath string
-		if len(args) == 0 {
-			projectPath = "."
-		} else {
-			projectPath = args[0]
-		}
-
-		cfg, err := config.LoadConfig()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Error loading config: %v", err)))
-			os.Exit(1)
-		}
-
-		project, exists := cfg.GetProject(projectPath)
-		if !exists {
-			absPath, _ := filepath.Abs(projectPath)
-			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("No configuration found for: %s", absPath)))
-			os.Exit(1)
-		}
-
-		absPath, _ := filepath.Abs(projectPath)
-		fmt.Println(configStyle.Render(fmt.Sprintf("Update configuration for: %s", absPath)))
-		fmt.Printf("Provider: %s\n\n", configValueStyle.Render(project.Provider))
-
-		updated := false
-
-		switch project.Provider {
-		case "digitalocean":
-			doConfig, err := project.GetDigitalOceanConfig()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Error loading DigitalOcean config: %v", err)))
-				os.Exit(1)
-			}
-
-			if newValue := promptUpdate("IP Address", doConfig.IP); newValue != "" {
-				doConfig.IP = newValue
-				updated = true
-			}
-
-			if newValue := promptUpdate("Username", doConfig.Username); newValue != "" {
-				doConfig.Username = newValue
-				updated = true
-			}
-
-			if newValue := promptUpdate("SSH Key Path", doConfig.SSHKey); newValue != "" {
-				doConfig.SSHKey = newValue
-				updated = true
-			}
-
-			if doConfig.Provisioned {
-				if newValue := promptUpdate("Region", doConfig.Region); newValue != "" {
-					doConfig.Region = newValue
-					updated = true
-				}
-
-				if newValue := promptUpdate("Size", doConfig.Size); newValue != "" {
-					doConfig.Size = newValue
-					updated = true
-				}
-			}
-
-			if updated {
-				project.SetProviderConfig("digitalocean", doConfig)
-			}
-
-		case "hetzner":
-			hConfig, err := project.GetHetznerConfig()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Error loading Hetzner config: %v", err)))
-				os.Exit(1)
-			}
-
-			if newValue := promptUpdate("IP Address", hConfig.IP); newValue != "" {
-				hConfig.IP = newValue
-				updated = true
-			}
-
-			if newValue := promptUpdate("Username", hConfig.Username); newValue != "" {
-				hConfig.Username = newValue
-				updated = true
-			}
-
-			if newValue := promptUpdate("SSH Key Path", hConfig.SSHKey); newValue != "" {
-				hConfig.SSHKey = newValue
-				updated = true
-			}
-
-			if hConfig.Provisioned {
-				if newValue := promptUpdate("Location", hConfig.Location); newValue != "" {
-					hConfig.Location = newValue
-					updated = true
-				}
-
-				if newValue := promptUpdate("Server Type", hConfig.ServerType); newValue != "" {
-					hConfig.ServerType = newValue
-					updated = true
-				}
-			}
-
-			if updated {
-				project.SetProviderConfig("hetzner", hConfig)
-			}
-
-		case "s3":
-			s3Config, err := project.GetS3Config()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Error loading S3 config: %v", err)))
-				os.Exit(1)
-			}
-
-			if newValue := promptUpdate("Bucket", s3Config.Bucket); newValue != "" {
-				s3Config.Bucket = newValue
-				updated = true
-			}
-
-			if newValue := promptUpdate("Region", s3Config.Region); newValue != "" {
-				s3Config.Region = newValue
-				updated = true
-			}
-
-			if updated {
-				project.SetProviderConfig("s3", s3Config)
-			}
-
-		default:
-			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Unsupported provider: %s", project.Provider)))
-			os.Exit(1)
-		}
-
-		if !updated {
-			fmt.Println("No changes made")
-			return
-		}
-
-		if err := cfg.SetProject(projectPath, project); err != nil {
-			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Error updating project: %v", err)))
-			os.Exit(1)
-		}
-
-		if err := cfg.SaveConfig(); err != nil {
-			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Error saving config: %v", err)))
-			os.Exit(1)
-		}
-
-		fmt.Printf("\n%s\n", configSuccessStyle.Render("✓ Project configuration updated successfully"))
-	},
-}
-
-// Helper function to mask tokens for display
-func maskToken(token string) string {
-	if len(token) <= 8 {
-		return "***"
-	}
-
-	// Show first 3 and last 3 characters
-	prefix := token[:3]
-	suffix := token[len(token)-3:]
-	masked := prefix + strings.Repeat("*", 15) + suffix
-
-	return masked
-}
-
-// Helper function to prompt for updates
-func promptUpdate(field, currentValue string) string {
-	if currentValue == "" {
-		currentValue = configMutedStyle.Render("(not set)")
-	} else {
-		currentValue = configValueStyle.Render(currentValue)
-	}
-
-	fmt.Printf("%s [%s]: ", configLabelStyle.Render(field), currentValue)
-
-	var input string
-	fmt.Scanln(&input)
-	input = strings.TrimSpace(input)
-
-	return input
-}
-
 func init() {
 	rootCmd.AddCommand(configCmd)
 
 	configCmd.AddCommand(configListCmd)
-	configCmd.AddCommand(configShowCmd)
 	configCmd.AddCommand(configSetTokenCmd)
 	configCmd.AddCommand(configGetTokenCmd)
 	configCmd.AddCommand(configDeleteTokenCmd)
-	configCmd.AddCommand(configDeleteProjectCmd)
-	configCmd.AddCommand(configUpdateProjectCmd)
 }

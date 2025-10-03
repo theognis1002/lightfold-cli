@@ -72,8 +72,9 @@ type DeploymentOptions struct {
 	RunCommand   string            `json:"run_command,omitempty"`
 }
 
-// ProjectConfig contains the complete project deployment configuration
-type ProjectConfig struct {
+// TargetConfig contains the complete target deployment configuration
+type TargetConfig struct {
+	ProjectPath    string                     `json:"project_path"`    // Path to the project on local filesystem
 	Framework      string                     `json:"framework"`
 	Provider       string                     `json:"provider"`        // Provider name (e.g., "digitalocean", "hetzner", "s3")
 	ProviderConfig map[string]json.RawMessage `json:"provider_config"` // Provider-specific config as JSON
@@ -81,12 +82,12 @@ type ProjectConfig struct {
 }
 
 // GetProviderConfig unmarshals the provider-specific config into the given type
-func (p *ProjectConfig) GetProviderConfig(provider string, target interface{}) error {
-	if p.ProviderConfig == nil {
+func (t *TargetConfig) GetProviderConfig(provider string, target interface{}) error {
+	if t.ProviderConfig == nil {
 		return fmt.Errorf("no provider configuration found")
 	}
 
-	configJSON, exists := p.ProviderConfig[provider]
+	configJSON, exists := t.ProviderConfig[provider]
 	if !exists {
 		return fmt.Errorf("no configuration found for provider: %s", provider)
 	}
@@ -95,9 +96,9 @@ func (p *ProjectConfig) GetProviderConfig(provider string, target interface{}) e
 }
 
 // SetProviderConfig marshals and stores provider-specific configuration
-func (p *ProjectConfig) SetProviderConfig(provider string, config interface{}) error {
-	if p.ProviderConfig == nil {
-		p.ProviderConfig = make(map[string]json.RawMessage)
+func (t *TargetConfig) SetProviderConfig(provider string, config interface{}) error {
+	if t.ProviderConfig == nil {
+		t.ProviderConfig = make(map[string]json.RawMessage)
 	}
 
 	configJSON, err := json.Marshal(config)
@@ -105,39 +106,39 @@ func (p *ProjectConfig) SetProviderConfig(provider string, config interface{}) e
 		return fmt.Errorf("failed to marshal provider config: %w", err)
 	}
 
-	p.ProviderConfig[provider] = configJSON
+	t.ProviderConfig[provider] = configJSON
 	return nil
 }
 
 // GetDigitalOceanConfig is a convenience method to get DigitalOcean configuration
-func (p *ProjectConfig) GetDigitalOceanConfig() (*DigitalOceanConfig, error) {
+func (t *TargetConfig) GetDigitalOceanConfig() (*DigitalOceanConfig, error) {
 	var config DigitalOceanConfig
-	if err := p.GetProviderConfig("digitalocean", &config); err != nil {
+	if err := t.GetProviderConfig("digitalocean", &config); err != nil {
 		return nil, err
 	}
 	return &config, nil
 }
 
 // GetHetznerConfig is a convenience method to get Hetzner configuration
-func (p *ProjectConfig) GetHetznerConfig() (*HetznerConfig, error) {
+func (t *TargetConfig) GetHetznerConfig() (*HetznerConfig, error) {
 	var config HetznerConfig
-	if err := p.GetProviderConfig("hetzner", &config); err != nil {
+	if err := t.GetProviderConfig("hetzner", &config); err != nil {
 		return nil, err
 	}
 	return &config, nil
 }
 
 // GetS3Config is a convenience method to get S3 configuration
-func (p *ProjectConfig) GetS3Config() (*S3Config, error) {
+func (t *TargetConfig) GetS3Config() (*S3Config, error) {
 	var config S3Config
-	if err := p.GetProviderConfig("s3", &config); err != nil {
+	if err := t.GetProviderConfig("s3", &config); err != nil {
 		return nil, err
 	}
 	return &config, nil
 }
 
 type Config struct {
-	Projects map[string]ProjectConfig `json:"projects"`
+	Targets map[string]TargetConfig `json:"targets"`
 }
 
 func GetConfigPath() string {
@@ -157,7 +158,7 @@ func LoadConfig() (*Config, error) {
 	}
 
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return &Config{Projects: make(map[string]ProjectConfig)}, nil
+		return &Config{Targets: make(map[string]TargetConfig)}, nil
 	}
 
 	data, err := os.ReadFile(configPath)
@@ -170,8 +171,8 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	if config.Projects == nil {
-		config.Projects = make(map[string]ProjectConfig)
+	if config.Targets == nil {
+		config.Targets = make(map[string]TargetConfig)
 	}
 
 	return &config, nil
@@ -192,24 +193,31 @@ func (c *Config) SaveConfig() error {
 	return nil
 }
 
-func (c *Config) GetProject(projectPath string) (ProjectConfig, bool) {
-	absPath, err := filepath.Abs(projectPath)
-	if err != nil {
-		return ProjectConfig{}, false
-	}
-
-	project, exists := c.Projects[absPath]
-	return project, exists
+// GetTarget retrieves a target configuration by name
+func (c *Config) GetTarget(targetName string) (TargetConfig, bool) {
+	target, exists := c.Targets[targetName]
+	return target, exists
 }
 
-func (c *Config) SetProject(projectPath string, project ProjectConfig) error {
+// SetTarget stores a target configuration by name
+func (c *Config) SetTarget(targetName string, target TargetConfig) error {
+	c.Targets[targetName] = target
+	return nil
+}
+
+// FindTargetByPath finds a target by its project path
+func (c *Config) FindTargetByPath(projectPath string) (string, TargetConfig, bool) {
 	absPath, err := filepath.Abs(projectPath)
 	if err != nil {
-		return fmt.Errorf("failed to get absolute path: %w", err)
+		return "", TargetConfig{}, false
 	}
 
-	c.Projects[absPath] = project
-	return nil
+	for name, target := range c.Targets {
+		if target.ProjectPath == absPath {
+			return name, target, true
+		}
+	}
+	return "", TargetConfig{}, false
 }
 
 // TokenConfig stores API tokens for all providers

@@ -137,17 +137,17 @@ func TestKeyValidation(t *testing.T) {
 		valid    bool
 	}{
 		{
-			name:    "valid RSA private key",
-			keyPath: filepath.Join(tempDir, "rsa_key"),
-			content: `-----BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEAyBgSB5W8HygHhPcYNyLu3Y3Y8x9ZzC1YnJCKz5Q8V...
------END RSA PRIVATE KEY-----`,
+			name:    "valid Ed25519 private key",
+			keyPath: filepath.Join(tempDir, "ed25519_key"),
+			content: `-----BEGIN PRIVATE KEY-----
+MC4CAQAwBQYDK2VwBCIEIJ+DYvh6SEqVTm50DFtMDoQikTmiCqirVv9mWG9qfSnF
+-----END PRIVATE KEY-----`,
 			valid: true,
 		},
 		{
-			name:    "exists but not valid key",
-			keyPath: filepath.Join(tempDir, "fake_key"),
-			content: "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\n-----END OPENSSH PRIVATE KEY-----",
+			name:    "valid Ed25519 public key",
+			keyPath: filepath.Join(tempDir, "ed25519_pub_key"),
+			content: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOM/5/Y5wMRJhP3UAjiVyxuHgqKvvMV9p3QS8jU8bwYB test@example.com",
 			valid:   true,
 		},
 		{

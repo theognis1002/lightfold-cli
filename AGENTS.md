@@ -4,7 +4,7 @@ This document provides essential context and guidelines for AI coding agents wor
 
 ## Project Overview
 
-Lightfold CLI is a fast, intelligent project framework detector that automatically identifies web frameworks and generates optimal build and deployment plans. Beyond detection, it provides an interactive TUI with a two-step deployment flow: users first choose between BYOS (Bring Your Own Server) or auto-provisioning, then select specific providers. Features secure API token storage, DigitalOcean droplet provisioning, S3 deployment, animated progress bars, and success animations. The core goals are accuracy, speed, comprehensive framework coverage, and seamless deployment workflows.
+Lightfold CLI is a framework detector and deployment tool with composable, idempotent commands. It automatically identifies 15+ web frameworks, then provides standalone commands for each deployment step (create, configure, push) that can be run independently or orchestrated together. Features include multi-provider support (DigitalOcean, Hetzner, BYOS), state tracking for smart skipping, blue/green deployments with rollback, and secure API token storage. The core design principles are composability, idempotency, and provider-agnostic deployment.
 
 ## Architecture
 
@@ -28,29 +28,34 @@ Lightfold CLI is a fast, intelligent project framework detector that automatical
    - Environment variable schemas
 
 4. **CLI Interface** (`cmd/`):
-   - Cobra-based command structure with root and deploy commands
-   - Clean JSON output formatting with `--json` flag
-   - Interactive TUI mode with terminal detection
-   - Non-interactive mode for CI/automation with `--no-interactive`
-   - Error handling and graceful validation
+   - **Composable Commands**: Independent commands for each deployment step
+     - `detect` - Framework detection only (JSON output, standalone use)
+     - `create` - Infrastructure creation (BYOS or auto-provision)
+     - `configure` - Server configuration with idempotency checks
+     - `push` - Release deployment with health checks
+     - `deploy` - Orchestrator that chains all steps with smart skipping
+     - `status` - View deployment state and server status
+     - `config` - Manage targets and API tokens
+     - `keygen` - Generate SSH keypairs
+   - Clean JSON output with `--json` flag
+   - Target-based architecture (named targets, not paths)
+   - Dry-run support (`--dry-run`) for preview
+   - Force flags to override idempotency
 
-5. **TUI Components** (`cmd/ui/`):
-   - Bubbletea-based interactive menus and sequential flows
-   - Two-step deployment configuration: BYOS vs Provision selection
-   - Animated spinner during framework detection
-   - Deployment target selection with enhanced styling
-   - Step-by-step configuration forms with validation
-   - DigitalOcean API token collection and secure storage
-   - Region/size selection for auto-provisioning
-   - Colorful gradient progress bars for deployment
-   - SSH key generation and management
-   - Secure input handling for sensitive data
+5. **State Tracking** (`pkg/state/`):
+   - Local state files per target: `~/.lightfold/state/<target>.json`
+   - Remote state markers on servers: `/etc/lightfold/{created,configured}`
+   - Git commit tracking to skip unchanged deployments
+   - Tracks: last commit, last deploy time, last release ID, provision ID
+   - Enables idempotent operations and intelligent step skipping
 
 6. **Configuration Management** (`pkg/config/`):
-   - JSON-based project configuration storage
-   - Per-project deployment settings
-   - Secure API token storage in separate tokens.json file
-   - Support for both BYOS and provisioned configurations
+   - **Target-Based Config**: Named deployment targets (not path-based)
+   - Structure: `~/.lightfold/config.json` with `targets` map
+   - Each target stores: project path, framework, provider, provider config
+   - Secure API token storage in `~/.lightfold/tokens.json` (0600 permissions)
+   - Provider-agnostic config interface with `ProviderConfig` methods
+   - Support for BYOS and provisioned configurations per target
 
 ### Code Organization
 
@@ -58,33 +63,46 @@ Lightfold CLI is a fast, intelligent project framework detector that automatical
 lightfold/
 ├── cmd/
 │   ├── lightfold/
-│   │   └── main.go     # Entry point
-│   ├── root.go         # Main command with detection and TUI integration
-│   ├── deploy.go       # Deployment command with progress animation
-│   ├── detect.go       # Explicit detection command
-│   ├── flags/          # Command flags and deployment targets
-│   ├── steps/          # Two-step deployment configuration definitions
-│   ├── ui/             # TUI components
-│   │   ├── detection/  # Detection results display
-│   │   ├── multiInput/ # Menu selection components
-│   │   ├── sequential/ # Step-by-step configuration flows (BYOS + Provision)
-│   │   ├── spinner/    # Loading animations
-│   │   └── progress.go # Colorful gradient progress bars
-│   └── utils/          # Utility functions
+│   │   └── main.go       # Entry point
+│   ├── root.go           # Root command (framework detection + next steps)
+│   ├── detect.go         # Standalone detection command
+│   ├── create.go         # Infrastructure creation (BYOS/provision)
+│   ├── configure.go      # Server configuration (idempotent)
+│   ├── push.go           # Release deployment
+│   ├── deploy.go         # Orchestrator (chains all steps)
+│   ├── status.go         # Deployment status viewer
+│   ├── config.go         # Config/token management
+│   ├── keygen.go         # SSH key generation
+│   └── ui/               # TUI components
+│       ├── detection/    # Detection results display
+│       ├── sequential/   # Token collection flows (DigitalOcean)
+│       ├── spinner/      # Loading animations
+│       └── progress.go   # Deployment progress bars
 ├── pkg/
-│   ├── detector/       # Framework detection engine
-│   │   ├── detector.go # Core detection logic
-│   │   ├── plans.go    # Build/run plans
-│   │   └── exports.go  # Test helpers
-│   └── config/         # Configuration management
-│       └── config.go   # JSON config storage and validation
+│   ├── detector/         # Framework detection engine
+│   │   ├── detector.go   # Core detection logic
+│   │   ├── plans.go      # Build/run plans
+│   │   └── exports.go    # Test helpers
+│   ├── config/           # Configuration management
+│   │   └── config.go     # Target-based config + tokens
+│   ├── state/            # State tracking
+│   │   └── state.go      # Local/remote state management
+│   ├── deploy/           # Deployment logic
+│   │   ├── orchestrator.go # Multi-provider orchestration
+│   │   └── executor.go   # Blue/green deployment executor
+│   ├── ssh/              # SSH operations
+│   │   └── ssh.go        # SSH client wrapper
+│   └── providers/        # Cloud provider registry
+│       ├── provider.go   # Provider interface
+│       ├── registry.go   # Provider factory
+│       ├── digitalocean/ # DigitalOcean implementation
+│       └── hetzner/      # Hetzner implementation
 ├── test/
-│   └── detector/       # Comprehensive test suite
-├── go-blueprint/       # External framework examples
-├── go.mod              # Go module dependencies
-├── Makefile            # Build and test commands
-├── README.md           # User-facing documentation
-└── AGENTS.md           # This file
+│   └── detector/         # Detection test suite
+├── go.mod                # Go dependencies
+├── Makefile              # Build targets
+├── README.md             # User documentation
+└── AGENTS.md             # This file
 ```
 
 ## Framework Detection Logic
@@ -161,48 +179,86 @@ That's it! The provider is now available throughout the application with zero ch
 
 ### Deployment Flow Architecture
 
-**Two-Step Configuration:**
+**Composable Command Pattern:**
 
-**Step 1: Deployment Type Selection**
-- **BYOS (Bring Your Own Server)**: User provides existing server details
-- **Provision for me**: Auto-provision new infrastructure
+Lightfold uses a composable architecture where each deployment step is an independent, idempotent command:
 
-**Step 2: Provider Selection**
-- **BYOS Options**: DigitalOcean, Hetzner Cloud, Custom Server
-- **Provision Options**: DigitalOcean, Hetzner Cloud, S3 (static sites)
+**1. Framework Detection** (`lightfold detect` or `lightfold .`)
+- Analyzes project structure to identify framework
+- Outputs JSON for automation or shows interactive results
+- Can be run standalone for framework verification
 
-**BYOS Flow:**
-- Collects server IP address
-- Requests SSH key path or content
-- Asks for username (default: root)
-- Stores provider-specific configuration
+**2. Infrastructure Creation** (`lightfold create --target <name>`)
+- **BYOS Mode** (`--provider byos`): Validates existing server SSH access
+  - Requires: `--ip`, `--ssh-key`, `--user`
+  - Writes `/etc/lightfold/created` marker on server
+- **Provision Mode** (`--provider do|hetzner`): Auto-provisions new server
+  - Requires: `--region`, `--size`, API token
+  - Generates SSH keys, provisions via cloud API
+  - Stores server ID and IP in config
+- Marks target as "created" in local state
+- Idempotent: Skips if already created
 
-**Provision Flow:**
-- Collects provider API token (stored securely)
-- Presents region/location selection
-- Offers server size/type options
-- Auto-generates SSH keypairs locally
-- Provisions server via provider API
-- Stores configuration with server details
+**3. Server Configuration** (`lightfold configure --target <name>`)
+- Checks for `/etc/lightfold/configured` marker
+- Installs: runtime dependencies, systemd services, nginx, firewall rules
+- Sets up deployment directory structure: `/srv/<app>/releases/`
+- Writes marker on success, updates local state
+- Idempotent: Skips if marker exists (unless `--force`)
+
+**4. Release Deployment** (`lightfold push --target <name>`)
+- Checks current git commit vs. last deployed commit
+- Creates timestamped release: `/srv/<app>/releases/<timestamp>/`
+- Uploads tarball, builds project, deploys with health checks
+- Blue/green deployment: symlink swap with rollback on failure
+- Updates state with commit hash and release ID
+- Idempotent: Skips if commit unchanged
+
+**5. Full Orchestration** (`lightfold deploy --target <name>`)
+- Chains all steps: detect → create → configure → push
+- Intelligently skips completed steps based on state
+- `--force` flag reruns all steps
+- `--dry-run` shows execution plan without running
 
 ### Configuration Architecture
 
-**Project Configuration Structure:**
+**Target-Based Configuration (`~/.lightfold/config.json`):**
 ```json
 {
-  "framework": "Next.js",
-  "provider": "digitalocean",
-  "provider_config": {
-    "digitalocean": {
-      "ip": "192.168.1.100",
-      "username": "deploy",
-      "ssh_key": "~/.lightfold/keys/myproject",
-      "region": "nyc1",
-      "size": "s-1vcpu-1gb",
-      "provisioned": true,
-      "droplet_id": "123456789"
+  "targets": {
+    "myapp-prod": {
+      "project_path": "/path/to/project",
+      "framework": "Next.js",
+      "provider": "digitalocean",
+      "provider_config": {
+        "digitalocean": {
+          "ip": "192.168.1.100",
+          "username": "deploy",
+          "ssh_key": "~/.lightfold/keys/lightfold_ed25519",
+          "region": "nyc1",
+          "size": "s-1vcpu-1gb",
+          "provisioned": true,
+          "droplet_id": "123456789"
+        }
+      },
+      "deploy": {
+        "env_vars": {"NODE_ENV": "production"},
+        "skip_build": false
+      }
     }
   }
+}
+```
+
+**State Tracking (`~/.lightfold/state/<target>.json`):**
+```json
+{
+  "created": true,
+  "configured": true,
+  "last_commit": "abc123...",
+  "last_deploy": "2025-10-03T10:30:00Z",
+  "last_release": "20251003103000",
+  "provisioned_id": "123456789"
 }
 ```
 
@@ -227,30 +283,55 @@ That's it! The provider is now available throughout the application with zero ch
 - Automatic public key upload to cloud providers
 - Secure private key permissions (0600)
 
+### Idempotency Patterns
+
+**Local State Tracking:**
+- File: `~/.lightfold/state/<target>.json`
+- Functions: `LoadState()`, `MarkCreated()`, `MarkConfigured()`, `UpdateDeployment()`
+- Usage: Commands check state before executing, skip if already done
+
+**Remote State Markers:**
+- `/etc/lightfold/created` - Written by `create` command
+- `/etc/lightfold/configured` - Written by `configure` command
+- Checked via SSH: `test -f /etc/lightfold/configured && echo 'configured'`
+
+**Git Commit Tracking:**
+- `push` command compares current commit with `last_commit` in state
+- Skips deployment if commit unchanged (unless `--force`)
+- Updates state with new commit hash on successful deploy
+
+**Force Flags:**
+- `--force` on individual commands: Reruns that specific step
+- `--force` on `deploy`: Reruns all steps regardless of state
+
 ### Deployment Orchestrator Architecture
 
 **Provider-Agnostic Design:**
 
-The deployment orchestrator (`pkg/deploy/orchestrator.go`) is completely provider-agnostic. It uses the provider registry to instantiate the correct provider client at runtime.
+The deployment orchestrator (`pkg/deploy/orchestrator.go`) handles auto-provisioning for cloud providers. The deployment executor (`pkg/deploy/executor.go`) handles SSH-based deployment logic that works identically across all providers.
 
-**Deployment Flow:**
+**Provisioning Flow (orchestrator.go):**
 1. **Registry Lookup**: `provider := providers.GetProvider(config.Provider, token)`
 2. **Validation**: Provider validates credentials via its API
-3. **Provisioning** (if needed): Provider creates server, uploads SSH keys, configures cloud-init
-4. **SSH Deployment**: Provider-agnostic SSH-based deployment to server
-   - Framework detection
-   - Package installation
-   - Build execution
-   - Systemd + Nginx configuration
-   - Health checks and rollback
+3. **Provisioning**: Provider creates server, uploads SSH keys, configures cloud-init
+4. **Config Update**: Stores server IP, ID, and credentials in target config
+
+**Deployment Flow (executor.go):**
+1. **SSH Connection**: Connect using IP, username, SSH key from config
+2. **Release Creation**: Create timestamped directory `/srv/<app>/releases/<timestamp>/`
+3. **Upload & Build**: Upload tarball, extract, run build commands
+4. **Environment Setup**: Write `.env` file with user-provided variables
+5. **Blue/Green Deploy**: Swap symlink `/srv/<app>/current` with health checks
+6. **Auto Rollback**: Revert to previous release if health checks fail
+7. **Cleanup**: Keep last 5 releases, remove older ones
 
 **Key Insight**: Once a server has an IP, username, and SSH key, deployment is identical across all providers. Only the provisioning step is provider-specific.
 
 **Supported Providers:**
 - ✅ DigitalOcean (fully implemented)
 - ✅ Hetzner Cloud (proof-of-concept, stub implementation)
+- ✅ BYOS (Bring Your Own Server - no provisioning, just deployment)
 - 🔜 Linode, Fly.io, AWS EC2, Google Cloud, Azure (trivial to add)
-- ✅ S3 (static sites, no SSH deployment)
 
 ## Development Guidelines
 
@@ -345,85 +426,94 @@ func frameworkPlan(root string) ([]string, []string, map[string]any, []string) {
 }
 ```
 
-## TUI Development
+## Command Development Guidelines
 
-### Adding New Deployment Targets
+### Adding New Commands
 
-**For BYOS targets:**
+When adding new composable commands, follow these patterns:
 
-1. **Update steps configuration** in `cmd/steps/steps.go`:
-   ```go
-   "byos_target": {
-       StepName: "BYOS Target",
-       Options: []Item{
-           // existing options...
-           {
-               Title: "New Service",
-               Desc:  "Deploy to existing new service infrastructure",
-           },
-       },
-   }
-   ```
+**1. Check State First (Idempotency):**
+```go
+// Check local state
+if state.IsCreated(targetName) {
+    fmt.Printf("Target '%s' is already created.\n", targetName)
+    os.Exit(0)
+}
 
-2. **Add sequential flow** in `cmd/ui/sequential/flows.go`:
-   ```go
-   func CreateNewServiceFlow(projectName string) *FlowModel {
-       steps := []Step{
-           CreateIPStep("ip", "203.0.113.1"),
-           CreateSSHKeyStep("ssh_key"),
-           CreateUsernameStep("username", "deploy"),
-       }
-       return NewFlow("Configure New Service Deployment", steps)
-   }
-   ```
+// Or check remote marker
+result := sshExecutor.Execute("test -f /etc/lightfold/configured && echo 'configured'")
+if result.ExitCode == 0 && strings.TrimSpace(result.Stdout) == "configured" {
+    fmt.Println("Already configured. Use --force to reconfigure.")
+    os.Exit(0)
+}
+```
 
-**For Provision targets:**
+**2. Execute Operation:**
+```go
+// Perform the actual work
+if err := doWork(); err != nil {
+    fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+    os.Exit(1)
+}
+```
 
-1. **Update provision steps** in `cmd/steps/steps.go`:
-   ```go
-   "provision_target": {
-       Options: []Item{
-           // existing options...
-           {
-               Title: "New Service",
-               Desc:  "Auto-provision new service infrastructure",
-           },
-       },
-   }
-   ```
+**3. Update State:**
+```go
+// Update local state
+if err := state.MarkCreated(targetName, serverID); err != nil {
+    return fmt.Errorf("failed to update state: %w", err)
+}
 
-2. **Add provision flow** in `cmd/ui/sequential/flows.go`:
-   ```go
-   func RunProvisionNewServiceFlow(projectName string) (*config.NewServiceConfig, error) {
-       // Collect API credentials, configure auto-provisioning
-   }
-   ```
+// And/or write remote marker
+sshExecutor.Execute("echo 'created' | sudo tee /etc/lightfold/created > /dev/null")
+```
 
-3. **Update configuration handling** in `cmd/root.go`
+### Target-Based Config Pattern
+
+**Loading Config:**
+```go
+cfg, err := config.LoadConfig()
+target, exists := cfg.GetTarget(targetName)
+if !exists {
+    fmt.Printf("Target '%s' not found\n", targetName)
+    os.Exit(1)
+}
+```
+
+**Updating Config:**
+```go
+target.Provider = "digitalocean"
+target.SetProviderConfig("digitalocean", doConfig)
+cfg.SetTarget(targetName, target)
+cfg.SaveConfig()
+```
+
+### Command Composability
+
+Commands should be usable standalone or as part of the orchestrator:
+
+**Standalone Usage:**
+```bash
+lightfold create --target myapp --provider byos --ip 1.2.3.4 --ssh-key ~/.ssh/id_rsa
+lightfold configure --target myapp
+lightfold push --target myapp
+```
+
+**Orchestrated Usage:**
+```bash
+lightfold deploy --target myapp  # Runs create → configure → push with smart skipping
+```
 
 ### TUI Component Guidelines
 
-- **Keep it simple**: Use built-in bubbletea components when possible
-- **Consistent styling**: Use the established color scheme (#01FAC6 for primary/focus, 86/170 for highlights)
-- **Error handling**: Always provide clear error messages and graceful fallbacks
-- **Non-interactive fallback**: Ensure all TUI features work in CI/automation mode
-- **Terminal detection**: Check for proper TTY, TERM environment, and CI detection
-- **Graceful degradation**: Fall back to text-based output if TUI fails
-- **Enhanced visual feedback**: Use colorful gradient progress bars, spinners, and selection indicators
-- **Sequential flows**: Break complex configuration into manageable step-by-step processes
+TUI components are minimal and used only for interactive token collection:
 
-### Deployment Command Behavior
+- **Sequential flows** (`cmd/ui/sequential/`): Step-by-step forms for API tokens, regions, sizes
+- **Spinner** (`cmd/ui/spinner/`): Loading animations during detection
+- **Detection results** (`cmd/ui/detection/`): Framework detection display
+- **Progress bars** (`cmd/ui/progress.go`): Deployment progress visualization
 
-**Smart Project Detection:**
-- `lightfold deploy` - Auto-detects single configured project
-- `lightfold deploy <path>` - Deploys specific project
-- Shows helpful error messages with available projects list
-
-**Fallback Logic:**
-- Attempts TUI mode in interactive terminals
-- Falls back to non-interactive mode if TUI fails (e.g., TTY issues)
-- Respects `--no-interactive` flag
-- Detects CI environments automatically
+Most user interaction happens via CLI flags, not TUI prompts.
 
 ## Extension Points
 
@@ -451,15 +541,27 @@ func frameworkPlan(root string) ([]string, []string, map[string]any, []string) {
 - [ ] Edge case handling
 - [ ] Performance with large projects
 
-### CLI & TUI
-- [ ] CLI argument parsing
-- [ ] JSON vs interactive mode switching
-- [ ] TUI menu navigation
-- [ ] Form input validation
-- [ ] Configuration saving/loading
-- [ ] Deploy command functionality
-- [ ] Error message clarity
-- [ ] Non-interactive/CI mode compatibility
+### Composable Commands
+- [ ] `create` - BYOS and provision modes
+- [ ] `configure` - Idempotency and force flag
+- [ ] `push` - Git commit tracking, rollback
+- [ ] `deploy` - Step skipping, dry-run, force
+- [ ] `status` - Config, state, server status display
+- [ ] `config` - Token storage, target management
+
+### Idempotency
+- [ ] State file creation and updates
+- [ ] Remote marker checks (created, configured)
+- [ ] Git commit comparison
+- [ ] Force flag overrides
+- [ ] Orchestrator skip logic
+
+### Multi-Provider
+- [ ] DigitalOcean provisioning
+- [ ] Hetzner provisioning
+- [ ] BYOS (no provisioning)
+- [ ] Provider config serialization
+- [ ] SSH key generation and upload
 
 ### Testing Approach
 Our tests use **dynamic test project creation** instead of static fixtures:
@@ -485,9 +587,47 @@ This approach provides better test isolation and easier maintenance.
 - Avoid reading sensitive files outside project scope
 - Validate all user inputs (file paths, etc.)
 
+## Key Design Principles
+
+1. **Composable** - Each command works standalone and can be chained
+2. **Idempotent** - Safe to rerun without side effects, checks state before executing
+3. **Stateful** - Tracks progress locally and remotely, skips completed work
+4. **Provider-Agnostic** - Unified interface across clouds and BYOS
+5. **Release-Based** - Timestamped releases with blue/green deployment and rollback
+6. **Target-Based** - Named deployment targets, not path-based projects
+
+## Quick Reference
+
+**Command Flow:**
+```bash
+# Full deployment (orchestrated)
+lightfold deploy --target myapp
+
+# Individual steps (composable)
+lightfold create --target myapp --provider byos --ip 1.2.3.4 --ssh-key ~/.ssh/id_rsa
+lightfold configure --target myapp
+lightfold push --target myapp --env-file .env.production
+
+# Management
+lightfold status --target myapp
+lightfold config list
+lightfold config set-token digitalocean
+```
+
+**File Locations:**
+- Config: `~/.lightfold/config.json` (targets)
+- Tokens: `~/.lightfold/tokens.json` (API tokens, 0600)
+- State: `~/.lightfold/state/<target>.json` (per-target state)
+- SSH Keys: `~/.lightfold/keys/` (generated keypairs)
+- Remote markers: `/etc/lightfold/{created,configured}` (on server)
+- Releases: `/srv/<app>/releases/<timestamp>/` (on server)
+
 ## Notes & Considerations
 
-- Keep `README.md` straightforward, lean, and no-bs. Do not add excessive info there - only the most important information for the end user.
-
+- Keep `README.md` straightforward, lean, and no-bs. Only the most important information for the end user.
+- All commands use `--target` flag to reference named targets, not paths
+- State tracking is dual: local JSON files + remote markers on servers
+- Idempotency is critical - commands check state first, then execute, then update state
+- The orchestrator (`deploy`) is just a wrapper that calls other commands with skip logic
 
 This context should help you understand the codebase structure, patterns, and development practices for contributing effectively to Lightfold CLI.

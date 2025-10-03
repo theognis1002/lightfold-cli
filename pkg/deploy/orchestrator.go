@@ -35,22 +35,22 @@ type ProgressCallback func(step DeploymentStep)
 
 // Orchestrator manages the deployment process
 type Orchestrator struct {
-	config           config.ProjectConfig
+	config           config.TargetConfig
 	projectPath      string
 	projectName      string
 	tokens           *config.TokenConfig
 	progressCallback ProgressCallback
 }
 
-// NewOrchestrator creates a new deployment orchestrator
-func NewOrchestrator(projectConfig config.ProjectConfig, projectPath, projectName string) (*Orchestrator, error) {
+// GetOrchestrator creates a new deployment orchestrator
+func GetOrchestrator(targetConfig config.TargetConfig, projectPath, projectName string) (*Orchestrator, error) {
 	tokens, err := config.LoadTokens()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load tokens: %w", err)
 	}
 
 	return &Orchestrator{
-		config:      projectConfig,
+		config:      targetConfig,
 		projectPath: projectPath,
 		projectName: projectName,
 		tokens:      tokens,
@@ -62,19 +62,15 @@ func (o *Orchestrator) SetProgressCallback(callback ProgressCallback) {
 	o.progressCallback = callback
 }
 
-// Deploy executes the deployment
 func (o *Orchestrator) Deploy(ctx context.Context) (*DeploymentResult, error) {
-	// Validate provider is registered
 	if !providers.IsRegistered(o.config.Provider) {
 		return nil, fmt.Errorf("unknown provider: %s", o.config.Provider)
 	}
 
-	// Check if server is already provisioned to prevent duplicates
 	if err := o.checkExistingServer(); err != nil {
 		return nil, err
 	}
 
-	// Get provider-specific config
 	return o.deployWithProvider(ctx)
 }
 
@@ -193,7 +189,6 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		return nil, fmt.Errorf("unsupported provider for provisioning: %s", o.config.Provider)
 	}
 
-	// Step 3: Load SSH public key
 	o.notifyProgress(DeploymentStep{
 		Name:        "load_ssh_key",
 		Description: "Loading SSH key...",
@@ -206,7 +201,6 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		return nil, fmt.Errorf("failed to load public key: %w", err)
 	}
 
-	// Step 4: Upload SSH key to provider
 	o.notifyProgress(DeploymentStep{
 		Name:        "upload_ssh_key",
 		Description: fmt.Sprintf("Uploading SSH key to %s...", client.DisplayName()),
@@ -222,7 +216,6 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		return nil, fmt.Errorf("failed to upload SSH key: %w", err)
 	}
 
-	// Step 5: Generate cloud-init user data
 	o.notifyProgress(DeploymentStep{
 		Name:        "generate_cloudinit",
 		Description: "Generating cloud-init configuration...",
@@ -234,7 +227,6 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		return nil, fmt.Errorf("failed to generate cloud-init: %w", err)
 	}
 
-	// Step 6: Provision server
 	o.notifyProgress(DeploymentStep{
 		Name:        "create_server",
 		Description: fmt.Sprintf("Creating %s server...", client.DisplayName()),
@@ -258,7 +250,6 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		return nil, fmt.Errorf("failed to provision server: %w", err)
 	}
 
-	// Step 7: Wait for server to become active
 	o.notifyProgress(DeploymentStep{
 		Name:        "wait_active",
 		Description: fmt.Sprintf("Waiting for server %s to become active...", server.ID),
@@ -270,7 +261,6 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		return nil, fmt.Errorf("failed waiting for server: %w", err)
 	}
 
-	// Step 8: Update configuration with server IP and ID
 	o.notifyProgress(DeploymentStep{
 		Name:        "update_config",
 		Description: "Updating configuration with server details...",
@@ -289,20 +279,7 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		hetznerConfig.ServerID = server.ID
 		o.config.SetProviderConfig("hetzner", hetznerConfig)
 	}
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		return nil, fmt.Errorf("failed to load config: %w", err)
-	}
 
-	if err := cfg.SetProject(o.projectPath, o.config); err != nil {
-		return nil, fmt.Errorf("failed to update project config: %w", err)
-	}
-
-	if err := cfg.SaveConfig(); err != nil {
-		return nil, fmt.Errorf("failed to save config: %w", err)
-	}
-
-	// Step 9: Complete
 	o.notifyProgress(DeploymentStep{
 		Name:        "complete",
 		Description: "Provisioning complete!",
@@ -317,7 +294,6 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 }
 
 func (o *Orchestrator) deployS3(ctx context.Context) (*DeploymentResult, error) {
-	// TODO: Implement S3 deployment
 	return &DeploymentResult{
 		Success: false,
 		Message: "S3 deployment not yet implemented",
@@ -325,14 +301,11 @@ func (o *Orchestrator) deployS3(ctx context.Context) (*DeploymentResult, error) 
 	}, nil
 }
 
-// ConfigureServer performs the full VM configuration (package install, build, systemd, nginx, deploy)
-// This is used by both Deploy and Configure commands to avoid duplication
 func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.ProviderConfig) (*DeploymentResult, error) {
 	result := &DeploymentResult{
 		Steps: []DeploymentStep{},
 	}
 
-	// Step 1: Run detection to get build/run plans
 	o.notifyProgress(DeploymentStep{
 		Name:        "detect_framework",
 		Description: "Detecting framework configuration...",
@@ -341,7 +314,6 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 
 	detection := detector.DetectFramework(o.projectPath)
 
-	// Step 2: Connect to server via SSH
 	o.notifyProgress(DeploymentStep{
 		Name:        "connect_ssh",
 		Description: fmt.Sprintf("Connecting to server at %s...", providerCfg.GetIP()),
@@ -351,9 +323,12 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 	sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
 	defer sshExecutor.Disconnect()
 
+	if err := sshExecutor.Connect(3, 5*time.Second); err != nil {
+		return nil, fmt.Errorf("failed to connect to SSH server: %w", err)
+	}
+
 	executor := NewExecutor(sshExecutor, o.projectName, o.projectPath, &detection)
 
-	// Step 3: Install base packages
 	o.notifyProgress(DeploymentStep{
 		Name:        "install_packages",
 		Description: "Installing system packages and runtimes...",
@@ -364,7 +339,6 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		return nil, fmt.Errorf("failed to install packages: %w", err)
 	}
 
-	// Step 4: Setup directory structure
 	o.notifyProgress(DeploymentStep{
 		Name:        "setup_directories",
 		Description: "Setting up deployment directories...",
@@ -375,7 +349,6 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		return nil, fmt.Errorf("failed to setup directories: %w", err)
 	}
 
-	// Step 5: Create and upload release tarball
 	o.notifyProgress(DeploymentStep{
 		Name:        "create_tarball",
 		Description: "Creating release tarball...",
@@ -412,7 +385,6 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		}
 	}
 
-	// Step 7: Write environment variables
 	o.notifyProgress(DeploymentStep{
 		Name:        "write_env",
 		Description: "Configuring environment variables...",
@@ -428,7 +400,6 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		return nil, fmt.Errorf("failed to write environment: %w", err)
 	}
 
-	// Step 8: Configure systemd service
 	o.notifyProgress(DeploymentStep{
 		Name:        "configure_service",
 		Description: "Configuring systemd service...",
@@ -443,7 +414,6 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		return nil, fmt.Errorf("failed to enable service: %w", err)
 	}
 
-	// Step 9: Configure nginx
 	o.notifyProgress(DeploymentStep{
 		Name:        "configure_nginx",
 		Description: "Configuring nginx reverse proxy...",
@@ -462,7 +432,6 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		return nil, fmt.Errorf("failed to reload nginx: %w", err)
 	}
 
-	// Step 10: Deploy with health check
 	o.notifyProgress(DeploymentStep{
 		Name:        "deploy_app",
 		Description: "Deploying application with health check...",
@@ -473,7 +442,6 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		return nil, fmt.Errorf("deployment failed: %w", err)
 	}
 
-	// Step 11: Cleanup old releases
 	o.notifyProgress(DeploymentStep{
 		Name:        "cleanup",
 		Description: "Cleaning up old releases...",
@@ -484,7 +452,6 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		fmt.Printf("Warning: failed to cleanup old releases: %v\n", err)
 	}
 
-	// Step 12: Complete
 	o.notifyProgress(DeploymentStep{
 		Name:        "complete",
 		Description: "Configuration complete!",

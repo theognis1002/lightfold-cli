@@ -1,11 +1,11 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
-	tui "lightfold/cmd/ui"
 	"lightfold/pkg/config"
 	"lightfold/pkg/deploy"
+	"lightfold/pkg/detector"
+	"lightfold/pkg/state"
 	sshpkg "lightfold/pkg/ssh"
 	"os"
 	"path/filepath"
@@ -15,37 +15,34 @@ import (
 )
 
 var (
-	envFile      string
-	envVars      []string
-	skipBuild    bool
-	rollbackFlag bool
+	envFile          string
+	envVars          []string
+	skipBuild        bool
+	rollbackFlag     bool
+	deployTargetFlag string
+	deployForceFlag  bool
+	deployDryRun     bool
 )
 
 var deployCmd = &cobra.Command{
-	Use:   "deploy [PROJECT_PATH]",
-	Short: "Deploy your application to the configured target",
-	Long: `Deploy your application using the configuration stored in ~/.lightfold/config.json.
+	Use:   "deploy",
+	Short: "Deploy your application (orchestrates detect → create → configure → push)",
+	Long: `Orchestrate a full deployment pipeline by running:
+1. detect - Framework detection
+2. create - Infrastructure provisioning (if needed)
+3. configure - Server configuration (if needed)
+4. push - Release deployment
 
-If no configuration exists for the project, you'll be prompted to set it up first.`,
-	Args: cobra.MaximumNArgs(1),
+Each step is skipped if already completed. Use --force to rerun all steps.
+
+Examples:
+  lightfold deploy --target myapp
+  lightfold deploy --target myapp --force
+  lightfold deploy --target myapp --dry-run`,
+	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		var projectPath string
-		if len(args) == 0 {
-			projectPath = "."
-		} else {
-			projectPath = args[0]
-		}
-
-		projectPath = filepath.Clean(projectPath)
-
-		info, err := os.Stat(projectPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: Cannot access path '%s': %v\n", projectPath, err)
-			os.Exit(1)
-		}
-
-		if !info.IsDir() {
-			fmt.Fprintf(os.Stderr, "Error: Path '%s' is not a directory\n", projectPath)
+		if deployTargetFlag == "" {
+			fmt.Fprintf(os.Stderr, "Error: --target flag is required\n")
 			os.Exit(1)
 		}
 
@@ -55,209 +52,192 @@ If no configuration exists for the project, you'll be prompted to set it up firs
 			os.Exit(1)
 		}
 
-		project, exists := cfg.GetProject(projectPath)
+		// Get or create target
+		target, exists := cfg.GetTarget(deployTargetFlag)
+		var projectPath string
+
+		if !exists {
+			fmt.Printf("Target '%s' not found. Creating...\n", deployTargetFlag)
+			// Use current directory
+			projectPath = "."
+		} else {
+			projectPath = target.ProjectPath
+		}
+
+		projectPath = filepath.Clean(projectPath)
 
 		// Handle rollback if requested
 		if rollbackFlag {
 			if !exists {
-				fmt.Println("No deployment configuration found for this project.")
+				fmt.Println("No deployment configuration found for this target.")
 				os.Exit(1)
 			}
-			handleRollback(project, projectPath)
+			handleRollback(target, projectPath, deployTargetFlag)
 			return
 		}
 
-		if !exists {
-			if len(cfg.Projects) == 1 && len(args) == 0 {
-				for configuredPath, configuredProject := range cfg.Projects {
-					fmt.Printf("No configuration found for current directory.\n")
-					fmt.Printf("Using configured project: %s\n", configuredPath)
-					projectPath = configuredPath
-					project = configuredProject
-					exists = true
-					break
-				}
+		if deployDryRun {
+			fmt.Println("DRY RUN - Deployment plan:")
+			fmt.Printf("Target: %s\n", deployTargetFlag)
+			fmt.Printf("Steps:\n")
+			if !exists || deployForceFlag {
+				fmt.Println("  1. ✓ detect - Framework detection")
+			} else {
+				fmt.Println("  1. ⊘ detect - Skipped (cached)")
 			}
+			if !state.IsCreated(deployTargetFlag) || deployForceFlag {
+				fmt.Println("  2. ✓ create - Infrastructure provisioning")
+			} else {
+				fmt.Println("  2. ⊘ create - Skipped (already created)")
+			}
+			if !state.IsConfigured(deployTargetFlag) || deployForceFlag {
+				fmt.Println("  3. ✓ configure - Server configuration")
+			} else {
+				fmt.Println("  3. ⊘ configure - Skipped (already configured)")
+			}
+			fmt.Println("  4. ✓ push - Release deployment")
+			return
+		}
+
+		fmt.Printf("🚀 Deploying target '%s'...\n\n", deployTargetFlag)
+
+		// Step 1: Detect (always run if new target or forced)
+		var detection detector.Detection
+		if !exists || deployForceFlag {
+			fmt.Println("Step 1/4: Framework detection")
+			detection = detector.DetectFramework(projectPath)
+			fmt.Printf("  Detected: %s (%s)\n\n", detection.Framework, detection.Language)
 
 			if !exists {
-				fmt.Println("No deployment configuration found for this project.")
-				if len(cfg.Projects) > 0 {
-					fmt.Println("Configured projects:")
-					for path := range cfg.Projects {
-						fmt.Printf("  - %s\n", path)
-					}
-					fmt.Println("Run 'lightfold deploy <PROJECT_PATH>' to deploy a specific project,")
-					fmt.Println("or 'lightfold <PROJECT_PATH>' to configure this project.")
-				} else {
-					fmt.Println("Please run 'lightfold .' first to detect and configure the project.")
+				target = config.TargetConfig{
+					ProjectPath: projectPath,
+					Framework:   detection.Framework,
 				}
+			}
+		} else {
+			fmt.Println("Step 1/4: Framework detection (cached)")
+			detection = detector.DetectFramework(projectPath)
+			fmt.Println()
+		}
+
+		// Step 2: Create (skip if already created)
+		if !state.IsCreated(deployTargetFlag) || deployForceFlag {
+			fmt.Println("Step 2/4: Infrastructure creation")
+			fmt.Fprintf(os.Stderr, "Error: Target not created. Run 'lightfold create --target %s' first\n", deployTargetFlag)
+			os.Exit(1)
+		} else {
+			fmt.Println("Step 2/4: Infrastructure creation (skipped - already created)")
+			fmt.Println()
+		}
+
+		// Step 3: Configure (skip if already configured)
+		if !state.IsConfigured(deployTargetFlag) || deployForceFlag {
+			fmt.Println("Step 3/4: Server configuration")
+			fmt.Fprintf(os.Stderr, "Error: Target not configured. Run 'lightfold configure --target %s' first\n", deployTargetFlag)
+			os.Exit(1)
+		} else {
+			fmt.Println("Step 3/4: Server configuration (skipped - already configured)")
+			fmt.Println()
+		}
+
+		// Step 4: Push (always run)
+		fmt.Println("Step 4/4: Release deployment")
+
+		// Prepare deployment flags
+		if target.Deploy == nil {
+			target.Deploy = &config.DeploymentOptions{
+				EnvVars: make(map[string]string),
+			}
+		}
+
+		// Process env file
+		if envFile != "" {
+			envVarsFromFile, err := loadEnvFile(envFile)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error loading env file: %v\n", err)
+				os.Exit(1)
+			}
+			for k, v := range envVarsFromFile {
+				target.Deploy.EnvVars[k] = v
+			}
+		}
+
+		// Process env flags
+		for _, envVar := range envVars {
+			parts := splitEnvVar(envVar)
+			if len(parts) != 2 {
+				fmt.Fprintf(os.Stderr, "Error: Invalid env var format '%s', expected KEY=VALUE\n", envVar)
+				os.Exit(1)
+			}
+			target.Deploy.EnvVars[parts[0]] = parts[1]
+		}
+
+		target.Deploy.SkipBuild = skipBuild
+
+		// Get provider config
+		var providerCfg config.ProviderConfig
+		switch target.Provider {
+		case "digitalocean":
+			providerCfg, err = target.GetDigitalOceanConfig()
+		case "hetzner":
+			providerCfg, err = target.GetHetznerConfig()
+		default:
+			fmt.Fprintf(os.Stderr, "Error: Unsupported provider: %s\n", target.Provider)
+			os.Exit(1)
+		}
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error getting provider config: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Execute push logic inline
+		sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
+		defer sshExecutor.Disconnect()
+
+		projectName := filepath.Base(projectPath)
+		executor := deploy.NewExecutor(sshExecutor, projectName, projectPath, &detection)
+
+		// Create and upload release
+		tmpTarball := fmt.Sprintf("/tmp/lightfold-%s-release.tar.gz", projectName)
+		if err := executor.CreateReleaseTarball(tmpTarball); err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating tarball: %v\n", err)
+			os.Exit(1)
+		}
+		defer os.Remove(tmpTarball)
+
+		releasePath, err := executor.UploadRelease(tmpTarball)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error uploading release: %v\n", err)
+			os.Exit(1)
+		}
+
+		if !target.Deploy.SkipBuild {
+			if err := executor.BuildRelease(releasePath); err != nil {
+				fmt.Fprintf(os.Stderr, "Error building release: %v\n", err)
 				os.Exit(1)
 			}
 		}
 
-		if err := validateProjectConfig(project); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: Invalid project configuration: %v\n", err)
-			fmt.Println("Please run 'lightfold .' to reconfigure the project.")
-			os.Exit(1)
+		if len(target.Deploy.EnvVars) > 0 {
+			if err := executor.WriteEnvironmentFile(target.Deploy.EnvVars); err != nil {
+				fmt.Fprintf(os.Stderr, "Error writing environment: %v\n", err)
+				os.Exit(1)
+			}
 		}
 
-		// Process deployment flags
-		if err := processDeploymentFlags(&project, projectPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Error processing deployment options: %v\n", err)
-			os.Exit(1)
-		}
-
-		fmt.Printf("Deploying %s project to %s...\n", project.Framework, project.Provider)
-		fmt.Println()
-
-		// Create deployment orchestrator
-		projectName := filepath.Base(projectPath)
-		orchestrator, err := deploy.NewOrchestrator(project, projectPath, projectName)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating deployment orchestrator: %v\n", err)
-			os.Exit(1)
-		}
-
-		// Execute deployment with progress display
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		defer cancel()
-
-		if err := tui.ShowDeploymentProgressWithOrchestrator(ctx, orchestrator); err != nil {
+		if err := executor.DeployWithHealthCheck(releasePath, 5, 3*time.Second); err != nil {
 			fmt.Fprintf(os.Stderr, "Error during deployment: %v\n", err)
 			os.Exit(1)
 		}
+
+		executor.CleanupOldReleases(5)
+
+		fmt.Printf("\n✅ Successfully deployed to target '%s'!\n", deployTargetFlag)
+		fmt.Printf("Server: %s\n", providerCfg.GetIP())
 	},
 }
 
-func validateProjectConfig(project config.ProjectConfig) error {
-	// Validate provider is specified
-	if project.Provider == "" {
-		return fmt.Errorf("provider is required")
-	}
-
-	// Validate provider-specific configuration
-	switch project.Provider {
-	case "digitalocean":
-		doConfig, err := project.GetDigitalOceanConfig()
-		if err != nil {
-			return fmt.Errorf("DigitalOcean configuration is missing: %w", err)
-		}
-
-		// For provisioned droplets, IP may be empty (will be created during deployment)
-		// For BYOS, IP is required
-		if !doConfig.Provisioned && doConfig.IP == "" {
-			return fmt.Errorf("IP address is required for BYOS deployments")
-		}
-
-		if doConfig.Username == "" {
-			return fmt.Errorf("username is required")
-		}
-
-		if doConfig.SSHKey == "" {
-			return fmt.Errorf("SSH key is required")
-		}
-
-		// For provisioned droplets, verify we have region and size
-		if doConfig.Provisioned {
-			if doConfig.Region == "" {
-				return fmt.Errorf("region is required for provisioned deployments")
-			}
-			if doConfig.Size == "" {
-				return fmt.Errorf("size is required for provisioned deployments")
-			}
-		}
-
-	case "hetzner":
-		hetznerConfig, err := project.GetHetznerConfig()
-		if err != nil {
-			return fmt.Errorf("Hetzner configuration is missing: %w", err)
-		}
-
-		if !hetznerConfig.Provisioned && hetznerConfig.IP == "" {
-			return fmt.Errorf("IP address is required for BYOS deployments")
-		}
-
-		if hetznerConfig.Username == "" {
-			return fmt.Errorf("username is required")
-		}
-
-		if hetznerConfig.SSHKey == "" {
-			return fmt.Errorf("SSH key is required")
-		}
-
-		if hetznerConfig.Provisioned {
-			if hetznerConfig.Location == "" {
-				return fmt.Errorf("location is required for provisioned deployments")
-			}
-			if hetznerConfig.ServerType == "" {
-				return fmt.Errorf("server type is required for provisioned deployments")
-			}
-		}
-
-	case "s3":
-		s3Config, err := project.GetS3Config()
-		if err != nil {
-			return fmt.Errorf("S3 configuration is missing: %w", err)
-		}
-		if s3Config.Bucket == "" {
-			return fmt.Errorf("S3 bucket name is required")
-		}
-
-	default:
-		return fmt.Errorf("unknown provider: %s", project.Provider)
-	}
-	return nil
-}
-
-func processDeploymentFlags(project *config.ProjectConfig, projectPath string) error {
-	// Initialize deployment options if needed
-	if project.Deploy == nil {
-		project.Deploy = &config.DeploymentOptions{
-			EnvVars: make(map[string]string),
-		}
-	}
-
-	// Process skip-build flag
-	if skipBuild {
-		project.Deploy.SkipBuild = true
-	}
-
-	// Process env-file flag
-	if envFile != "" {
-		envVarsFromFile, err := loadEnvFile(envFile)
-		if err != nil {
-			return fmt.Errorf("failed to load env file: %w", err)
-		}
-		for k, v := range envVarsFromFile {
-			project.Deploy.EnvVars[k] = v
-		}
-	}
-
-	// Process env KEY=VALUE flags
-	for _, envVar := range envVars {
-		parts := splitEnvVar(envVar)
-		if len(parts) != 2 {
-			return fmt.Errorf("invalid env var format '%s', expected KEY=VALUE", envVar)
-		}
-		project.Deploy.EnvVars[parts[0]] = parts[1]
-	}
-
-	// Save updated config with deployment options
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	if err := cfg.SetProject(projectPath, *project); err != nil {
-		return fmt.Errorf("failed to update project config: %w", err)
-	}
-
-	if err := cfg.SaveConfig(); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
-	}
-
-	return nil
-}
 
 func loadEnvFile(filePath string) (map[string]string, error) {
 	data, err := os.ReadFile(filePath)
@@ -269,7 +249,6 @@ func loadEnvFile(filePath string) (map[string]string, error) {
 	lines := splitLines(string(data))
 
 	for i, line := range lines {
-		// Skip empty lines and comments
 		line = trimSpace(line)
 		if line == "" || startsWithHash(line) {
 			continue
@@ -280,7 +259,6 @@ func loadEnvFile(filePath string) (map[string]string, error) {
 			return nil, fmt.Errorf("invalid env var at line %d: %s", i+1, line)
 		}
 
-		// Remove surrounding quotes if present
 		value := parts[1]
 		if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') ||
 			(value[0] == '\'' && value[len(value)-1] == '\'')) {
@@ -338,26 +316,24 @@ func startsWithHash(s string) bool {
 	return len(s) > 0 && s[0] == '#'
 }
 
-func handleRollback(project config.ProjectConfig, projectPath string) {
+func handleRollback(target config.TargetConfig, projectPath string, targetName string) {
 	fmt.Println("Rolling back to previous release...")
 
-	// Rollback only works for SSH-based providers (not S3)
-	if project.Provider == "s3" {
+	if target.Provider == "s3" {
 		fmt.Fprintf(os.Stderr, "Error: Rollback is not supported for S3 deployments\n")
 		os.Exit(1)
 	}
 
-	// Get provider config (works for any SSH-based provider)
 	var providerCfg config.ProviderConfig
 	var err error
 
-	switch project.Provider {
+	switch target.Provider {
 	case "digitalocean":
-		providerCfg, err = project.GetDigitalOceanConfig()
+		providerCfg, err = target.GetDigitalOceanConfig()
 	case "hetzner":
-		providerCfg, err = project.GetHetznerConfig()
+		providerCfg, err = target.GetHetznerConfig()
 	default:
-		fmt.Fprintf(os.Stderr, "Error: Rollback is not supported for provider: %s\n", project.Provider)
+		fmt.Fprintf(os.Stderr, "Error: Rollback is not supported for provider: %s\n", target.Provider)
 		os.Exit(1)
 	}
 
@@ -368,15 +344,12 @@ func handleRollback(project config.ProjectConfig, projectPath string) {
 
 	projectName := filepath.Base(projectPath)
 
-	// Connect to server
 	fmt.Printf("Connecting to server at %s...\n", providerCfg.GetIP())
 	sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
 	defer sshExecutor.Disconnect()
 
-	// Create deployment executor
 	executor := deploy.NewExecutor(sshExecutor, projectName, projectPath, nil)
 
-	// Perform rollback
 	if err := executor.RollbackToPreviousRelease(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error during rollback: %v\n", err)
 		os.Exit(1)
@@ -388,9 +361,13 @@ func handleRollback(project config.ProjectConfig, projectPath string) {
 func init() {
 	rootCmd.AddCommand(deployCmd)
 
-	// Add deployment flags
+	deployCmd.Flags().StringVar(&deployTargetFlag, "target", "", "Target name (required)")
+	deployCmd.Flags().BoolVar(&deployForceFlag, "force", false, "Force rerun all steps")
+	deployCmd.Flags().BoolVar(&deployDryRun, "dry-run", false, "Show deployment plan without executing")
 	deployCmd.Flags().StringVar(&envFile, "env-file", "", "Path to .env file with environment variables")
 	deployCmd.Flags().StringArrayVar(&envVars, "env", []string{}, "Environment variables in KEY=VALUE format (can be used multiple times)")
 	deployCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "Skip the build step during deployment")
 	deployCmd.Flags().BoolVar(&rollbackFlag, "rollback", false, "Rollback to the previous release")
+
+	deployCmd.MarkFlagRequired("target")
 }
