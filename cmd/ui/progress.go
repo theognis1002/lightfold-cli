@@ -3,10 +3,12 @@ package tui
 import (
 	"context"
 	"fmt"
+	"lightfold/pkg/config"
 	"lightfold/pkg/deploy"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -23,6 +25,7 @@ type progressModel struct {
 	ctx           context.Context
 	err           error
 	program       *tea.Program
+	spinner       spinner.Model
 }
 
 type stepHistoryItem struct {
@@ -54,11 +57,15 @@ type deployResultMsg struct {
 func (m progressModel) Init() tea.Cmd {
 	if m.orchestrator != nil {
 		// Use real deployment with orchestrator
-		return m.startDeployment()
+		return tea.Batch(
+			m.startDeployment(),
+			m.spinner.Tick,
+		)
 	}
 	// Fallback to mock progress
 	return tea.Batch(
 		m.startProgress(),
+		m.spinner.Tick,
 		tea.Tick(time.Second, func(t time.Time) tea.Msg {
 			return countdownMsg{seconds: m.countdownSecs - 1}
 		}),
@@ -72,6 +79,11 @@ func (m progressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c", "q":
 			return m, tea.Quit
 		}
+
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
 
 	case stepUpdateMsg:
 		// Update progress
@@ -157,6 +169,9 @@ func (m progressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m progressModel) View() string {
 	var s strings.Builder
 
+	// Add spacing at top so output isn't at the very top of terminal
+	s.WriteString("\n")
+
 	// Header
 	if !m.completed {
 		headerStyle := lipgloss.NewStyle().
@@ -200,7 +215,8 @@ func (m progressModel) View() string {
 				icon = "✓"
 				style = successStyle
 			case "in_progress":
-				icon = "⋯"
+				// Show animated spinner for in-progress steps
+				icon = m.spinner.View()
 				style = inProgressStyle
 			case "error":
 				icon = "✗"
@@ -296,27 +312,39 @@ func (m progressModel) startDeployment() tea.Cmd {
 }
 
 func ShowDeploymentProgress() error {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
+
 	m := progressModel{
 		progress:    0,
 		maxProgress: 100,
 		width:       60,
+		spinner:     s,
 	}
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	// Don't use tea.WithAltScreen() so output persists after exit
+	p := tea.NewProgram(m)
 	_, err := p.Run()
 	return err
 }
 
 func ShowDeploymentProgressWithOrchestrator(ctx context.Context, orchestrator *deploy.Orchestrator) error {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
+
 	m := progressModel{
 		progress:     0,
 		maxProgress:  100,
 		width:        60,
 		orchestrator: orchestrator,
 		ctx:          ctx,
+		spinner:      s,
 	}
 
-	p := tea.NewProgram(m, tea.WithAltScreen())
+	// Don't use tea.WithAltScreen() so output persists after exit
+	p := tea.NewProgram(m)
 	m.program = p
 
 	// Set progress callback on orchestrator to send updates to the UI
@@ -332,6 +360,51 @@ func ShowDeploymentProgressWithOrchestrator(ctx context.Context, orchestrator *d
 	}
 
 	// Check for deployment errors
+	if final, ok := finalModel.(progressModel); ok && final.err != nil {
+		return final.err
+	}
+
+	return nil
+}
+
+// ShowConfigurationProgressWithOrchestrator shows progress for VM configuration
+func ShowConfigurationProgressWithOrchestrator(ctx context.Context, orchestrator *deploy.Orchestrator, providerCfg config.ProviderConfig) error {
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
+
+	m := progressModel{
+		progress:     0,
+		maxProgress:  100,
+		width:        60,
+		orchestrator: orchestrator,
+		ctx:          ctx,
+		spinner:      s,
+	}
+
+	// Don't use tea.WithAltScreen() so output persists after exit
+	p := tea.NewProgram(m)
+	m.program = p
+
+	// Set progress callback on orchestrator to send updates to the UI
+	orchestrator.SetProgressCallback(func(step deploy.DeploymentStep) {
+		if p != nil {
+			p.Send(stepUpdateMsg{step: step})
+		}
+	})
+
+	// Start configuration in background
+	go func() {
+		result, err := orchestrator.ConfigureServer(ctx, providerCfg)
+		p.Send(deployResultMsg{result: result, err: err})
+	}()
+
+	finalModel, err := p.Run()
+	if err != nil {
+		return err
+	}
+
+	// Check for configuration errors
 	if final, ok := finalModel.(progressModel); ok && final.err != nil {
 		return final.err
 	}
