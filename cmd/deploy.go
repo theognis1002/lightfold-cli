@@ -54,11 +54,7 @@ Examples:
 			os.Exit(1)
 		}
 
-		cfg, err := config.LoadConfig()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
-			os.Exit(1)
-		}
+		cfg := loadConfigOrExit()
 
 		target, exists := cfg.GetTarget(deployTargetFlag)
 		var projectPath string
@@ -149,33 +145,11 @@ Examples:
 
 		fmt.Printf("%s\n", deployStepStyle.Render("Step 4/4: Release deployment"))
 
-		if target.Deploy == nil {
-			target.Deploy = &config.DeploymentOptions{
-				EnvVars: make(map[string]string),
-			}
+		// Process deployment options
+		if err := target.ProcessDeploymentOptions(envFile, envVars, skipBuild); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
 		}
-
-		if envFile != "" {
-			envVarsFromFile, err := loadEnvFile(envFile)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error loading env file: %v\n", err)
-				os.Exit(1)
-			}
-			for k, v := range envVarsFromFile {
-				target.Deploy.EnvVars[k] = v
-			}
-		}
-
-		for _, envVar := range envVars {
-			parts := splitEnvVar(envVar)
-			if len(parts) != 2 {
-				fmt.Fprintf(os.Stderr, "Error: Invalid env var format '%s', expected KEY=VALUE\n", envVar)
-				os.Exit(1)
-			}
-			target.Deploy.EnvVars[parts[0]] = parts[1]
-		}
-
-		target.Deploy.SkipBuild = skipBuild
 
 		sshProviderCfg, err := target.GetSSHProviderConfig()
 		if err != nil {
@@ -253,83 +227,6 @@ Examples:
 		fmt.Printf("  %s %s\n", deployMutedStyle.Render("Release:"), deployValueStyle.Render(releaseTimestamp))
 		fmt.Printf("%s\n", deploySuccessStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 	},
-}
-
-func loadEnvFile(filePath string) (map[string]string, error) {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
-	}
-
-	envVars := make(map[string]string)
-	lines := splitLines(string(data))
-
-	for i, line := range lines {
-		line = trimSpace(line)
-		if line == "" || startsWithHash(line) {
-			continue
-		}
-
-		parts := splitEnvVar(line)
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid env var at line %d: %s", i+1, line)
-		}
-
-		value := parts[1]
-		if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') ||
-			(value[0] == '\'' && value[len(value)-1] == '\'')) {
-			value = value[1 : len(value)-1]
-		}
-
-		envVars[parts[0]] = value
-	}
-
-	return envVars, nil
-}
-
-func splitEnvVar(s string) []string {
-	idx := -1
-	for i, c := range s {
-		if c == '=' {
-			idx = i
-			break
-		}
-	}
-	if idx == -1 {
-		return []string{s}
-	}
-	return []string{s[:idx], s[idx+1:]}
-}
-
-func splitLines(s string) []string {
-	var lines []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			lines = append(lines, s[start:i])
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		lines = append(lines, s[start:])
-	}
-	return lines
-}
-
-func trimSpace(s string) string {
-	start := 0
-	end := len(s)
-	for start < end && (s[start] == ' ' || s[start] == '\t' || s[start] == '\r' || s[start] == '\n') {
-		start++
-	}
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\r' || s[end-1] == '\n') {
-		end--
-	}
-	return s[start:end]
-}
-
-func startsWithHash(s string) bool {
-	return len(s) > 0 && s[0] == '#'
 }
 
 func handleRollback(target config.TargetConfig, projectPath string) {

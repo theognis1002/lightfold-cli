@@ -7,6 +7,7 @@ import (
 	"lightfold/pkg/detector"
 	"lightfold/pkg/state"
 	sshpkg "lightfold/pkg/ssh"
+	"lightfold/pkg/util"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,35 +51,21 @@ Examples:
 			projectPath = args[0]
 		}
 
-		projectPath = filepath.Clean(projectPath)
-
-		info, err := os.Stat(projectPath)
+		// Validate project path
+		var err error
+		projectPath, err = util.ValidateProjectPath(projectPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: Cannot access path '%s': %v\n", projectPath, err)
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
 
-		if !info.IsDir() {
-			fmt.Fprintf(os.Stderr, "Error: Path '%s' is not a directory\n", projectPath)
-			os.Exit(1)
-		}
-
-		cfg, err := config.LoadConfig()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
-			os.Exit(1)
-		}
+		cfg := loadConfigOrExit()
 
 		var target config.TargetConfig
 		var targetNameResolved string
 
 		if pushTargetFlag != "" {
-			var exists bool
-			target, exists = cfg.GetTarget(pushTargetFlag)
-			if !exists {
-				fmt.Fprintf(os.Stderr, "Error: Target '%s' not found\n", pushTargetFlag)
-				os.Exit(1)
-			}
+			target = loadTargetOrExit(cfg, pushTargetFlag)
 			targetNameResolved = pushTargetFlag
 		} else {
 			var exists bool
@@ -118,33 +105,11 @@ Examples:
 			os.Exit(0)
 		}
 
-		if target.Deploy == nil {
-			target.Deploy = &config.DeploymentOptions{
-				EnvVars: make(map[string]string),
-			}
+		// Process deployment options
+		if err := target.ProcessDeploymentOptions(pushEnvFile, pushEnvVars, pushSkipBuild); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
 		}
-
-		if pushEnvFile != "" {
-			envVarsFromFile, err := loadEnvFile(pushEnvFile)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error loading env file: %v\n", err)
-				os.Exit(1)
-			}
-			for k, v := range envVarsFromFile {
-				target.Deploy.EnvVars[k] = v
-			}
-		}
-
-		for _, envVar := range pushEnvVars {
-			parts := splitEnvVar(envVar)
-			if len(parts) != 2 {
-				fmt.Fprintf(os.Stderr, "Error: Invalid env var format '%s', expected KEY=VALUE\n", envVar)
-				os.Exit(1)
-			}
-			target.Deploy.EnvVars[parts[0]] = parts[1]
-		}
-
-		target.Deploy.SkipBuild = pushSkipBuild
 
 		if pushDryRun {
 			fmt.Println("DRY RUN - No changes will be made")

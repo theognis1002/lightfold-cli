@@ -68,6 +68,12 @@ func (e *Executor) InstallBasePackages() error {
 		return formatSSHError("failed to update packages", result)
 	}
 
+	// Upgrade all packages (only on initial setup)
+	result = e.ssh.ExecuteSudo("DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold'")
+	if result.Error != nil || result.ExitCode != 0 {
+		return formatSSHError("failed to upgrade packages", result)
+	}
+
 	result = e.ssh.ExecuteSudo("apt-get install -y nginx")
 	if result.Error != nil || result.ExitCode != 0 {
 		return formatSSHError("failed to install nginx", result)
@@ -107,6 +113,34 @@ func (e *Executor) InstallBasePackages() error {
 			result = e.ssh.ExecuteSudo("apt-get install -y ruby-full")
 			if result.Error != nil || result.ExitCode != 0 {
 				return formatSSHError("failed to install Ruby", result)
+			}
+		}
+	}
+
+	// Check if reboot is required
+	checkRebootResult := e.ssh.Execute("test -f /var/run/reboot-required && echo 'reboot_required'")
+	needsReboot := checkRebootResult.ExitCode == 0 && strings.TrimSpace(checkRebootResult.Stdout) == "reboot_required"
+
+	if needsReboot {
+		// Trigger reboot
+		e.ssh.ExecuteSudo("reboot")
+
+		// Disconnect the current SSH connection
+		e.ssh.Disconnect()
+
+		// Wait for server to go down (give it a few seconds)
+		time.Sleep(5 * time.Second)
+
+		// Wait for server to come back up (retry SSH connection)
+		maxRetries := 36 // 3 minutes with 5-second intervals
+		for i := 0; i < maxRetries; i++ {
+			time.Sleep(5 * time.Second)
+			if err := e.ssh.Connect(1, 3*time.Second); err == nil {
+				// Server is back online
+				break
+			}
+			if i == maxRetries-1 {
+				return fmt.Errorf("server did not come back online after reboot")
 			}
 		}
 	}

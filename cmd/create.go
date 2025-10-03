@@ -11,6 +11,7 @@ import (
 	_ "lightfold/pkg/providers/hetzner"
 	"lightfold/pkg/state"
 	sshpkg "lightfold/pkg/ssh"
+	"lightfold/pkg/util"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,16 +55,11 @@ If no target name is provided, the current directory name will be used.`,
 			projectPath = args[0]
 		}
 
-		projectPath = filepath.Clean(projectPath)
-
-		info, err := os.Stat(projectPath)
+		// Validate project path
+		var err error
+		projectPath, err = util.ValidateProjectPath(projectPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: Cannot access path '%s': %v\n", projectPath, err)
-			os.Exit(1)
-		}
-
-		if !info.IsDir() {
-			fmt.Fprintf(os.Stderr, "Error: Path '%s' is not a directory\n", projectPath)
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -86,11 +82,7 @@ If no target name is provided, the current directory name will be used.`,
 		detection := detector.DetectFramework(projectPath)
 		fmt.Printf("Detected: %s (%s)\n\n", detection.Framework, detection.Language)
 
-		cfg, err := config.LoadConfig()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
-			os.Exit(1)
-		}
+		cfg := loadConfigOrExit()
 
 		targetConfig := config.TargetConfig{
 			ProjectPath: projectPath,

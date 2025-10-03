@@ -36,11 +36,7 @@ Examples:
   lightfold status --target myapp     # Detailed view`,
 	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		cfg, err := config.LoadConfig()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
-			os.Exit(1)
-		}
+		cfg := loadConfigOrExit()
 
 		if statusTargetFlag == "" {
 			showAllTargets(cfg)

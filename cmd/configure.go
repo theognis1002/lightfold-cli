@@ -38,17 +38,8 @@ Examples:
 			os.Exit(1)
 		}
 
-		cfg, err := config.LoadConfig()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading configuration: %v\n", err)
-			os.Exit(1)
-		}
-
-		target, exists := cfg.GetTarget(configureTargetFlag)
-		if !exists {
-			fmt.Fprintf(os.Stderr, "Error: Target '%s' not found\n", configureTargetFlag)
-			os.Exit(1)
-		}
+		cfg := loadConfigOrExit()
+		target := loadTargetOrExit(cfg, configureTargetFlag)
 
 		projectPath := target.ProjectPath
 
@@ -75,7 +66,7 @@ Examples:
 			}
 		}
 
-		if err := processConfigureFlags(&target, projectPath); err != nil {
+		if err := processConfigureFlags(&target); err != nil {
 			fmt.Fprintf(os.Stderr, "Error processing configuration options: %v\n", err)
 			os.Exit(1)
 		}
@@ -149,36 +140,8 @@ func validateConfigureTargetConfig(target config.TargetConfig) error {
 	return nil
 }
 
-func processConfigureFlags(target *config.TargetConfig, projectPath string) error {
-	if target.Deploy == nil {
-		target.Deploy = &config.DeploymentOptions{
-			EnvVars: make(map[string]string),
-		}
-	}
-
-	if skipBuild {
-		target.Deploy.SkipBuild = true
-	}
-
-	if envFile != "" {
-		envVarsFromFile, err := loadEnvFile(envFile)
-		if err != nil {
-			return fmt.Errorf("failed to load env file: %w", err)
-		}
-		for k, v := range envVarsFromFile {
-			target.Deploy.EnvVars[k] = v
-		}
-	}
-
-	for _, envVar := range envVars {
-		parts := splitEnvVar(envVar)
-		if len(parts) != 2 {
-			return fmt.Errorf("invalid env var format '%s', expected KEY=VALUE", envVar)
-		}
-		target.Deploy.EnvVars[parts[0]] = parts[1]
-	}
-
-	return nil
+func processConfigureFlags(target *config.TargetConfig) error {
+	return target.ProcessDeploymentOptions(envFile, envVars, skipBuild)
 }
 
 func init() {

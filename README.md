@@ -45,6 +45,7 @@ For subsequent deployments, just run the same command - it intelligently skips c
 - **`lightfold configure --target <name>`** - Configure server
 - **`lightfold push --target <name>`** - Deploy new release
 - **`lightfold status --target <name>`** - View deployment status
+- **`lightfold ssh --target <name>`** - SSH into deployment target
 - **`lightfold deploy --target <name> --rollback`** - Rollback to previous release
 
 ## Configuration
