@@ -86,6 +86,7 @@ Uses scoring system based on:
 - `lightfold [PROJECT_PATH]` - Detect framework and configure deployment
 - `lightfold detect [PROJECT_PATH]` - Run detection flow
 - `lightfold deploy [PROJECT_PATH]` - Deploy using saved configuration
+- `lightfold configure [PROJECT_PATH]` - Configure existing VM with your application
 - `lightfold --version` - Show version
 
 ## Flags
@@ -108,6 +109,9 @@ Uses scoring system based on:
 
 # Deploy specific project
 ./lightfold deploy /path/to/project
+
+# Configure existing VM (BYOS or re-configure)
+./lightfold configure /path/to/project
 ```
 
 ## Configuration

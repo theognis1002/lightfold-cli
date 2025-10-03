@@ -11,18 +11,18 @@ func TestCheckExistingServer_DigitalOcean_AlreadyProvisioned(t *testing.T) {
 	// Test case: Prevent duplicate provisioning when server already exists
 	projectConfig := config.ProjectConfig{
 		Framework: "FastAPI",
-		Target:    "digitalocean",
-		DigitalOcean: &config.DigitalOceanConfig{
-			DropletID:   "522181726",
-			IP:          "68.183.110.156",
-			SSHKey:      "/Users/test/.lightfold/keys/test_key",
-			SSHKeyName:  "test_key",
-			Username:    "deploy",
-			Region:      "nyc1",
-			Size:        "s-1vcpu-512mb-10gb",
-			Provisioned: true,
-		},
+		Provider:  "digitalocean",
 	}
+	projectConfig.SetProviderConfig("digitalocean", config.DigitalOceanConfig{
+		DropletID:   "522181726",
+		IP:          "68.183.110.156",
+		SSHKey:      "/Users/test/.lightfold/keys/test_key",
+		SSHKeyName:  "test_key",
+		Username:    "deploy",
+		Region:      "nyc1",
+		Size:        "s-1vcpu-512mb-10gb",
+		Provisioned: true,
+	})
 
 	orchestrator, err := deploy.NewOrchestrator(projectConfig, "/tmp/test-project", "test-project")
 	if err != nil {
@@ -45,18 +45,18 @@ func TestCheckExistingServer_DigitalOcean_NewProvisioning(t *testing.T) {
 	// Test case: Allow provisioning when no server exists yet
 	projectConfig := config.ProjectConfig{
 		Framework: "FastAPI",
-		Target:    "digitalocean",
-		DigitalOcean: &config.DigitalOceanConfig{
-			DropletID:   "",
-			IP:          "",
-			SSHKey:      "/Users/test/.lightfold/keys/test_key",
-			SSHKeyName:  "test_key",
-			Username:    "deploy",
-			Region:      "nyc1",
-			Size:        "s-1vcpu-512mb-10gb",
-			Provisioned: true,
-		},
+		Provider:  "digitalocean",
 	}
+	projectConfig.SetProviderConfig("digitalocean", config.DigitalOceanConfig{
+		DropletID:   "",
+		IP:          "",
+		SSHKey:      "/Users/test/.lightfold/keys/test_key",
+		SSHKeyName:  "test_key",
+		Username:    "deploy",
+		Region:      "nyc1",
+		Size:        "s-1vcpu-512mb-10gb",
+		Provisioned: true,
+	})
 
 	orchestrator, err := deploy.NewOrchestrator(projectConfig, "/tmp/test-project", "test-project")
 	if err != nil {
@@ -77,14 +77,14 @@ func TestCheckExistingServer_DigitalOcean_BYOS(t *testing.T) {
 	// Test case: Allow deployment to BYOS (Bring Your Own Server)
 	projectConfig := config.ProjectConfig{
 		Framework: "FastAPI",
-		Target:    "digitalocean",
-		DigitalOcean: &config.DigitalOceanConfig{
-			IP:          "192.168.1.100",
-			SSHKey:      "/Users/test/.ssh/id_rsa",
-			Username:    "root",
-			Provisioned: false, // BYOS, not provisioned by us
-		},
+		Provider:  "digitalocean",
 	}
+	projectConfig.SetProviderConfig("digitalocean", config.DigitalOceanConfig{
+		IP:          "192.168.1.100",
+		SSHKey:      "/Users/test/.ssh/id_rsa",
+		Username:    "root",
+		Provisioned: false, // BYOS, not provisioned by us
+	})
 
 	orchestrator, err := deploy.NewOrchestrator(projectConfig, "/tmp/test-project", "test-project")
 	if err != nil {
@@ -104,12 +104,12 @@ func TestCheckExistingServer_S3_NoCheck(t *testing.T) {
 	// Test case: S3 deployments don't provision servers, so no check needed
 	projectConfig := config.ProjectConfig{
 		Framework: "React",
-		Target:    "s3",
-		S3: &config.S3Config{
-			Bucket: "my-bucket",
-			Region: "us-east-1",
-		},
+		Provider:  "s3",
 	}
+	projectConfig.SetProviderConfig("s3", config.S3Config{
+		Bucket: "my-bucket",
+		Region: "us-east-1",
+	})
 
 	orchestrator, err := deploy.NewOrchestrator(projectConfig, "/tmp/test-project", "test-project")
 	if err != nil {

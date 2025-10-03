@@ -325,7 +325,9 @@ func (o *Orchestrator) deployS3(ctx context.Context) (*DeploymentResult, error) 
 	}, nil
 }
 
-func (o *Orchestrator) deployToServer(ctx context.Context, providerCfg config.ProviderConfig) (*DeploymentResult, error) {
+// ConfigureServer performs the full VM configuration (package install, build, systemd, nginx, deploy)
+// This is used by both Deploy and Configure commands to avoid duplication
+func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.ProviderConfig) (*DeploymentResult, error) {
 	result := &DeploymentResult{
 		Steps: []DeploymentStep{},
 	}
@@ -485,14 +487,18 @@ func (o *Orchestrator) deployToServer(ctx context.Context, providerCfg config.Pr
 	// Step 12: Complete
 	o.notifyProgress(DeploymentStep{
 		Name:        "complete",
-		Description: "Deployment complete!",
+		Description: "Configuration complete!",
 		Progress:    100,
 	})
 
 	result.Success = true
-	result.Message = fmt.Sprintf("Successfully deployed %s to %s", o.projectName, providerCfg.GetIP())
+	result.Message = fmt.Sprintf("Successfully configured %s on %s", o.projectName, providerCfg.GetIP())
 
 	return result, nil
+}
+
+func (o *Orchestrator) deployToServer(ctx context.Context, providerCfg config.ProviderConfig) (*DeploymentResult, error) {
+	return o.ConfigureServer(ctx, providerCfg)
 }
 
 func (o *Orchestrator) notifyProgress(step DeploymentStep) {
