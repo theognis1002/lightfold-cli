@@ -28,22 +28,38 @@ Deploy your application in one command:
 lightfold deploy --target myapp-prod
 ```
 
-This will:
-1. Detect your framework automatically
-2. Create and provision infrastructure
-3. Configure the server
-4. Deploy your code
+On first run, you'll be prompted to:
+- Select a cloud provider (DigitalOcean, BYOS, etc.)
+- Provide credentials (API tokens, SSH keys)
+- Choose region and server size
 
-For subsequent deployments, just run the same command - it intelligently skips completed steps.
+Then Lightfold automatically:
+1. Detects your framework
+2. Provisions infrastructure
+3. Configures the server
+4. Deploys your code
+
+For subsequent deployments, just run the same command - it intelligently skips completed steps and only redeploys code changes.
 
 ## Commands
 
-### Core Commands
+### Primary Command
 
-- **`lightfold deploy --target <name>`** - Full deployment orchestration
-- **`lightfold create --target <name> --provider <provider>`** - Create infrastructure
-- **`lightfold configure --target <name>`** - Configure server
-- **`lightfold push --target <name>`** - Deploy new release
+- **`lightfold deploy --target <name>`** - Full deployment (recommended)
+  - First run: Interactive setup with provider selection
+  - Subsequent runs: Fast, intelligent deployment of code changes
+  - Use `--force` to reprovision everything
+
+### Advanced Commands
+
+For granular control over deployment steps:
+
+- **`lightfold create --target <name> --provider <provider>`** - Create infrastructure only
+- **`lightfold configure --target <name>`** - Configure server only
+- **`lightfold push --target <name>`** - Deploy code changes only
+
+### Management Commands
+
 - **`lightfold status --target <name>`** - View deployment status
 - **`lightfold ssh --target <name>`** - SSH into deployment target
 - **`lightfold deploy --target <name> --rollback`** - Rollback to previous release
@@ -154,3 +170,7 @@ See [AGENTS.md](AGENTS.md) for architecture details.
 3. **Stateful** - Tracks progress, skips completed work
 4. **Provider-Agnostic** - Unified interface across clouds
 5. **Release-Based** - Timestamped releases, easy rollback
+
+
+## TODO
+[ ] `sync` command for syncing state with external provider

@@ -61,6 +61,11 @@ func (b *StepBuilder) Options(options ...string) *StepBuilder {
 	return b
 }
 
+func (b *StepBuilder) OptionDescriptions(descs ...string) *StepBuilder {
+	b.step.OptionDescs = descs
+	return b
+}
+
 func (b *StepBuilder) Build() Step {
 	return b.step
 }
@@ -242,34 +247,56 @@ func CreateAPITokenStep(id string) Step {
 
 func CreateRegionStep(id string) Step {
 	regions := []string{"nyc1", "nyc3", "ams3", "sfo3", "sgp1", "lon1", "fra1", "tor1", "blr1", "syd1"}
+	regionDescs := []string{
+		"New York City 1",
+		"New York City 3",
+		"Amsterdam 3",
+		"San Francisco 3",
+		"Singapore 1",
+		"London 1",
+		"Frankfurt 1",
+		"Toronto 1",
+		"Bangalore 1",
+		"Sydney 1",
+	}
 
 	return NewStep(id, "DigitalOcean Region").
-		Type(StepTypeText).
+		Type(StepTypeSelect).
 		DefaultValue("nyc1").
 		Options(regions...).
+		OptionDescriptions(regionDescs...).
 		Required().
-		Validate(ValidateRequired).
 		Build()
 }
 
 func CreateSizeStep(id string) Step {
 	sizes := []string{
-		"s-1vcpu-512mb-10gb (512 MB RAM, 1 vCPU)",
-		"s-1vcpu-1gb (1 GB RAM, 1 vCPU)",
-		"s-1vcpu-2gb (2 GB RAM, 1 vCPU)",
-		"s-2vcpu-2gb (2 GB RAM, 2 vCPUs)",
-		"s-2vcpu-4gb (4 GB RAM, 2 vCPUs)",
-		"s-4vcpu-8gb (8 GB RAM, 4 vCPUs)",
-		"s-6vcpu-16gb (16 GB RAM, 6 vCPUs)",
-		"s-8vcpu-32gb (32 GB RAM, 8 vCPUs)",
+		"s-1vcpu-512mb-10gb",
+		"s-1vcpu-1gb",
+		"s-1vcpu-2gb",
+		"s-2vcpu-2gb",
+		"s-2vcpu-4gb",
+		"s-4vcpu-8gb",
+		"s-6vcpu-16gb",
+		"s-8vcpu-32gb",
+	}
+	sizeDescs := []string{
+		"512 MB RAM, 1 vCPU, 10 GB SSD",
+		"1 GB RAM, 1 vCPU, 25 GB SSD",
+		"2 GB RAM, 1 vCPU, 50 GB SSD",
+		"2 GB RAM, 2 vCPUs, 60 GB SSD",
+		"4 GB RAM, 2 vCPUs, 80 GB SSD",
+		"8 GB RAM, 4 vCPUs, 160 GB SSD",
+		"16 GB RAM, 6 vCPUs, 320 GB SSD",
+		"32 GB RAM, 8 vCPUs, 640 GB SSD",
 	}
 
 	return NewStep(id, "Droplet Size").
-		Type(StepTypeText).
-		DefaultValue("s-1vcpu-512mb-10gb (512 MB RAM, 1 vCPU)").
+		Type(StepTypeSelect).
+		DefaultValue("s-1vcpu-512mb-10gb").
 		Options(sizes...).
+		OptionDescriptions(sizeDescs...).
 		Required().
-		Validate(ValidateRequired).
 		Build()
 }
 
@@ -286,10 +313,10 @@ func CreateDynamicSizeStep(id string, provider providers.Provider, region string
 	})
 
 	var sizes []string
-	var sizeIDs []string
+	var sizeDescs []string
 	for _, size := range apiSizes {
-		sizes = append(sizes, size.Name)
-		sizeIDs = append(sizeIDs, size.ID)
+		sizes = append(sizes, size.ID)
+		sizeDescs = append(sizeDescs, size.Name)
 	}
 
 	defaultValue := ""
@@ -298,11 +325,11 @@ func CreateDynamicSizeStep(id string, provider providers.Provider, region string
 	}
 
 	return NewStep(id, "Droplet Size").
-		Type(StepTypeText).
+		Type(StepTypeSelect).
 		DefaultValue(defaultValue).
 		Options(sizes...).
+		OptionDescriptions(sizeDescs...).
 		Required().
-		Validate(ValidateRequired).
 		Build()
 }
 
@@ -331,12 +358,15 @@ func (m *FlowModel) UpdateStepWithDynamicSizes(stepID string, provider providers
 	})
 
 	var sizes []string
+	var sizeDescs []string
 	for _, size := range apiSizes {
-		sizes = append(sizes, size.Name)
+		sizes = append(sizes, size.ID)
+		sizeDescs = append(sizeDescs, size.Name)
 	}
 
 	step := m.Steps[stepIndex]
 	step.Options = sizes
+	step.OptionDescs = sizeDescs
 	if len(sizes) > 0 {
 		step.Value = sizes[0]
 	}

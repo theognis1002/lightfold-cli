@@ -10,7 +10,9 @@ import (
 	_ "lightfold/pkg/providers/digitalocean" // Register DigitalOcean provider
 	_ "lightfold/pkg/providers/hetzner"      // Register Hetzner provider
 	sshpkg "lightfold/pkg/ssh"
+	"lightfold/pkg/util"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -23,11 +25,11 @@ type DeploymentStep struct {
 
 // DeploymentResult contains the result of a deployment operation
 type DeploymentResult struct {
-	Success   bool
-	Server    *providers.Server
-	Message   string
-	Error     error
-	Steps     []DeploymentStep
+	Success bool
+	Server  *providers.Server
+	Message string
+	Error   error
+	Steps   []DeploymentStep
 }
 
 // ProgressCallback is called for each deployment step
@@ -38,12 +40,13 @@ type Orchestrator struct {
 	config           config.TargetConfig
 	projectPath      string
 	projectName      string
+	targetName       string
 	tokens           *config.TokenConfig
 	progressCallback ProgressCallback
 }
 
 // GetOrchestrator creates a new deployment orchestrator
-func GetOrchestrator(targetConfig config.TargetConfig, projectPath, projectName string) (*Orchestrator, error) {
+func GetOrchestrator(targetConfig config.TargetConfig, projectPath, projectName, targetName string) (*Orchestrator, error) {
 	tokens, err := config.LoadTokens()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load tokens: %w", err)
@@ -53,6 +56,7 @@ func GetOrchestrator(targetConfig config.TargetConfig, projectPath, projectName 
 		config:      targetConfig,
 		projectPath: projectPath,
 		projectName: projectName,
+		targetName:  targetName,
 		tokens:      tokens,
 	}, nil
 }
@@ -61,6 +65,7 @@ func GetOrchestrator(targetConfig config.TargetConfig, projectPath, projectName 
 func (o *Orchestrator) SetProgressCallback(callback ProgressCallback) {
 	o.progressCallback = callback
 }
+
 
 func (o *Orchestrator) Deploy(ctx context.Context) (*DeploymentResult, error) {
 	if !providers.IsRegistered(o.config.Provider) {
@@ -233,8 +238,11 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		Progress:    50,
 	})
 
+	// Sanitize project name for use as hostname (only a-z, A-Z, 0-9, . and -)
+	sanitizedName := util.SanitizeHostname(o.projectName)
+
 	provisionConfig := providers.ProvisionConfig{
-		Name:              fmt.Sprintf("%s-app", o.projectName),
+		Name:              fmt.Sprintf("%s-app", sanitizedName),
 		Region:            region,
 		Size:              size,
 		Image:             "ubuntu-22-04-x64",
@@ -280,9 +288,21 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		o.config.SetProviderConfig("hetzner", hetznerConfig)
 	}
 
+	// Save the updated configuration to disk
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config for saving: %w", err)
+	}
+	if err := cfg.SetTarget(o.targetName, o.config); err != nil {
+		return nil, fmt.Errorf("failed to set target config: %w", err)
+	}
+	if err := cfg.SaveConfig(); err != nil {
+		return nil, fmt.Errorf("failed to save config: %w", err)
+	}
+
 	o.notifyProgress(DeploymentStep{
 		Name:        "complete",
-		Description: "Provisioning complete!",
+		Description: fmt.Sprintf("Provisioning complete! (Server IP: %s)", server.PublicIPv4),
 		Progress:    100,
 	})
 
@@ -307,8 +327,14 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 	}
 
 	o.notifyProgress(DeploymentStep{
+		Name:        "start_config",
+		Description: fmt.Sprintf("Configuring target '%s' (%s on %s)...", o.targetName, o.config.Framework, o.config.Provider),
+		Progress:    2,
+	})
+
+	o.notifyProgress(DeploymentStep{
 		Name:        "detect_framework",
-		Description: "Detecting framework configuration...",
+		Description: "Analyzing target app...",
 		Progress:    5,
 	})
 
@@ -323,30 +349,65 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 	sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
 	defer sshExecutor.Disconnect()
 
-	if err := sshExecutor.Connect(3, 5*time.Second); err != nil {
+	if err := sshExecutor.Connect(17, 10*time.Second); err != nil {
 		return nil, fmt.Errorf("failed to connect to SSH server: %w", err)
 	}
 
+	// Check if server is already configured
+	markerCheck := sshExecutor.Execute("test -f /etc/lightfold/configured && echo 'configured'")
+	isConfigured := markerCheck.ExitCode == 0 && strings.TrimSpace(markerCheck.Stdout) == "configured"
+
 	executor := NewExecutor(sshExecutor, o.projectName, o.projectPath, &detection)
 
-	o.notifyProgress(DeploymentStep{
-		Name:        "install_packages",
-		Description: "Installing system packages and runtimes...",
-		Progress:    20,
+	// Set up output callback to show command output as progress
+	executor.SetOutputCallback(func(line string) {
+		if o.progressCallback != nil {
+			o.progressCallback(DeploymentStep{
+				Name:        "command_output",
+				Description: line,
+				Progress:    -1, // -1 indicates this is output, not a progress step
+			})
+		}
 	})
 
-	if err := executor.InstallBasePackages(); err != nil {
-		return nil, fmt.Errorf("failed to install packages: %w", err)
-	}
-
 	o.notifyProgress(DeploymentStep{
-		Name:        "setup_directories",
-		Description: "Setting up deployment directories...",
-		Progress:    30,
+		Name:        "wait_cloud_init",
+		Description: "Initializing & updating server...",
+		Progress:    15,
 	})
 
-	if err := executor.SetupDirectoryStructure(); err != nil {
-		return nil, fmt.Errorf("failed to setup directories: %w", err)
+	// Only run initial setup if not already configured
+	if !isConfigured {
+		// Wait for apt locks to be released (cloud-init might be running)
+		if err := executor.WaitForAptLock(30, 10*time.Second); err != nil {
+			return nil, fmt.Errorf("failed to acquire apt lock: %w", err)
+		}
+
+		o.notifyProgress(DeploymentStep{
+			Name:        "install_packages",
+			Description: "Installing system packages and runtimes...",
+			Progress:    20,
+		})
+
+		if err := executor.InstallBasePackages(); err != nil {
+			return nil, fmt.Errorf("failed to install packages: %w", err)
+		}
+
+		o.notifyProgress(DeploymentStep{
+			Name:        "setup_directories",
+			Description: "Setting up deployment directories...",
+			Progress:    30,
+		})
+
+		if err := executor.SetupDirectoryStructure(); err != nil {
+			return nil, fmt.Errorf("failed to setup directories: %w", err)
+		}
+	} else {
+		o.notifyProgress(DeploymentStep{
+			Name:        "skip_initial_setup",
+			Description: "Server already configured, skipping initial setup...",
+			Progress:    30,
+		})
 	}
 
 	o.notifyProgress(DeploymentStep{
@@ -376,7 +437,7 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 	if !skipBuild {
 		o.notifyProgress(DeploymentStep{
 			Name:        "build_release",
-			Description: "Building application...",
+			Description: "Building app...",
 			Progress:    60,
 		})
 
@@ -457,6 +518,18 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		Description: "Configuration complete!",
 		Progress:    100,
 	})
+
+	// Write configured marker to indicate server is fully configured (only on first configure)
+	if !isConfigured {
+		sshExecutor.Execute("sudo mkdir -p /etc/lightfold")
+		markerResult := sshExecutor.Execute("echo 'configured' | sudo tee /etc/lightfold/configured > /dev/null")
+		if markerResult.Error != nil {
+			return nil, fmt.Errorf("failed to write configured marker: %w", markerResult.Error)
+		}
+		if markerResult.ExitCode != 0 {
+			return nil, fmt.Errorf("failed to write configured marker: command exited with code %d, stderr: %s", markerResult.ExitCode, markerResult.Stderr)
+		}
+	}
 
 	result.Success = true
 	result.Message = fmt.Sprintf("Successfully configured %s on %s", o.projectName, providerCfg.GetIP())

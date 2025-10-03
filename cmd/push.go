@@ -5,8 +5,8 @@ import (
 	"lightfold/pkg/config"
 	"lightfold/pkg/deploy"
 	"lightfold/pkg/detector"
-	"lightfold/pkg/state"
 	sshpkg "lightfold/pkg/ssh"
+	"lightfold/pkg/state"
 	"lightfold/pkg/util"
 	"os"
 	"os/exec"
@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
 
@@ -24,6 +25,11 @@ var (
 	pushDryRun     bool
 	pushBranch     string
 	pushTargetFlag string
+
+	// Styles for push command (matching bubbletea/deploy)
+	pushSuccessStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+	pushMutedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	pushValueStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
 )
 
 var pushCmd = &cobra.Command{
@@ -71,10 +77,7 @@ Examples:
 			var exists bool
 			targetNameResolved, target, exists = cfg.FindTargetByPath(projectPath)
 			if !exists {
-				targetNameResolved = filepath.Base(projectPath)
-				if absPath, err := filepath.Abs(projectPath); err == nil {
-					targetNameResolved = filepath.Base(absPath)
-				}
+				targetNameResolved = util.GetTargetName(projectPath)
 				target, exists = cfg.GetTarget(targetNameResolved)
 				if !exists {
 					fmt.Fprintf(os.Stderr, "Error: No target found for this project\n")
@@ -132,74 +135,86 @@ Examples:
 			return
 		}
 
-		fmt.Printf("Pushing release to target '%s'...\n", targetNameResolved)
-
 		providerCfg, err := target.GetSSHProviderConfig()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
 
-		fmt.Println("Detecting framework...")
 		detection := detector.DetectFramework(target.ProjectPath)
 
-		fmt.Printf("Connecting to %s...\n", providerCfg.GetIP())
 		sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
 		defer sshExecutor.Disconnect()
 
-		projectName := filepath.Base(target.ProjectPath)
+		projectName := util.GetTargetName(target.ProjectPath)
 		executor := deploy.NewExecutor(sshExecutor, projectName, target.ProjectPath, &detection)
 
-		fmt.Println("Creating release tarball...")
 		tmpTarball := fmt.Sprintf("/tmp/lightfold-%s-release.tar.gz", projectName)
 		if err := executor.CreateReleaseTarball(tmpTarball); err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating tarball: %v\n", err)
 			os.Exit(1)
 		}
 		defer os.Remove(tmpTarball)
+		fmt.Printf("%s %s\n", pushSuccessStyle.Render("✓"), pushMutedStyle.Render("Creating release tarball..."))
 
-		fmt.Println("Uploading release...")
 		releasePath, err := executor.UploadRelease(tmpTarball)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error uploading release: %v\n", err)
 			os.Exit(1)
 		}
+		fmt.Printf("%s %s\n", pushSuccessStyle.Render("✓"), pushMutedStyle.Render("Uploading release to server..."))
 
 		releaseTimestamp := filepath.Base(releasePath)
 
 		if !target.Deploy.SkipBuild {
-			fmt.Println("Building application...")
 			if err := executor.BuildRelease(releasePath); err != nil {
 				fmt.Fprintf(os.Stderr, "Error building release: %v\n", err)
 				os.Exit(1)
 			}
+			fmt.Printf("%s %s\n", pushSuccessStyle.Render("✓"), pushMutedStyle.Render("Building app..."))
 		}
 
 		if len(target.Deploy.EnvVars) > 0 {
-			fmt.Println("Writing environment variables...")
 			if err := executor.WriteEnvironmentFile(target.Deploy.EnvVars); err != nil {
 				fmt.Fprintf(os.Stderr, "Error writing environment: %v\n", err)
 				os.Exit(1)
 			}
+			fmt.Printf("%s %s\n", pushSuccessStyle.Render("✓"), pushMutedStyle.Render("Configuring environment variables..."))
 		}
 
-		fmt.Println("Deploying with health check...")
 		if err := executor.DeployWithHealthCheck(releasePath, 5, 3*time.Second); err != nil {
 			fmt.Fprintf(os.Stderr, "Error during deployment: %v\n", err)
 			os.Exit(1)
 		}
+		fmt.Printf("%s %s\n", pushSuccessStyle.Render("✓"), pushMutedStyle.Render("Deploying and running health checks..."))
 
-		fmt.Println("Cleaning up old releases...")
 		if err := executor.CleanupOldReleases(5); err != nil {
 			fmt.Printf("Warning: failed to cleanup old releases: %v\n", err)
 		}
+		fmt.Printf("%s %s\n", pushSuccessStyle.Render("✓"), pushMutedStyle.Render("Cleaning up old releases..."))
 
 		if err := state.UpdateDeployment(targetNameResolved, currentCommit, releaseTimestamp); err != nil {
 			fmt.Printf("Warning: failed to update state: %v\n", err)
 		}
 
-		fmt.Printf("\n✅ Successfully deployed release %s\n", releaseTimestamp)
-		fmt.Printf("Server: %s\n", providerCfg.GetIP())
+		fmt.Println()
+
+		// Success banner with cleaner bubbletea style
+		successBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("82")).
+			Padding(0, 1).
+			Render(
+				lipgloss.JoinVertical(
+					lipgloss.Left,
+					pushSuccessStyle.Render(fmt.Sprintf("✓ Successfully deployed '%s'", targetNameResolved)),
+					"",
+					fmt.Sprintf("%s %s", pushMutedStyle.Render("Server:"), pushValueStyle.Render(providerCfg.GetIP())),
+					fmt.Sprintf("%s %s", pushMutedStyle.Render("Release:"), pushValueStyle.Render(releaseTimestamp)),
+				),
+			)
+
+		fmt.Println(successBox)
 	},
 }
 

@@ -3,8 +3,8 @@ package cmd
 import (
 	"fmt"
 	"lightfold/pkg/config"
-	"lightfold/pkg/state"
 	sshpkg "lightfold/pkg/ssh"
+	"lightfold/pkg/state"
 	"os"
 	"strings"
 
@@ -51,7 +51,11 @@ func showAllTargets(cfg *config.Config) {
 	if len(cfg.Targets) == 0 {
 		fmt.Println(statusMutedStyle.Render("No targets configured yet."))
 		fmt.Printf("\n%s\n", statusMutedStyle.Render("Create your first target:"))
-		fmt.Printf("  %s\n", statusValueStyle.Render("lightfold create --target myapp --provider byos --ip YOUR_IP"))
+		fmt.Printf("  %s\n", statusValueStyle.Render("lightfold create --target myapp"))
+
+		fmt.Printf("\n%s\n", statusMutedStyle.Render("Full deployment pipeline:"))
+		fmt.Printf("  %s\n", statusValueStyle.Render("lightfold deploy --target myapp"))
+
 		return
 	}
 

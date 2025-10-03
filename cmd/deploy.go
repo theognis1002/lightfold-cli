@@ -7,6 +7,7 @@ import (
 	"lightfold/pkg/detector"
 	sshpkg "lightfold/pkg/ssh"
 	"lightfold/pkg/state"
+	"lightfold/pkg/util"
 	"os"
 	"path/filepath"
 	"time"
@@ -24,12 +25,13 @@ var (
 	deployForceFlag  bool
 	deployDryRun     bool
 
-	// Styles for deploy command output
-	deployHeaderStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAC6")).Bold(true)
-	deployStepStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
-	deploySuccessStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
-	deployMutedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	deployValueStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
+	// Styles for deploy command output (matching bubbletea progress UI)
+	deployHeaderStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAC6")).Bold(true)
+	deployStepHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Bold(true) // Cyan step headers
+	deployStepStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
+	deploySuccessStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+	deployMutedStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("245")) // Match bubbletea descStyle
+	deployValueStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
 )
 
 var deployCmd = &cobra.Command{
@@ -58,12 +60,15 @@ Examples:
 
 		target, exists := cfg.GetTarget(deployTargetFlag)
 		var projectPath string
+		var targetName string
 
 		if !exists {
-			fmt.Printf("Target '%s' not found. Creating...\n", deployTargetFlag)
-			projectPath = "."
+			// If target doesn't exist, treat --target value as project path
+			projectPath = filepath.Clean(deployTargetFlag)
+			targetName = util.GetTargetName(projectPath)
 		} else {
 			projectPath = target.ProjectPath
+			targetName = deployTargetFlag
 		}
 
 		projectPath = filepath.Clean(projectPath)
@@ -79,19 +84,19 @@ Examples:
 
 		if deployDryRun {
 			fmt.Println("DRY RUN - Deployment plan:")
-			fmt.Printf("Target: %s\n", deployTargetFlag)
+			fmt.Printf("Target: %s\n", targetName)
 			fmt.Printf("Steps:\n")
 			if !exists || deployForceFlag {
 				fmt.Println("  1. ✓ detect - Framework detection")
 			} else {
 				fmt.Println("  1. ⊘ detect - Skipped (cached)")
 			}
-			if !state.IsCreated(deployTargetFlag) || deployForceFlag {
+			if !state.IsCreated(targetName) || deployForceFlag {
 				fmt.Println("  2. ✓ create - Infrastructure provisioning")
 			} else {
 				fmt.Println("  2. ⊘ create - Skipped (already created)")
 			}
-			if !state.IsConfigured(deployTargetFlag) || deployForceFlag {
+			if !state.IsConfigured(targetName) || deployForceFlag {
 				fmt.Println("  3. ✓ configure - Server configuration")
 			} else {
 				fmt.Println("  3. ⊘ configure - Skipped (already configured)")
@@ -100,50 +105,29 @@ Examples:
 			return
 		}
 
-		fmt.Printf("\n%s\n", deployHeaderStyle.Render(fmt.Sprintf("🚀 Deploying target '%s'", deployTargetFlag)))
-		fmt.Println(deployMutedStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
-		fmt.Println()
+		// Step 1: Framework detection (implicit in createTarget)
+		fmt.Printf("\n%s\n", deployStepHeaderStyle.Render("Step 1/4: Analyzing app"))
+		detection := detector.DetectFramework(projectPath)
+		fmt.Printf("%s %s (%s)\n", deploySuccessStyle.Render("✓"), deployMutedStyle.Render(detection.Framework), deployMutedStyle.Render(detection.Language))
 
-		var detection detector.Detection
-		if !exists || deployForceFlag {
-			fmt.Printf("%s\n", deployStepStyle.Render("Step 1/4: Framework detection"))
-			detection = detector.DetectFramework(projectPath)
-			fmt.Printf("  %s %s (%s)\n\n", deploySuccessStyle.Render("✓"), deployValueStyle.Render(detection.Framework), deployMutedStyle.Render(detection.Language))
-
-			if !exists {
-				target = config.TargetConfig{
-					ProjectPath: projectPath,
-					Framework:   detection.Framework,
-				}
-			}
-		} else {
-			fmt.Printf("%s\n", deployMutedStyle.Render("Step 1/4: Framework detection (cached)"))
-			detection = detector.DetectFramework(projectPath)
-			fmt.Println()
-		}
-
-		providerCfg, _ := target.GetAnyProviderConfig()
-		hasIP := providerCfg != nil && providerCfg.GetIP() != ""
-
-		if (!state.IsCreated(deployTargetFlag) && !hasIP) || deployForceFlag {
-			fmt.Printf("%s\n", deployStepStyle.Render("Step 2/4: Infrastructure creation"))
-			fmt.Fprintf(os.Stderr, "Error: Target not created. Run 'lightfold create --target %s' first\n", deployTargetFlag)
+		// Step 2: Infrastructure creation (auto-creates if needed)
+		fmt.Printf("\n%s\n", deployStepHeaderStyle.Render("Step 2/4: Create infra"))
+		var err error
+		target, err = createTarget(targetName, projectPath, cfg)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error creating infrastructure: %v\n", err)
 			os.Exit(1)
-		} else {
-			fmt.Printf("%s\n", deployMutedStyle.Render("Step 2/4: Infrastructure creation (skipped)"))
-			fmt.Println()
 		}
 
-		if !state.IsConfigured(deployTargetFlag) || deployForceFlag {
-			fmt.Printf("%s\n", deployStepStyle.Render("Step 3/4: Server configuration"))
-			fmt.Fprintf(os.Stderr, "Error: Target not configured. Run 'lightfold configure --target %s' first\n", deployTargetFlag)
+		// Step 3: Server configuration (auto-configures if needed)
+		fmt.Printf("\n%s\n", deployStepHeaderStyle.Render("Step 3/4: Configure server"))
+		if err := configureTarget(target, targetName, deployForceFlag); err != nil {
+			fmt.Fprintf(os.Stderr, "Error configuring server: %v\n", err)
 			os.Exit(1)
-		} else {
-			fmt.Printf("%s\n", deployMutedStyle.Render("Step 3/4: Server configuration (skipped)"))
-			fmt.Println()
 		}
 
-		fmt.Printf("%s\n", deployStepStyle.Render("Step 4/4: Release deployment"))
+		// Step 4: Release deployment
+		fmt.Printf("\n%s\n", deployStepHeaderStyle.Render("Step 4/4: Deploy app"))
 
 		// Process deployment options
 		if err := target.ProcessDeploymentOptions(envFile, envVars, skipBuild); err != nil {
@@ -165,67 +149,73 @@ Examples:
 			os.Exit(1)
 		}
 
-		projectName := filepath.Base(projectPath)
+		projectName := util.GetTargetName(projectPath)
 		executor := deploy.NewExecutor(sshExecutor, projectName, projectPath, &detection)
 
-		fmt.Printf("  %s Creating release package...\n", deployMutedStyle.Render("→"))
 		tmpTarball := fmt.Sprintf("/tmp/lightfold-%s-release.tar.gz", projectName)
 		if err := executor.CreateReleaseTarball(tmpTarball); err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating tarball: %v\n", err)
 			os.Exit(1)
 		}
 		defer os.Remove(tmpTarball)
-		fmt.Printf("  %s Created release package\n", deploySuccessStyle.Render("✓"))
+		fmt.Printf("%s %s\n", deploySuccessStyle.Render("✓"), deployMutedStyle.Render("Creating release tarball..."))
 
-		fmt.Printf("  %s Uploading to server...\n", deployMutedStyle.Render("→"))
 		releasePath, err := executor.UploadRelease(tmpTarball)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error uploading release: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("  %s Uploaded release\n", deploySuccessStyle.Render("✓"))
+		fmt.Printf("%s %s\n", deploySuccessStyle.Render("✓"), deployMutedStyle.Render("Uploading release to server..."))
 
 		if !target.Deploy.SkipBuild {
-			fmt.Printf("  %s Building application...\n", deployMutedStyle.Render("→"))
 			if err := executor.BuildRelease(releasePath); err != nil {
 				fmt.Fprintf(os.Stderr, "Error building release: %v\n", err)
 				os.Exit(1)
 			}
-			fmt.Printf("  %s Build completed\n", deploySuccessStyle.Render("✓"))
+			fmt.Printf("%s %s\n", deploySuccessStyle.Render("✓"), deployMutedStyle.Render("Building app..."))
 		}
 
 		if len(target.Deploy.EnvVars) > 0 {
-			fmt.Printf("  %s Writing environment variables...\n", deployMutedStyle.Render("→"))
 			if err := executor.WriteEnvironmentFile(target.Deploy.EnvVars); err != nil {
 				fmt.Fprintf(os.Stderr, "Error writing environment: %v\n", err)
 				os.Exit(1)
 			}
-			fmt.Printf("  %s Environment configured\n", deploySuccessStyle.Render("✓"))
+			fmt.Printf("%s %s\n", deploySuccessStyle.Render("✓"), deployMutedStyle.Render("Configuring environment variables..."))
 		}
 
-		fmt.Printf("  %s Deploying and running health checks...\n", deployMutedStyle.Render("→"))
 		if err := executor.DeployWithHealthCheck(releasePath, 5, 3*time.Second); err != nil {
 			fmt.Fprintf(os.Stderr, "Error during deployment: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("  %s Deployment successful\n", deploySuccessStyle.Render("✓"))
+		fmt.Printf("%s %s\n", deploySuccessStyle.Render("✓"), deployMutedStyle.Render("Deploying and running health checks..."))
 
-		fmt.Printf("  %s Cleaning up old releases...\n", deployMutedStyle.Render("→"))
 		executor.CleanupOldReleases(5)
-		fmt.Printf("  %s Cleanup complete\n", deploySuccessStyle.Render("✓"))
+		fmt.Printf("%s %s\n", deploySuccessStyle.Render("✓"), deployMutedStyle.Render("Cleaning up old releases..."))
 
 		releaseTimestamp := filepath.Base(releasePath)
 		currentCommit := getGitCommit(projectPath)
-		if err := state.UpdateDeployment(deployTargetFlag, currentCommit, releaseTimestamp); err != nil {
+		if err := state.UpdateDeployment(targetName, currentCommit, releaseTimestamp); err != nil {
 			fmt.Printf("Warning: failed to update state: %v\n", err)
 		}
 
 		fmt.Println()
-		fmt.Printf("%s\n", deploySuccessStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
-		fmt.Printf("%s\n", deployHeaderStyle.Render(fmt.Sprintf("✅ Successfully deployed '%s'", deployTargetFlag)))
-		fmt.Printf("  %s %s\n", deployMutedStyle.Render("Server:"), deployValueStyle.Render(sshProviderCfg.GetIP()))
-		fmt.Printf("  %s %s\n", deployMutedStyle.Render("Release:"), deployValueStyle.Render(releaseTimestamp))
-		fmt.Printf("%s\n", deploySuccessStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
+
+		// Success banner with cleaner bubbletea style
+		successBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("82")).
+			Padding(0, 1).
+			Render(
+				lipgloss.JoinVertical(
+					lipgloss.Left,
+					deploySuccessStyle.Render(fmt.Sprintf("✓ Successfully deployed '%s'", targetName)),
+					"",
+					fmt.Sprintf("%s %s", deployMutedStyle.Render("Server:"), deployValueStyle.Render(sshProviderCfg.GetIP())),
+					fmt.Sprintf("%s %s", deployMutedStyle.Render("Release:"), deployValueStyle.Render(releaseTimestamp)),
+				),
+			)
+
+		fmt.Println(successBox)
 	},
 }
 
@@ -248,7 +238,7 @@ func handleRollback(target config.TargetConfig, projectPath string) {
 		os.Exit(1)
 	}
 
-	projectName := filepath.Base(projectPath)
+	projectName := util.GetTargetName(projectPath)
 
 	fmt.Printf("Connecting to server at %s...\n", providerCfg.GetIP())
 	sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
@@ -274,6 +264,4 @@ func init() {
 	deployCmd.Flags().StringArrayVar(&envVars, "env", []string{}, "Environment variables in KEY=VALUE format (can be used multiple times)")
 	deployCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "Skip the build step during deployment")
 	deployCmd.Flags().BoolVar(&rollbackFlag, "rollback", false, "Rollback to the previous release")
-
-	deployCmd.MarkFlagRequired("target")
 }

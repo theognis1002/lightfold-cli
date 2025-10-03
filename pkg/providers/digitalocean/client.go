@@ -70,8 +70,6 @@ func (c *Client) ValidateCredentials(ctx context.Context) error {
 			Message:  "Invalid DigitalOcean API token",
 			Details:  map[string]interface{}{"error": err.Error()},
 		}
-		fmt.Printf("\nDigitalOcean API Error: %s\n", providerErr.Message)
-		fmt.Printf("Details: %v\n\n", err.Error())
 		return providerErr
 	}
 	return nil
@@ -86,8 +84,6 @@ func (c *Client) GetRegions(ctx context.Context) ([]providers.Region, error) {
 			Message:  "Failed to list DigitalOcean regions",
 			Details:  map[string]interface{}{"error": err.Error()},
 		}
-		fmt.Printf("\nDigitalOcean API Error: %s\n", providerErr.Message)
-		fmt.Printf("Details: %v\n\n", err.Error())
 		return nil, providerErr
 	}
 
@@ -114,8 +110,6 @@ func (c *Client) GetSizes(ctx context.Context, region string) ([]providers.Size,
 			Message:  "Failed to list DigitalOcean sizes",
 			Details:  map[string]interface{}{"error": err.Error()},
 		}
-		fmt.Printf("\nDigitalOcean API Error: %s\n", providerErr.Message)
-		fmt.Printf("Details: %v\n\n", err.Error())
 		return nil, providerErr
 	}
 
@@ -146,8 +140,6 @@ func (c *Client) GetImages(ctx context.Context) ([]providers.Image, error) {
 			Message:  "Failed to list DigitalOcean images",
 			Details:  map[string]interface{}{"error": err.Error()},
 		}
-		fmt.Printf("\nDigitalOcean API Error: %s\n", providerErr.Message)
-		fmt.Printf("Details: %v\n\n", err.Error())
 		return nil, providerErr
 	}
 
@@ -212,8 +204,6 @@ func (c *Client) UploadSSHKey(ctx context.Context, name, publicKey string) (*pro
 			Message:  fmt.Sprintf("Failed to upload SSH key to DigitalOcean: %v", err),
 			Details:  errDetails,
 		}
-		fmt.Printf("\nDigitalOcean API Error: %s\n", providerErr.Message)
-		fmt.Printf("Details: %v\n\n", err.Error())
 		return nil, providerErr
 	}
 
@@ -254,8 +244,6 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 			Message:  "Failed to create DigitalOcean droplet",
 			Details:  map[string]interface{}{"error": err.Error()},
 		}
-		fmt.Printf("\nDigitalOcean API Error: %s\n", providerErr.Message)
-		fmt.Printf("Details: %v\n\n", err.Error())
 		return nil, providerErr
 	}
 
@@ -273,8 +261,6 @@ func (c *Client) GetServer(ctx context.Context, serverID string) (*providers.Ser
 			Message:  "Failed to get DigitalOcean droplet",
 			Details:  map[string]interface{}{"error": err.Error()},
 		}
-		fmt.Printf("\nDigitalOcean API Error: %s\n", providerErr.Message)
-		fmt.Printf("Details: %v\n\n", err.Error())
 		return nil, providerErr
 	}
 
@@ -292,8 +278,6 @@ func (c *Client) Destroy(ctx context.Context, serverID string) error {
 			Message:  "Failed to destroy DigitalOcean droplet",
 			Details:  map[string]interface{}{"error": err.Error()},
 		}
-		fmt.Printf("\nDigitalOcean API Error: %s\n", providerErr.Message)
-		fmt.Printf("Details: %v\n\n", err.Error())
 		return providerErr
 	}
 
@@ -313,8 +297,6 @@ func (c *Client) WaitForActive(ctx context.Context, serverID string, timeout tim
 				Message:  "Failed to poll DigitalOcean droplet status",
 				Details:  map[string]interface{}{"error": err.Error()},
 			}
-			fmt.Printf("\nDigitalOcean API Error: %s\n", providerErr.Message)
-			fmt.Printf("Details: %v\n\n", err.Error())
 			return nil, providerErr
 		}
 
@@ -330,14 +312,13 @@ func (c *Client) WaitForActive(ctx context.Context, serverID string, timeout tim
 		}
 	}
 
+	errorMsg := fmt.Sprintf("Timeout waiting for droplet to become active (waited %s)", timeout.String())
 	providerErr := &providers.ProviderError{
 		Provider: "digitalocean",
 		Code:     "timeout",
-		Message:  "Timeout waiting for droplet to become active",
+		Message:  errorMsg,
 		Details:  map[string]interface{}{"timeout": timeout.String()},
 	}
-	fmt.Printf("\nDigitalOcean API Error: %s\n", providerErr.Message)
-	fmt.Printf("Details: timeout after %s\n\n", timeout.String())
 	return nil, providerErr
 }
 

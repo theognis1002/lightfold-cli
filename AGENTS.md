@@ -197,9 +197,14 @@ That's it! The provider is now available throughout the application with zero ch
 
 ### Deployment Flow Architecture
 
-**Composable Command Pattern:**
+**Composable Command Pattern with Auto-Creation:**
 
-Lightfold uses a composable architecture where each deployment step is an independent, idempotent command:
+Lightfold uses a composable architecture where each deployment step is an independent, idempotent command. Commands are also exposed as reusable functions in `cmd/common.go` for maximum code reuse.
+
+**Core Reusable Functions:**
+- `createTarget(targetName, projectPath, cfg)` - Creates or returns existing target
+- `configureTarget(target, targetName, force)` - Configures or skips if already configured
+- Both functions contain built-in idempotency checks
 
 **1. Framework Detection** (`lightfold detect` or `lightfold .`)
 - Analyzes project structure to identify framework
@@ -210,12 +215,14 @@ Lightfold uses a composable architecture where each deployment step is an indepe
 - **BYOS Mode** (`--provider byos`): Validates existing server SSH access
   - Requires: `--ip`, `--ssh-key`, `--user`
   - Writes `/etc/lightfold/created` marker on server
+  - Stores config under `provider: "byos"` key (NOT under digitalocean!)
 - **Provision Mode** (`--provider do|hetzner`): Auto-provisions new server
   - Requires: `--region`, `--size`, API token
   - Generates SSH keys, provisions via cloud API
   - Stores server ID and IP in config
 - Marks target as "created" in local state
-- Idempotent: Skips if already created
+- Idempotent: Skips if already created (returns existing config)
+- **Reusable**: `createTarget()` function in `cmd/common.go`
 
 **3. Server Configuration** (`lightfold configure --target <name>`)
 - Checks for `/etc/lightfold/configured` marker
@@ -223,6 +230,7 @@ Lightfold uses a composable architecture where each deployment step is an indepe
 - Sets up deployment directory structure: `/srv/<app>/releases/`
 - Writes marker on success, updates local state
 - Idempotent: Skips if marker exists (unless `--force`)
+- **Reusable**: `configureTarget()` function in `cmd/common.go`
 
 **4. Release Deployment** (`lightfold push --target <name>`)
 - Checks current git commit vs. last deployed commit
@@ -233,10 +241,14 @@ Lightfold uses a composable architecture where each deployment step is an indepe
 - Idempotent: Skips if commit unchanged
 
 **5. Full Orchestration** (`lightfold deploy --target <name>`)
+- **Primary user-facing command** (recommended workflow)
+- First run: Interactively prompts for provider selection if target doesn't exist
+- Auto-calls `createTarget()` and `configureTarget()` which handle idempotency internally
 - Chains all steps: detect → create → configure → push
-- Intelligently skips completed steps based on state
+- Intelligently skips completed steps based on state (idempotency is automatic)
 - `--force` flag reruns all steps
 - `--dry-run` shows execution plan without running
+- **Result**: True one-command deployment - users never need to run individual commands manually
 
 ### Configuration Architecture
 
@@ -345,11 +357,45 @@ The deployment orchestrator (`pkg/deploy/orchestrator.go`) handles auto-provisio
 
 **Key Insight**: Once a server has an IP, username, and SSH key, deployment is identical across all providers. Only the provisioning step is provider-specific.
 
+**IP Recovery Logic (cmd/common.go:configureTarget):**
+
+When a deployment gets into a bad state (e.g., server provisioned but IP missing from config), Lightfold automatically recovers:
+
+1. **Detection**: Before validating config, checks if `IP == ""` but `DropletID/ServerID != ""`
+2. **Fallback to State**: If provider config doesn't have server ID, looks it up from state file (`provisioned_id`)
+3. **API Fetch**: Calls provider's `GetServer(dropletID)` to fetch current server info
+4. **Config Update**: Updates target config with fetched IP and server ID, saves to disk
+5. **Continue**: Configuration proceeds normally with recovered IP
+
+**Adding IP Recovery for New Providers:**
+```go
+// In configureTarget(), add recovery logic for your provider:
+if target.Provider == "newprovider" {
+    if npConfig, ok := target.ProviderConfig["newprovider"].(*config.NewProviderConfig); ok {
+        serverID := npConfig.ServerID
+        // Fallback to state if needed
+        if serverID == "" {
+            if targetState, err := state.GetTargetState(targetName); err == nil {
+                serverID = targetState.ProvisionedID
+            }
+        }
+        if npConfig.IP == "" && serverID != "" {
+            fmt.Println("Recovering server IP from NewProvider...")
+            if err := recoverIPFromNewProvider(&target, targetName, serverID); err != nil {
+                return fmt.Errorf("failed to recover IP: %w", err)
+            }
+        }
+    }
+}
+```
+
+This ensures robustness and prevents "stuck in bad state" scenarios.
+
 **Supported Providers:**
-- ✅ DigitalOcean (fully implemented)
+- ✅ DigitalOcean (fully implemented with IP recovery)
 - ✅ Hetzner Cloud (proof-of-concept, stub implementation)
 - ✅ BYOS (Bring Your Own Server - no provisioning, just deployment)
-- 🔜 Linode, Fly.io, AWS EC2, Google Cloud, Azure (trivial to add)
+- 🔜 Linode, Fly.io, AWS EC2, Google Cloud, Azure (trivial to add with IP recovery pattern)
 
 ## Development Guidelines
 
@@ -359,6 +405,20 @@ The deployment orchestrator (`pkg/deploy/orchestrator.go`) handles auto-provisio
 - Clear, descriptive function names
 - Minimal external dependencies
 - Error handling at appropriate levels
+
+### UI/UX Guidelines
+
+- **Prefer Bubbletea progress UI** (`cmd/ui/progress.go`) for long-running operations and progress tracking
+- **Use lipgloss for all styled output** - Never use plain `fmt.Printf` for user-facing messages
+- Maintain consistent styling across all output:
+  - Success checkmarks: Color "82" (green) with "✓"
+  - Description text: Color "245" (darker gray)
+  - In-progress: Color "226" (yellow) with spinner
+  - Error: Color "196" (red) with "✗"
+  - Step headers: Color "86" (cyan), bold
+- Pattern: `fmt.Printf("%s\n", lipgloss.NewStyle().Foreground(...).Render("text"))`
+- Deployment steps should flow through progress callbacks to Bubbletea UI when possible
+- For simple output, use `fmt.Printf` with lipgloss styles to maintain visual consistency
 
 ### Testing Strategy
 
@@ -658,11 +718,17 @@ lightfold destroy --target myapp       # Destroy VM and cleanup
 - All commands use `--target` flag to reference named targets, not paths
 - State tracking is dual: local JSON files + remote markers on servers
 - Idempotency is critical - commands check state first, then execute, then update state
-- The orchestrator (`deploy`) is just a wrapper that calls other commands with skip logic
-- TUI components (`cmd/ui/`) still exist for interactive flows during initial setup but most operations are flag-driven
+- **Code reuse pattern**: Core logic extracted to `cmd/common.go` as `createTarget()` and `configureTarget()`
+  - Cobra commands (`create`, `configure`) are thin wrappers
+  - `deploy` orchestrator calls these reusable functions directly
+  - Single source of truth for all deployment logic
+- **Provider configuration storage**:
+  - BYOS targets MUST store config under `provider: "byos"` key
+  - DigitalOcean targets use `provider: "digitalocean"` key
+  - Hetzner targets use `provider: "hetzner"` key
+  - NEVER hardcode one provider's key when storing another provider's config!
+- TUI components (`cmd/ui/`) used for interactive flows during initial setup
 - Cloud-init templates (`pkg/providers/cloudinit/`) handle server bootstrapping during provisioning
 - Utility packages (`pkg/util/`) provide shared helpers for env parsing and project validation
-- The `destroy` command requires explicit target name confirmation for safety
-- The `ssh` command supports auto-detection from current directory or explicit `--target` flag
 
 This context should help you understand the codebase structure, patterns, and development practices for contributing effectively to Lightfold CLI.

@@ -24,6 +24,7 @@ const (
 	StepTypePassword StepType = "password"
 	StepTypeSSHKey   StepType = "ssh_key"
 	StepTypeConfirm  StepType = "confirm"
+	StepTypeSelect   StepType = "select"
 )
 
 type Step struct {
@@ -36,6 +37,8 @@ type Step struct {
 	Required    bool
 	Validate    func(string) error
 	Options     []string
+	OptionDescs []string // Descriptions for each option (for StepTypeSelect)
+	Cursor      int      // Current cursor position for StepTypeSelect
 }
 
 type FlowModel struct {
@@ -120,22 +123,34 @@ func (m FlowModel) handleKeyPress(msg tea.KeyMsg) (FlowModel, tea.Cmd) {
 	case "left":
 		return m.goBack()
 
+	case "up":
+		if currentStep.Type == StepTypeSelect {
+			return m.moveSelectCursor(-1)
+		}
+
+	case "down":
+		if currentStep.Type == StepTypeSelect {
+			return m.moveSelectCursor(1)
+		}
+
 	case "right", "tab":
-		if len(currentStep.Options) > 0 {
+		if len(currentStep.Options) > 0 && currentStep.Type != StepTypeSelect {
 			return m.cycleOption()
 		}
 
 	case "ctrl+v":
-		if currentStep.Type == StepTypeText || currentStep.Type == StepTypePassword {
+		switch currentStep.Type {
+		case StepTypeText, StepTypePassword:
 			return m.handleTextInput(msg.String())
-		} else if currentStep.Type == StepTypeSSHKey {
+		case StepTypeSSHKey:
 			return m.handleSSHKeyInput(msg.String())
 		}
 
 	default:
-		if currentStep.Type == StepTypeText || currentStep.Type == StepTypePassword {
+		switch currentStep.Type {
+		case StepTypeText, StepTypePassword:
 			return m.handleTextInput(msg.String())
-		} else if currentStep.Type == StepTypeSSHKey {
+		case StepTypeSSHKey:
 			return m.handleSSHKeyInput(msg.String())
 		}
 	}
@@ -146,7 +161,15 @@ func (m FlowModel) handleKeyPress(msg tea.KeyMsg) (FlowModel, tea.Cmd) {
 func (m FlowModel) handleEnter() (FlowModel, tea.Cmd) {
 	currentStep := m.getCurrentStep()
 
-	if currentStep.Type == StepTypeSSHKey {
+	if currentStep.Type == StepTypeSelect {
+		// For select type, confirm the current cursor selection
+		if currentStep.Cursor >= 0 && currentStep.Cursor < len(currentStep.Options) {
+			currentStep.Value = currentStep.Options[currentStep.Cursor]
+		} else if currentStep.Required {
+			m.Error = fmt.Errorf("please select an option")
+			return m, nil
+		}
+	} else if currentStep.Type == StepTypeSSHKey {
 		if handler, exists := m.SSHHandlers[m.CurrentStep]; exists {
 			if err := handler.ProcessInput(currentStep.Value); err != nil {
 				m.Error = err
@@ -194,13 +217,14 @@ func (m FlowModel) handleEnter() (FlowModel, tea.Cmd) {
 func (m FlowModel) handleBackspace() (FlowModel, tea.Cmd) {
 	currentStep := m.getCurrentStep()
 
-	if currentStep.Type == StepTypeText || currentStep.Type == StepTypePassword {
+	switch currentStep.Type {
+	case StepTypeText, StepTypePassword:
 		if len(currentStep.Value) > 0 {
 			currentStep.Value = currentStep.Value[:len(currentStep.Value)-1]
 			m.StepStates[m.CurrentStep] = currentStep
 			m.Error = nil
 		}
-	} else if currentStep.Type == StepTypeSSHKey {
+	case StepTypeSSHKey:
 		return m.handleSSHKeyBackspace()
 	}
 
@@ -238,6 +262,25 @@ func (m FlowModel) cycleOption() (FlowModel, tea.Cmd) {
 	nextIndex := (currentIndex + 1) % len(currentStep.Options)
 	currentStep.Value = currentStep.Options[nextIndex]
 
+	m.StepStates[m.CurrentStep] = currentStep
+
+	return m, nil
+}
+
+func (m FlowModel) moveSelectCursor(delta int) (FlowModel, tea.Cmd) {
+	currentStep := m.getCurrentStep()
+	if len(currentStep.Options) == 0 {
+		return m, nil
+	}
+
+	newCursor := currentStep.Cursor + delta
+	if newCursor < 0 {
+		newCursor = 0
+	} else if newCursor >= len(currentStep.Options) {
+		newCursor = len(currentStep.Options) - 1
+	}
+
+	currentStep.Cursor = newCursor
 	m.StepStates[m.CurrentStep] = currentStep
 
 	return m, nil
@@ -372,6 +415,8 @@ func (m FlowModel) renderInput(step Step) string {
 		return m.renderSSHKeyInput(step)
 	case StepTypeConfirm:
 		return m.renderConfirmInput(step)
+	case StepTypeSelect:
+		return m.renderSelectInput(step)
 	default:
 		return "Unknown step type"
 	}
@@ -406,8 +451,76 @@ func (m FlowModel) renderSSHKeyInput(step Step) string {
 	return m.renderTextInput(step)
 }
 
-func (m FlowModel) renderConfirmInput(step Step) string {
+func (m FlowModel) renderConfirmInput(_ Step) string {
 	return "Press Enter to confirm"
+}
+
+func (m FlowModel) renderSelectInput(step Step) string {
+	var s string
+
+	// Viewport configuration for scrollable list
+	const maxVisibleItems = 8
+	totalItems := len(step.Options)
+
+	// Calculate viewport window
+	start := 0
+	end := totalItems
+
+	if totalItems > maxVisibleItems {
+		// Center the viewport around the cursor
+		start = step.Cursor - maxVisibleItems/2
+		end = start + maxVisibleItems
+
+		// Adjust if we're at the beginning
+		if start < 0 {
+			start = 0
+			end = maxVisibleItems
+		}
+
+		// Adjust if we're at the end
+		if end > totalItems {
+			end = totalItems
+			start = totalItems - maxVisibleItems
+			if start < 0 {
+				start = 0
+			}
+		}
+	}
+
+	// Show scroll indicator at top if there are items above
+	if start > 0 {
+		s += lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(fmt.Sprintf("   ↑ %d more above...\n\n", start))
+	}
+
+	// Render visible items
+	for i := start; i < end; i++ {
+		option := step.Options[i]
+		cursor := "  "
+		titleColor := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+
+		if i == step.Cursor {
+			cursor = focusedStyle.Render(">")
+			titleColor = lipgloss.NewStyle().Foreground(lipgloss.Color("170")).Bold(true)
+		}
+
+		// Render on single line: option + description
+		if step.OptionDescs != nil && i < len(step.OptionDescs) && step.OptionDescs[i] != "" {
+			descColor := lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
+			if i == step.Cursor {
+				descColor = lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
+			}
+			s += fmt.Sprintf("%s %s %s\n", cursor, titleColor.Render(option), descColor.Render("- "+step.OptionDescs[i]))
+		} else {
+			s += fmt.Sprintf("%s %s\n", cursor, titleColor.Render(option))
+		}
+	}
+
+	// Show scroll indicator at bottom if there are items below
+	if end < totalItems {
+		s += "\n" + lipgloss.NewStyle().Foreground(lipgloss.Color("243")).Render(fmt.Sprintf("   ↓ %d more below...", totalItems-end))
+	}
+
+	return s
 }
 
 func (m FlowModel) renderProgress() string {
@@ -441,8 +554,49 @@ func (m FlowModel) renderHelp() string {
 }
 
 func (m FlowModel) renderCompleted() string {
-	s := titleStyle.Render("✅ "+m.Title+" Complete") + "\n\n"
-	s += "Configuration saved successfully!\n"
+	// Show completion header
+	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82")).Bold(true)
+	s := "\n" + successStyle.Render("✅ "+m.Title+" Complete") + "\n\n"
+
+	// Show summary of selected values (excluding passwords)
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
+	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+
+	for i, step := range m.Steps {
+		if stepState, exists := m.StepStates[i]; exists {
+			label := step.Title + ":"
+			value := stepState.Value
+
+			// Don't show password values
+			if step.Type == StepTypePassword {
+				value = "[hidden]"
+			}
+
+			// For SSH keys, show just the filename
+			if step.Type == StepTypeSSHKey {
+				if handler, exists := m.SSHHandlers[i]; exists && handler.GetFilePath() != "" {
+					value = handler.GetFilePath()
+				}
+			}
+
+			// For select types, show the selected option
+			if step.Type == StepTypeSelect && value != "" {
+				// Add description if available
+				for optIdx, opt := range step.Options {
+					if opt == value && step.OptionDescs != nil && optIdx < len(step.OptionDescs) {
+						value = value + " - " + step.OptionDescs[optIdx]
+						break
+					}
+				}
+			}
+
+			if value != "" {
+				s += labelStyle.Render(label) + " " + valueStyle.Render(value) + "\n"
+			}
+		}
+	}
+
+	s += "\n"
 	return s
 }
 

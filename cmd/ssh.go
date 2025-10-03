@@ -5,6 +5,7 @@ import (
 	"io"
 	"lightfold/pkg/config"
 	"lightfold/pkg/state"
+	"lightfold/pkg/util"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -47,7 +48,7 @@ Examples:
 			}
 
 			// Try to infer target name from directory
-			inferredTargetName := filepath.Base(cwd)
+			inferredTargetName := util.GetTargetName(cwd)
 			target, exists = cfg.GetTarget(inferredTargetName)
 
 			if !exists {

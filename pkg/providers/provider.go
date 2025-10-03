@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -126,5 +127,14 @@ type ProviderError struct {
 }
 
 func (e *ProviderError) Error() string {
+	if len(e.Details) == 0 {
+		return e.Message
+	}
+
+	// Include details if available
+	if errDetail, ok := e.Details["error"].(string); ok && errDetail != "" {
+		return fmt.Sprintf("%s: %s", e.Message, errDetail)
+	}
+
 	return e.Message
 }

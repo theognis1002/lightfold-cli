@@ -21,12 +21,16 @@ var systemdTemplate string
 //go:embed templates/nginx.conf.tmpl
 var nginxTemplate string
 
+// OutputCallback is called with streaming output from commands
+type OutputCallback func(line string)
+
 // Executor handles the actual deployment operations on a server
 type Executor struct {
-	ssh         *sshpkg.Executor
-	appName     string
-	projectPath string
-	detection   *detector.Detection
+	ssh            *sshpkg.Executor
+	appName        string
+	projectPath    string
+	detection      *detector.Detection
+	outputCallback OutputCallback
 }
 
 // NewExecutor creates a new deployment executor
@@ -36,6 +40,32 @@ func NewExecutor(sshExecutor *sshpkg.Executor, appName, projectPath string, dete
 		appName:     appName,
 		projectPath: projectPath,
 		detection:   detection,
+	}
+}
+
+// SetOutputCallback sets the callback for streaming command output
+func (e *Executor) SetOutputCallback(callback OutputCallback) {
+	e.outputCallback = callback
+}
+
+// sendOutput sends output to the callback if set, showing only last N lines
+func (e *Executor) sendOutput(output string, lastNLines int) {
+	if e.outputCallback == nil || output == "" {
+		return
+	}
+
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+
+	// Get last N lines
+	start := 0
+	if len(lines) > lastNLines {
+		start = len(lines) - lastNLines
+	}
+
+	for i := start; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) != "" {
+			e.outputCallback("  " + strings.TrimSpace(lines[i]))
+		}
 	}
 }
 
@@ -61,20 +91,66 @@ func formatSSHError(operation string, result *sshpkg.CommandResult) error {
 	return fmt.Errorf("%s", operation)
 }
 
+// WaitForAptLock waits for apt/dpkg locks to be released (cloud-init might be running)
+func (e *Executor) WaitForAptLock(maxRetries int, retryDelay time.Duration) error {
+	// First, wait for cloud-init to finish completely
+	if e.outputCallback != nil {
+		e.outputCallback("  Waiting for cloud-init to complete...")
+	}
+	cloudInitCmd := "cloud-init status --wait 2>/dev/null || echo 'done'"
+	result := e.ssh.Execute(cloudInitCmd)
+	if result.Error != nil {
+		// cloud-init command not available or failed, continue anyway
+		if e.outputCallback != nil {
+			e.outputCallback("  cloud-init status check failed, proceeding...")
+		}
+	}
+
+	// Now wait for apt locks to be released
+	checkCmd := "sudo lsof /var/lib/dpkg/lock-frontend 2>/dev/null || sudo lsof /var/lib/apt/lists/lock 2>/dev/null"
+
+	for i := 0; i < maxRetries; i++ {
+		result := e.ssh.Execute(checkCmd)
+
+		// If no output, locks are free
+		if result.ExitCode == 1 || result.Stdout == "" {
+			return nil
+		}
+
+		// Locks are held, wait and retry
+		if i < maxRetries-1 {
+			if i == 0 && e.outputCallback != nil {
+				e.outputCallback("  Waiting for apt locks to be released...")
+			}
+			time.Sleep(retryDelay)
+		}
+	}
+
+	return fmt.Errorf("apt/dpkg locks still held after %d retries", maxRetries)
+}
+
 // InstallBasePackages installs required system packages
 func (e *Executor) InstallBasePackages() error {
-	result := e.ssh.ExecuteSudo("apt-get update -y")
+	// Fix common APT issues before updating
+	// Remove corrupted command-not-found files that cause apt-get update to fail
+	e.ssh.ExecuteSudo("rm -f /var/lib/apt/lists/*_Commands-* 2>/dev/null || true")
+
+	// Update with retries and better error handling
+	result := e.ssh.ExecuteSudo("apt-get update -y || (apt-get clean && apt-get update -y)")
+	e.sendOutput(result.Stdout, 3)
 	if result.Error != nil || result.ExitCode != 0 {
 		return formatSSHError("failed to update packages", result)
 	}
 
 	// Upgrade all packages (only on initial setup)
 	result = e.ssh.ExecuteSudo("DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold'")
+	e.sendOutput(result.Stdout, 5)
 	if result.Error != nil || result.ExitCode != 0 {
 		return formatSSHError("failed to upgrade packages", result)
 	}
 
 	result = e.ssh.ExecuteSudo("apt-get install -y nginx")
+	e.sendOutput(result.Stdout, 3)
 	if result.Error != nil || result.ExitCode != 0 {
 		return formatSSHError("failed to install nginx", result)
 	}
@@ -83,22 +159,26 @@ func (e *Executor) InstallBasePackages() error {
 		switch e.detection.Language {
 		case "JavaScript/TypeScript":
 			result = e.ssh.ExecuteSudo("curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -")
+			e.sendOutput(result.Stdout, 3)
 			if result.Error != nil || result.ExitCode != 0 {
 				return formatSSHError("failed to setup NodeSource repository", result)
 			}
 			result = e.ssh.ExecuteSudo("apt-get install -y nodejs")
+			e.sendOutput(result.Stdout, 3)
 			if result.Error != nil || result.ExitCode != 0 {
 				return formatSSHError("failed to install Node.js", result)
 			}
 
 		case "Python":
 			result = e.ssh.ExecuteSudo("apt-get install -y python3 python3-pip python3-venv")
+			e.sendOutput(result.Stdout, 3)
 			if result.Error != nil || result.ExitCode != 0 {
 				return formatSSHError("failed to install Python", result)
 			}
 
 		case "Go":
 			result = e.ssh.ExecuteSudo("apt-get install -y golang-go")
+			e.sendOutput(result.Stdout, 3)
 			if result.Error != nil || result.ExitCode != 0 {
 				return formatSSHError("failed to install Go", result)
 			}

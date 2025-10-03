@@ -6,6 +6,7 @@ import (
 	"lightfold/cmd/ui/detection"
 	"lightfold/cmd/ui/spinner"
 	"lightfold/pkg/detector"
+	"lightfold/pkg/util"
 	"os"
 	"path/filepath"
 
@@ -117,10 +118,7 @@ func runRootCommand(cmd *cobra.Command, args []string) {
 	}
 
 	// Show next steps
-	targetName := filepath.Base(projectPath)
-	if absPath, err := filepath.Abs(projectPath); err == nil {
-		targetName = filepath.Base(absPath)
-	}
+	targetName := util.GetTargetName(projectPath)
 
 	fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 	fmt.Println("Next Steps - Deploy your application:")

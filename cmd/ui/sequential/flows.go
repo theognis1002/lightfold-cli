@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"lightfold/pkg/config"
 	"lightfold/pkg/ssh"
+	"lightfold/pkg/util"
 	"path/filepath"
 	"strings"
 
@@ -36,7 +37,7 @@ func CreateS3Flow() *FlowModel {
 func RunDigitalOceanFlow(projectName string) (*config.DigitalOceanConfig, error) {
 	flow := CreateDigitalOceanFlow(projectName)
 
-	p := tea.NewProgram(flow, tea.WithAltScreen())
+	p := tea.NewProgram(flow)
 	finalModel, err := p.Run()
 	if err != nil {
 		return nil, err
@@ -93,7 +94,7 @@ func RunProvisionDigitalOceanFlow(projectName string) (*config.DigitalOceanConfi
 
 	flow := CreateProvisionDigitalOceanFlow(projectName, hasExistingToken)
 
-	p := tea.NewProgram(flow, tea.WithAltScreen())
+	p := tea.NewProgram(flow)
 	finalModel, err := p.Run()
 	if err != nil {
 		return nil, err
@@ -166,7 +167,7 @@ func RunProvisionDigitalOceanFlow(projectName string) (*config.DigitalOceanConfi
 func RunS3Flow() (*config.S3Config, error) {
 	flow := CreateS3Flow()
 
-	p := tea.NewProgram(flow, tea.WithAltScreen())
+	p := tea.NewProgram(flow)
 	finalModel, err := p.Run()
 	if err != nil {
 		return nil, err
@@ -192,10 +193,10 @@ func RunS3Flow() (*config.S3Config, error) {
 }
 
 func GetProjectNameFromPath(projectPath string) string {
-	projectName := filepath.Base(projectPath)
+	projectName := util.GetTargetName(projectPath)
 	if projectName == "." || projectName == "/" {
 		parent := filepath.Dir(projectPath)
-		projectName = filepath.Base(parent)
+		projectName = util.GetTargetName(parent)
 	}
 	return projectName
 }

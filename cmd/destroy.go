@@ -9,6 +9,7 @@ import (
 	_ "lightfold/pkg/providers/digitalocean"
 	_ "lightfold/pkg/providers/hetzner"
 	"lightfold/pkg/state"
+	"lightfold/pkg/util"
 	"os"
 	"strings"
 	"time"
@@ -20,11 +21,10 @@ import (
 var (
 	destroyTargetFlag string
 
-	// Styles for destroy command
 	destroyWarningStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("208")).Bold(true)
 	destroyDangerStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
-	destroyMutedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	destroySuccessStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("82")).Bold(true)
+	destroyMutedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("245")) // Match bubbletea descStyle
+	destroySuccessStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
 )
 
 var destroyCmd = &cobra.Command{
@@ -52,38 +52,31 @@ Examples:
 			os.Exit(1)
 		}
 
-		// Load config
 		cfg, err := config.LoadConfig()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Get target config
 		target, exists := cfg.GetTarget(destroyTargetFlag)
 		if !exists {
-			fmt.Printf("Target '%s' not found in configuration.\n", destroyTargetFlag)
+			fmt.Println(destroyMutedStyle.Render(fmt.Sprintf("Target '%s' not found in configuration.", destroyTargetFlag)))
 
-			// Check if state file exists
 			targetState, _ := state.LoadState(destroyTargetFlag)
 			if targetState != nil && (targetState.Created || targetState.Configured) {
-				fmt.Println("However, state file exists. Cleaning up state...")
+				fmt.Println(destroyMutedStyle.Render("However, state file exists. Cleaning up state..."))
 				if err := state.DeleteState(destroyTargetFlag); err != nil {
 					fmt.Fprintf(os.Stderr, "Error deleting state: %v\n", err)
 					os.Exit(1)
 				}
-				fmt.Printf("✓ Deleted state for target '%s'\n", destroyTargetFlag)
+				fmt.Printf("%s %s\n", destroySuccessStyle.Render("✓"), destroyMutedStyle.Render(fmt.Sprintf("Deleted state for target '%s'", destroyTargetFlag)))
 			}
 			return
 		}
 
-		// Load state
 		provisionedID := state.GetProvisionedID(destroyTargetFlag)
-
-		// Get provider config
 		providerCfg, _ := target.GetAnyProviderConfig()
 
-		// Display what will be destroyed
 		fmt.Printf("\n%s\n", destroyWarningStyle.Render("⚠️  WARNING: This will permanently destroy the following:"))
 		fmt.Println()
 
@@ -100,9 +93,9 @@ Examples:
 		fmt.Println()
 		fmt.Printf("%s\n\n", destroyDangerStyle.Render("This action cannot be undone!"))
 
-		// Confirmation prompt
+		targetBaseName := util.GetTargetName(destroyTargetFlag)
 		reader := bufio.NewReader(os.Stdin)
-		fmt.Printf("Type the target name '%s' to confirm: ", destroyTargetFlag)
+		fmt.Printf("Type the target name '%s' to confirm: ", targetBaseName)
 		confirmation, err := reader.ReadString('\n')
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading confirmation: %v\n", err)
@@ -110,20 +103,16 @@ Examples:
 		}
 
 		confirmation = strings.TrimSpace(confirmation)
-		if confirmation != destroyTargetFlag {
+		if confirmation != targetBaseName {
 			fmt.Println("\nCancelled. Target name did not match.")
 			os.Exit(0)
 		}
 
 		fmt.Println()
-		fmt.Println(destroyMutedStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
-		fmt.Printf("\n%s\n\n", destroyWarningStyle.Render(fmt.Sprintf("Destroying target '%s'...", destroyTargetFlag)))
 
-		// Destroy provisioned VM if exists
 		if provisionedID != "" && target.Provider != "" && target.Provider != "byos" {
-			fmt.Printf("  %s Destroying VM...\n", destroyMutedStyle.Render("→"))
+			fmt.Printf("%s %s\n", destroyWarningStyle.Render("→"), destroyMutedStyle.Render("Destroying VM..."))
 
-			// Load API token
 			tokens, err := config.LoadTokens()
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error loading tokens: %v\n", err)
@@ -132,48 +121,58 @@ Examples:
 
 			token := tokens.GetToken(target.Provider)
 			if token == "" {
-				fmt.Printf("  %s No API token found for provider '%s', skipping VM destruction\n",
-					destroyWarningStyle.Render("⚠"), target.Provider)
+				fmt.Printf("%s %s\n",
+					destroyWarningStyle.Render("⚠"), destroyMutedStyle.Render(fmt.Sprintf("No API token found for provider '%s', skipping VM destruction", target.Provider)))
 			} else {
-				// Get provider instance
 				provider, err := providers.GetProvider(target.Provider, token)
 				if err != nil {
-					fmt.Printf("  %s Error getting provider '%s': %v\n",
-						destroyWarningStyle.Render("⚠"), target.Provider, err)
-					fmt.Println("  Continuing with local cleanup...")
+					fmt.Printf("%s %s\n",
+						destroyWarningStyle.Render("⚠"), destroyMutedStyle.Render(fmt.Sprintf("Error getting provider '%s': %v", target.Provider, err)))
+					fmt.Printf("%s %s\n", destroyMutedStyle.Render("→"), destroyMutedStyle.Render("Continuing with local cleanup..."))
 				} else {
-					// Destroy the VM
 					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 					defer cancel()
 
 					if err := provider.Destroy(ctx, provisionedID); err != nil {
-						fmt.Printf("  %s Failed to destroy VM: %v\n",
-							destroyWarningStyle.Render("⚠"), err)
-						fmt.Println("  Continuing with local cleanup...")
+						fmt.Printf("%s %s\n",
+							destroyWarningStyle.Render("⚠"), destroyMutedStyle.Render(fmt.Sprintf("Failed to destroy VM: %v", err)))
+						fmt.Printf("%s %s\n", destroyMutedStyle.Render("→"), destroyMutedStyle.Render("Continuing with local cleanup..."))
 					} else {
-						fmt.Printf("  %s VM destroyed successfully\n", destroySuccessStyle.Render("✓"))
+						fmt.Printf("%s %s\n", destroySuccessStyle.Render("✓"), destroyMutedStyle.Render("VM destroyed successfully"))
 					}
 				}
 			}
 		}
 
-		// Delete state file
 		if err := state.DeleteState(destroyTargetFlag); err != nil {
 			fmt.Fprintf(os.Stderr, "Error deleting state: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("  %s Deleted state file\n", destroySuccessStyle.Render("✓"))
+		fmt.Printf("%s %s\n", destroySuccessStyle.Render("✓"), destroyMutedStyle.Render("Deleted state file"))
 
-		// Delete target from config
 		if err := cfg.DeleteTarget(destroyTargetFlag); err != nil {
 			fmt.Fprintf(os.Stderr, "Error deleting target config: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("  %s Removed target from config\n", destroySuccessStyle.Render("✓"))
+		fmt.Printf("%s %s\n", destroySuccessStyle.Render("✓"), destroyMutedStyle.Render("Removed target from config"))
 
 		fmt.Println()
-		fmt.Println(destroyMutedStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
-		fmt.Printf("%s\n", destroySuccessStyle.Render(fmt.Sprintf("✅ Target '%s' destroyed successfully", destroyTargetFlag)))
+
+		// Success banner with cleaner bubbletea style (red border for destruction)
+		successBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("196")). // Red border for destruction
+			Padding(0, 1).
+			Render(
+				lipgloss.JoinVertical(
+					lipgloss.Left,
+					destroyDangerStyle.Render(fmt.Sprintf("✓ Target '%s' destroyed successfully", destroyTargetFlag)),
+					"",
+					destroyMutedStyle.Render("All resources and configuration removed"),
+				),
+			)
+
+		fmt.Println(successBox)
 	},
 }
 
