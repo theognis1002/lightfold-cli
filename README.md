@@ -47,6 +47,7 @@ For subsequent deployments, just run the same command - it intelligently skips c
 - **`lightfold status --target <name>`** - View deployment status
 - **`lightfold ssh --target <name>`** - SSH into deployment target
 - **`lightfold deploy --target <name> --rollback`** - Rollback to previous release
+- **`lightfold destroy --target <name>`** - Destroy VM and remove local config (requires confirmation)
 
 ## Configuration
 

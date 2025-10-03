@@ -37,6 +37,8 @@ Lightfold CLI is a framework detector and deployment tool with composable, idemp
      - `status` - View deployment state and server status
      - `config` - Manage targets and API tokens
      - `keygen` - Generate SSH keypairs
+     - `ssh` - Interactive SSH sessions to deployment targets
+     - `destroy` - Destroy VM and remove local configuration
    - Clean JSON output with `--json` flag
    - Target-based architecture (named targets, not paths)
    - Dry-run support (`--dry-run`) for preview
@@ -73,32 +75,48 @@ lightfold/
 │   ├── status.go         # Deployment status viewer
 │   ├── config.go         # Config/token management
 │   ├── keygen.go         # SSH key generation
+│   ├── ssh.go            # Interactive SSH sessions
+│   ├── destroy.go        # VM destruction and cleanup
+│   ├── common.go         # Shared helper functions
 │   └── ui/               # TUI components
 │       ├── detection/    # Detection results display
-│       ├── sequential/   # Token collection flows (DigitalOcean)
+│       ├── sequential/   # Token collection flows
 │       ├── spinner/      # Loading animations
-│       └── progress.go   # Deployment progress bars
+│       ├── progress.go   # Deployment progress bars
+│       └── animation.go  # Shared animations
 ├── pkg/
 │   ├── detector/         # Framework detection engine
 │   │   ├── detector.go   # Core detection logic
 │   │   ├── plans.go      # Build/run plans
 │   │   └── exports.go    # Test helpers
 │   ├── config/           # Configuration management
-│   │   └── config.go     # Target-based config + tokens
+│   │   ├── config.go     # Target-based config + tokens
+│   │   └── deployment.go # Deployment options processing
 │   ├── state/            # State tracking
 │   │   └── state.go      # Local/remote state management
 │   ├── deploy/           # Deployment logic
 │   │   ├── orchestrator.go # Multi-provider orchestration
-│   │   └── executor.go   # Blue/green deployment executor
+│   │   ├── executor.go   # Blue/green deployment executor
+│   │   └── templates/    # Deployment templates
 │   ├── ssh/              # SSH operations
-│   │   └── ssh.go        # SSH client wrapper
+│   │   ├── executor.go   # SSH command execution
+│   │   └── keygen.go     # SSH key generation
+│   ├── util/             # Shared utilities
+│   │   ├── env.go        # .env file parsing
+│   │   └── project.go    # Project path validation
 │   └── providers/        # Cloud provider registry
 │       ├── provider.go   # Provider interface
 │       ├── registry.go   # Provider factory
 │       ├── digitalocean/ # DigitalOcean implementation
-│       └── hetzner/      # Hetzner implementation
+│       ├── hetzner/      # Hetzner implementation
+│       └── cloudinit/    # Cloud-init template generation
 ├── test/
-│   └── detector/         # Detection test suite
+│   ├── detector/         # Detection test suite
+│   ├── deploy/           # Deployment tests
+│   ├── ssh/              # SSH tests
+│   ├── providers/        # Provider tests
+│   ├── cloudinit/        # Cloud-init tests
+│   └── fixtures/         # Test fixtures for frameworks
 ├── go.mod                # Go dependencies
 ├── Makefile              # Build targets
 ├── README.md             # User documentation
@@ -504,16 +522,22 @@ lightfold push --target myapp
 lightfold deploy --target myapp  # Runs create → configure → push with smart skipping
 ```
 
-### TUI Component Guidelines
+### Utility Packages (`pkg/util/`)
 
-TUI components are minimal and used only for interactive token collection:
+Shared utility functions for common operations:
 
-- **Sequential flows** (`cmd/ui/sequential/`): Step-by-step forms for API tokens, regions, sizes
-- **Spinner** (`cmd/ui/spinner/`): Loading animations during detection
-- **Detection results** (`cmd/ui/detection/`): Framework detection display
-- **Progress bars** (`cmd/ui/progress.go`): Deployment progress visualization
+- **Environment parsing** (`env.go`): `.env` file loading and parsing
+- **Project validation** (`project.go`): Project path validation and cleaning
 
-Most user interaction happens via CLI flags, not TUI prompts.
+### Cloud-Init Templates (`pkg/providers/cloudinit/`)
+
+Generates cloud-init user data for server provisioning:
+
+- Template-based configuration generation
+- Package installation (nginx, docker, nodejs, python)
+- UFW firewall rules
+- Systemd service generation
+- User setup with SSH keys
 
 ## Extension Points
 
@@ -548,6 +572,8 @@ Most user interaction happens via CLI flags, not TUI prompts.
 - [ ] `deploy` - Step skipping, dry-run, force
 - [ ] `status` - Config, state, server status display
 - [ ] `config` - Token storage, target management
+- [ ] `ssh` - Interactive SSH sessions
+- [ ] `destroy` - VM destruction, local cleanup
 
 ### Idempotency
 - [ ] State file creation and updates
@@ -612,6 +638,10 @@ lightfold push --target myapp --env-file .env.production
 lightfold status --target myapp
 lightfold config list
 lightfold config set-token digitalocean
+
+# Utilities
+lightfold ssh --target myapp           # SSH into server
+lightfold destroy --target myapp       # Destroy VM and cleanup
 ```
 
 **File Locations:**
@@ -629,5 +659,10 @@ lightfold config set-token digitalocean
 - State tracking is dual: local JSON files + remote markers on servers
 - Idempotency is critical - commands check state first, then execute, then update state
 - The orchestrator (`deploy`) is just a wrapper that calls other commands with skip logic
+- TUI components (`cmd/ui/`) still exist for interactive flows during initial setup but most operations are flag-driven
+- Cloud-init templates (`pkg/providers/cloudinit/`) handle server bootstrapping during provisioning
+- Utility packages (`pkg/util/`) provide shared helpers for env parsing and project validation
+- The `destroy` command requires explicit target name confirmation for safety
+- The `ssh` command supports auto-detection from current directory or explicit `--target` flag
 
 This context should help you understand the codebase structure, patterns, and development practices for contributing effectively to Lightfold CLI.

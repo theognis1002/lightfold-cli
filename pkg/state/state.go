@@ -148,3 +148,28 @@ func GetLastCommit(targetName string) string {
 	}
 	return state.LastCommit
 }
+
+// GetProvisionedID returns the provisioned server ID for a target
+func GetProvisionedID(targetName string) string {
+	state, err := LoadState(targetName)
+	if err != nil {
+		return ""
+	}
+	return state.ProvisionedID
+}
+
+// DeleteState removes the state file for a specific target
+func DeleteState(targetName string) error {
+	statePath := GetTargetStatePath(targetName)
+
+	// Check if state file exists
+	if _, err := os.Stat(statePath); os.IsNotExist(err) {
+		return nil // Already deleted, no error
+	}
+
+	if err := os.Remove(statePath); err != nil {
+		return fmt.Errorf("failed to delete state file: %w", err)
+	}
+
+	return nil
+}

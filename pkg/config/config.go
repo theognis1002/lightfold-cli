@@ -209,6 +209,12 @@ func LoadConfig() (*Config, error) {
 func (c *Config) SaveConfig() error {
 	configPath := GetConfigPath()
 
+	// Ensure config directory exists
+	dir := filepath.Dir(configPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
@@ -231,6 +237,16 @@ func (c *Config) GetTarget(targetName string) (TargetConfig, bool) {
 func (c *Config) SetTarget(targetName string, target TargetConfig) error {
 	c.Targets[targetName] = target
 	return nil
+}
+
+// DeleteTarget removes a target configuration and saves the config
+func (c *Config) DeleteTarget(targetName string) error {
+	if _, exists := c.Targets[targetName]; !exists {
+		return nil // Already deleted, no error
+	}
+
+	delete(c.Targets, targetName)
+	return c.SaveConfig()
 }
 
 // FindTargetByPath finds a target by its project path
