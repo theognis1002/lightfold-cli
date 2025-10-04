@@ -173,4 +173,5 @@ See [AGENTS.md](AGENTS.md) for architecture details.
 
 
 ## TODO
-[ ] `sync` command for syncing state with external provider
+[ ] `sync` command for syncing state with current VM provider
+[ ] separate `configure` command from `push` - right now we build/deploy app in `configure`
