@@ -261,6 +261,21 @@ func configureTarget(target config.TargetConfig, targetName string, force bool) 
 		return fmt.Errorf("failed to update state: %w", err)
 	}
 
+	// Cleanup old releases after configuration
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Printf("Warning: failed to load config for cleanup: %v\n", err)
+	} else {
+		detection := detector.DetectFramework(projectPath)
+		sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
+		defer sshExecutor.Disconnect()
+
+		executor := deploy.NewExecutor(sshExecutor, projectName, projectPath, &detection)
+		if err := executor.CleanupOldReleases(cfg.KeepReleases); err != nil {
+			fmt.Printf("Warning: failed to cleanup old releases: %v\n", err)
+		}
+	}
+
 	return nil
 }
 
