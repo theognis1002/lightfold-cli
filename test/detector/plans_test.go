@@ -182,3 +182,292 @@ func TestBuildPlans(t *testing.T) {
 		})
 	}
 }
+
+func TestFrameworkHealthChecks(t *testing.T) {
+	tests := []struct {
+		name          string
+		planFunc      func(string) ([]string, []string, map[string]any, []string)
+		projectFiles  map[string]string
+		expectedPath  string
+		expectedCode  int
+	}{
+		{
+			name:     "Next.js health check",
+			planFunc: detector.NextPlan,
+			projectFiles: map[string]string{
+				"package.json": "{}",
+			},
+			expectedPath: "/",
+			expectedCode: 200,
+		},
+		{
+			name:     "Django health check",
+			planFunc: detector.DjangoPlan,
+			projectFiles: map[string]string{
+				"manage.py": "#!/usr/bin/env python",
+			},
+			expectedPath: "/healthz",
+			expectedCode: 200,
+		},
+		{
+			name:     "Go health check",
+			planFunc: detector.GoPlan,
+			projectFiles: map[string]string{
+				"go.mod": "module test",
+			},
+			expectedPath: "/healthz",
+			expectedCode: 200,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projectPath := createTestProject(t, tt.projectFiles)
+			_, _, health, _ := tt.planFunc(projectPath)
+
+			if health == nil {
+				t.Fatal("Expected health check config, got nil")
+			}
+
+			path, ok := health["path"].(string)
+			if !ok {
+				t.Error("Health check 'path' should be a string")
+			}
+			if path != tt.expectedPath {
+				t.Errorf("Expected health path '%s', got '%s'", tt.expectedPath, path)
+			}
+
+			expect, ok := health["expect"].(int)
+			if !ok {
+				t.Error("Health check 'expect' should be an int")
+			}
+			if expect != tt.expectedCode {
+				t.Errorf("Expected health code %d, got %d", tt.expectedCode, expect)
+			}
+		})
+	}
+}
+
+func TestFrameworkRunCommands(t *testing.T) {
+	tests := []struct {
+		name         string
+		planFunc     func(string) ([]string, []string, map[string]any, []string)
+		projectFiles map[string]string
+		minCommands  int
+	}{
+		{
+			name:     "Next.js run command",
+			planFunc: detector.NextPlan,
+			projectFiles: map[string]string{
+				"package.json": "{}",
+			},
+			minCommands: 1,
+		},
+		{
+			name:     "Django run command",
+			planFunc: detector.DjangoPlan,
+			projectFiles: map[string]string{
+				"manage.py": "#!/usr/bin/env python",
+			},
+			minCommands: 1,
+		},
+		{
+			name:     "Go run command",
+			planFunc: detector.GoPlan,
+			projectFiles: map[string]string{
+				"go.mod": "module test",
+			},
+			minCommands: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projectPath := createTestProject(t, tt.projectFiles)
+			_, run, _, _ := tt.planFunc(projectPath)
+
+			if len(run) < tt.minCommands {
+				t.Errorf("Expected at least %d run command(s), got %d: %v", tt.minCommands, len(run), run)
+			}
+		})
+	}
+}
+
+func TestFrameworkEnvironmentVariables(t *testing.T) {
+	tests := []struct {
+		name         string
+		planFunc     func(string) ([]string, []string, map[string]any, []string)
+		projectFiles map[string]string
+		requiredVars []string
+	}{
+		{
+			name:     "Next.js env vars",
+			planFunc: detector.NextPlan,
+			projectFiles: map[string]string{
+				"package.json": "{}",
+			},
+			requiredVars: []string{"NEXT_PUBLIC_*, any server-only envs"},
+		},
+		{
+			name:     "Django env vars",
+			planFunc: detector.DjangoPlan,
+			projectFiles: map[string]string{
+				"manage.py": "#!/usr/bin/env python",
+			},
+			requiredVars: []string{"DJANGO_SETTINGS_MODULE"},
+		},
+		{
+			name:     "Go env vars",
+			planFunc: detector.GoPlan,
+			projectFiles: map[string]string{
+				"go.mod": "module test",
+			},
+			requiredVars: []string{"PORT", "any app-specific envs"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projectPath := createTestProject(t, tt.projectFiles)
+			_, _, _, envVars := tt.planFunc(projectPath)
+
+			for _, required := range tt.requiredVars {
+				found := false
+				for _, envVar := range envVars {
+					if envVar == required {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("Expected env var '%s' not found in: %v", required, envVars)
+				}
+			}
+		})
+	}
+}
+
+func TestPackageManagerPriority(t *testing.T) {
+	tests := []struct {
+		name     string
+		files    map[string]string
+		expected string
+	}{
+		{
+			name: "bun over pnpm",
+			files: map[string]string{
+				"bun.lockb":      "binary",
+				"pnpm-lock.yaml": "lockfileVersion: 6.0",
+				"package.json":   "{}",
+			},
+			expected: "bun",
+		},
+		{
+			name: "pnpm over yarn",
+			files: map[string]string{
+				"pnpm-lock.yaml": "lockfileVersion: 6.0",
+				"yarn.lock":      "# yarn lockfile v1",
+				"package.json":   "{}",
+			},
+			expected: "pnpm",
+		},
+		{
+			name: "yarn over npm",
+			files: map[string]string{
+				"yarn.lock":    "# yarn lockfile v1",
+				"package.json": "{}",
+			},
+			expected: "yarn",
+		},
+		{
+			name: "uv over poetry",
+			files: map[string]string{
+				"uv.lock":     "version = 1",
+				"poetry.lock": "[[package]]",
+			},
+			expected: "uv",
+		},
+		{
+			name: "poetry over pipenv",
+			files: map[string]string{
+				"poetry.lock":  "[[package]]",
+				"Pipfile.lock": "{}",
+			},
+			expected: "poetry",
+		},
+		{
+			name: "pipenv over pip",
+			files: map[string]string{
+				"Pipfile.lock":     "{}",
+				"requirements.txt": "django==4.2.0",
+			},
+			expected: "pipenv",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projectPath := createTestProject(t, tt.files)
+
+			var result string
+			if strings.Contains(tt.name, "bun") || strings.Contains(tt.name, "pnpm") || strings.Contains(tt.name, "yarn") || strings.Contains(tt.name, "npm") {
+				result = detector.DetectPackageManager(projectPath)
+			} else {
+				result = detector.DetectPythonPackageManager(projectPath)
+			}
+
+			if result != tt.expected {
+				t.Errorf("Expected %s to have priority, got %s", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestAllFrameworkPlansReturnValidStructure(t *testing.T) {
+	// Only test exported plan functions
+	planFuncs := map[string]func(string) ([]string, []string, map[string]any, []string){
+		"Next.js": detector.NextPlan,
+		"Django":  detector.DjangoPlan,
+		"Go":      detector.GoPlan,
+	}
+
+	// Create minimal test projects for each framework
+	projectFiles := map[string]string{
+		"package.json": "{}",
+		"main.py":      "# python file",
+		"go.mod":       "module test",
+		"pom.xml":      "<project></project>",
+	}
+
+	for name, planFunc := range planFuncs {
+		t.Run(name, func(t *testing.T) {
+			projectPath := createTestProject(t, projectFiles)
+			build, run, health, envVars := planFunc(projectPath)
+
+			// Verify build commands exist
+			if len(build) == 0 {
+				t.Error("Build commands should not be empty")
+			}
+
+			// Verify run commands exist
+			if len(run) == 0 {
+				t.Error("Run commands should not be empty")
+			}
+
+			// Verify health check is configured
+			if health == nil {
+				t.Error("Health check should not be nil")
+			} else {
+				if _, ok := health["path"]; !ok {
+					t.Error("Health check should have 'path' key")
+				}
+				if _, ok := health["expect"]; !ok {
+					t.Error("Health check should have 'expect' key")
+				}
+			}
+
+			// Environment variables can be empty (not required)
+			_ = envVars
+		})
+	}
+}

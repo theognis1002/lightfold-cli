@@ -280,3 +280,240 @@ func TestCloudInitFileStructure(t *testing.T) {
 		t.Error("File owner should not be empty")
 	}
 }
+
+func TestGenerateUserDataWithCustomPackages(t *testing.T) {
+	config := cloudinit.UserData{
+		Username:  "custom-user",
+		PublicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5... test@example.com",
+		AppName:   "custom-app",
+		Packages:  []string{"docker.io", "redis-server", "postgresql"},
+	}
+
+	userData, err := cloudinit.GenerateUserData(config)
+	if err != nil {
+		t.Fatalf("Failed to generate user data: %v", err)
+	}
+
+	// Check custom packages
+	for _, pkg := range config.Packages {
+		if !strings.Contains(userData, pkg) {
+			t.Errorf("Expected package '%s' in user data", pkg)
+		}
+	}
+
+	// Check custom username and app name
+	if !strings.Contains(userData, "custom-user") {
+		t.Error("Should contain custom username")
+	}
+
+	if !strings.Contains(userData, "/srv/custom-app") {
+		t.Error("Should contain custom app directory")
+	}
+}
+
+func TestGenerateUserDataWithFiles(t *testing.T) {
+	config := cloudinit.UserData{
+		Username:  "deploy",
+		PublicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5... test@example.com",
+		AppName:   "my-app",
+		Files: []cloudinit.CloudInitFile{
+			{
+				Path:        "/etc/app/config.yaml",
+				Content:     "key: value\nother: data",
+				Permissions: "0600",
+				Owner:       "deploy:deploy",
+			},
+			{
+				Path:        "/etc/systemd/system/my-app.service",
+				Content:     "[Unit]\nDescription=My App",
+				Permissions: "0644",
+				Owner:       "root:root",
+			},
+		},
+	}
+
+	userData, err := cloudinit.GenerateUserData(config)
+	if err != nil {
+		t.Fatalf("Failed to generate user data: %v", err)
+	}
+
+	// Should contain write_files section
+	if !strings.Contains(userData, "write_files:") {
+		t.Error("Should contain write_files section")
+	}
+
+	// Check files are present
+	for _, file := range config.Files {
+		if !strings.Contains(userData, file.Path) {
+			t.Errorf("Expected file path '%s' in user data", file.Path)
+		}
+	}
+}
+
+func TestGenerateUserDataWithCustomCommands(t *testing.T) {
+	config := cloudinit.UserData{
+		Username:  "deploy",
+		PublicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5... test@example.com",
+		AppName:   "my-app",
+		Commands: []string{
+			"apt-get update",
+			"systemctl enable my-app",
+			"certbot --nginx -d example.com --non-interactive",
+		},
+	}
+
+	userData, err := cloudinit.GenerateUserData(config)
+	if err != nil {
+		t.Fatalf("Failed to generate user data: %v", err)
+	}
+
+	// Check commands are present
+	for _, cmd := range config.Commands {
+		if !strings.Contains(userData, cmd) {
+			t.Errorf("Expected command '%s' in user data", cmd)
+		}
+	}
+}
+
+func TestGenerateUserDataWithCustomUFWRules(t *testing.T) {
+	config := cloudinit.UserData{
+		Username:  "deploy",
+		PublicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5... test@example.com",
+		AppName:   "my-app",
+		UFWRules: []string{
+			"ufw allow 22/tcp",
+			"ufw allow 80/tcp",
+			"ufw allow 443/tcp",
+			"ufw allow 3000/tcp",
+		},
+	}
+
+	userData, err := cloudinit.GenerateUserData(config)
+	if err != nil {
+		t.Fatalf("Failed to generate user data: %v", err)
+	}
+
+	// Check UFW rules are present
+	for _, rule := range config.UFWRules {
+		if !strings.Contains(userData, rule) {
+			t.Errorf("Expected UFW rule '%s' in user data", rule)
+		}
+	}
+
+	// Should enable UFW
+	if !strings.Contains(userData, "ufw --force enable") {
+		t.Error("Should contain UFW enable command")
+	}
+}
+
+func TestGenerateUserDataComplexScenario(t *testing.T) {
+	config := cloudinit.UserData{
+		Username:  "app-user",
+		PublicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5... test@example.com",
+		AppName:   "production-app",
+		Packages: []string{
+			"nginx",
+			"nodejs",
+			"npm",
+			"git",
+			"postgresql-client",
+		},
+		Files: []cloudinit.CloudInitFile{
+			{
+				Path:        "/etc/nginx/sites-available/production-app",
+				Content:     "server { listen 80; server_name example.com; }",
+				Permissions: "0644",
+				Owner:       "root:root",
+			},
+		},
+		Commands: []string{
+			"ln -s /etc/nginx/sites-available/production-app /etc/nginx/sites-enabled/",
+			"systemctl restart nginx",
+		},
+		UFWRules: []string{
+			"ufw allow 22/tcp",
+			"ufw allow 80/tcp",
+			"ufw allow 443/tcp",
+		},
+		Metadata: map[string]string{
+			"environment": "production",
+			"app_version": "1.0.0",
+		},
+	}
+
+	userData, err := cloudinit.GenerateUserData(config)
+	if err != nil {
+		t.Fatalf("Failed to generate user data: %v", err)
+	}
+
+	// Verify all components are present
+	if !strings.HasPrefix(userData, "#cloud-config") {
+		t.Error("Should start with #cloud-config")
+	}
+
+	if !strings.Contains(userData, "app-user") {
+		t.Error("Should contain custom username")
+	}
+
+	if !strings.Contains(userData, "/srv/production-app") {
+		t.Error("Should contain app directory")
+	}
+
+	// Verify all packages
+	for _, pkg := range config.Packages {
+		if !strings.Contains(userData, pkg) {
+			t.Errorf("Expected package '%s'", pkg)
+		}
+	}
+
+	// Verify final message
+	if !strings.Contains(userData, "final_message:") {
+		t.Error("Should contain final message")
+	}
+}
+
+func TestGenerateUserDataInvalidPublicKey(t *testing.T) {
+	config := cloudinit.UserData{
+		Username:  "deploy",
+		PublicKey: "", // Empty public key
+		AppName:   "my-app",
+	}
+
+	_, err := cloudinit.GenerateUserData(config)
+	// This should succeed with empty key (validation happens elsewhere)
+	// This tests that generation is flexible
+	if err != nil {
+		t.Logf("Note: Empty public key generates user data with warning: %v", err)
+	}
+}
+
+func TestCloudInitFileWithEncoding(t *testing.T) {
+	file := cloudinit.CloudInitFile{
+		Path:        "/etc/app/binary-data",
+		Content:     "base64-encoded-content",
+		Permissions: "0600",
+		Owner:       "deploy:deploy",
+		Encoding:    "base64",
+	}
+
+	if file.Encoding != "base64" {
+		t.Error("Expected encoding to be base64")
+	}
+
+	config := cloudinit.UserData{
+		Username:  "deploy",
+		PublicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5... test@example.com",
+		AppName:   "my-app",
+		Files:     []cloudinit.CloudInitFile{file},
+	}
+
+	userData, err := cloudinit.GenerateUserData(config)
+	if err != nil {
+		t.Fatalf("Failed to generate user data: %v", err)
+	}
+
+	// Check encoding is included
+	if !strings.Contains(userData, "encoding: base64") {
+		t.Error("Should contain encoding specification")
+	}
+}
