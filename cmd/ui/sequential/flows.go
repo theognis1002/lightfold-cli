@@ -67,7 +67,6 @@ func RunDigitalOceanFlow(projectName string) (*config.DigitalOceanConfig, error)
 func CreateProvisionDigitalOceanFlow(projectName string, hasExistingToken bool) *FlowModel {
 	var steps []Step
 
-	// Only ask for API token if we don't have one stored
 	if !hasExistingToken {
 		steps = append(steps, CreateAPITokenStep("api_token"))
 	}
@@ -83,7 +82,6 @@ func CreateProvisionDigitalOceanFlow(projectName string, hasExistingToken bool) 
 }
 
 func RunProvisionDigitalOceanFlow(projectName string) (*config.DigitalOceanConfig, error) {
-	// Check if we already have a stored token
 	tokens, err := config.LoadTokens()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load tokens: %w", err)
@@ -119,10 +117,8 @@ func RunProvisionDigitalOceanFlow(projectName string) (*config.DigitalOceanConfi
 		}
 	}
 
-	// Generate SSH keypair for the provisioned droplet
 	keyName := ssh.GetKeyName(projectName)
 
-	// Check if key already exists, generate if not
 	exists, err := ssh.KeyExists(keyName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check SSH key existence: %w", err)
@@ -144,23 +140,113 @@ func RunProvisionDigitalOceanFlow(projectName string) (*config.DigitalOceanConfi
 		keyPath = filepath.Join(keysDir, keyName)
 	}
 
-	// Extract the size ID from the display string (e.g., "s-1vcpu-512mb-10gb (512 MB RAM, 1 vCPU)")
 	sizeStr := results["size"]
 	sizeID := sizeStr
 	if idx := strings.Index(sizeStr, " ("); idx > 0 {
 		sizeID = sizeStr[:idx]
 	}
 
-	// Return config with SSH key path and provisioning parameters
-	// IP will be filled in during actual provisioning in deploy command
 	return &config.DigitalOceanConfig{
-		IP:          "",                       // Will be filled by actual provisioning
-		Username:    "deploy",                 // Standard user for provisioned droplets
-		SSHKey:      keyPath,                  // Path to generated private key
-		SSHKeyName:  keyName,                  // Name of the SSH key for uploading to DO
-		Region:      results["region"],        // Store selected region
-		Size:        sizeID,                   // Store selected size ID
-		Provisioned: true,                     // Mark as provisioned
+		IP:          "",
+		Username:    "deploy",
+		SSHKey:      keyPath,
+		SSHKeyName:  keyName,
+		Region:      results["region"],
+		Size:        sizeID,
+		Provisioned: true,
+	}, nil
+}
+
+func CreateProvisionHetznerFlow(projectName string, hasExistingToken bool) *FlowModel {
+	var steps []Step
+
+	if !hasExistingToken {
+		steps = append(steps, CreateHetznerAPITokenStep("api_token"))
+	}
+
+	steps = append(steps,
+		CreateHetznerLocationStep("location"),
+		CreateHetznerServerTypeStep("server_type"),
+	)
+
+	flow := NewFlow("Provision Hetzner Cloud Server", steps)
+	flow.SetProjectName(projectName)
+	return flow
+}
+
+func RunProvisionHetznerFlow(projectName string) (*config.HetznerConfig, error) {
+	tokens, err := config.LoadTokens()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load tokens: %w", err)
+	}
+
+	existingToken := tokens.GetToken("hetzner")
+	hasExistingToken := existingToken != ""
+
+	flow := CreateProvisionHetznerFlow(projectName, hasExistingToken)
+
+	p := tea.NewProgram(flow)
+	finalModel, err := p.Run()
+	if err != nil {
+		return nil, err
+	}
+
+	final := finalModel.(FlowModel)
+	if final.Cancelled {
+		return nil, fmt.Errorf("provisioning cancelled")
+	}
+
+	if !final.Completed {
+		return nil, fmt.Errorf("provisioning not completed")
+	}
+
+	results := final.GetResults()
+
+	// Store API token securely if a new one was provided
+	if newToken, ok := results["api_token"]; ok && newToken != "" {
+		tokens.SetToken("hetzner", newToken)
+		if err := tokens.SaveTokens(); err != nil {
+			return nil, fmt.Errorf("failed to save API token: %w", err)
+		}
+	}
+
+	keyName := ssh.GetKeyName(projectName)
+
+	exists, err := ssh.KeyExists(keyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check SSH key existence: %w", err)
+	}
+
+	var keyPath string
+	if !exists {
+		keyPair, err := ssh.GenerateKeyPair(keyName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate SSH key pair: %w", err)
+		}
+		keyPath = keyPair.PrivateKeyPath
+	} else {
+		// Key exists, get its path
+		keysDir, err := ssh.GetKeysDirectory()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get keys directory: %w", err)
+		}
+		keyPath = filepath.Join(keysDir, keyName)
+	}
+
+	serverTypeStr := results["server_type"]
+	serverTypeID := serverTypeStr
+	if idx := strings.Index(serverTypeStr, " ("); idx > 0 {
+		serverTypeID = serverTypeStr[:idx]
+	}
+
+	return &config.HetznerConfig{
+		IP:          "",
+		Username:    "deploy",
+		SSHKey:      keyPath,
+		SSHKeyName:  keyName,
+		Location:    results["location"],
+		ServerType:  serverTypeID,
+		Provisioned: true,
 	}, nil
 }
 

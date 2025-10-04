@@ -393,7 +393,7 @@ This ensures robustness and prevents "stuck in bad state" scenarios.
 
 **Supported Providers:**
 - ✅ DigitalOcean (fully implemented with IP recovery)
-- ✅ Hetzner Cloud (proof-of-concept, stub implementation)
+- ✅ Hetzner Cloud (fully implemented with IP recovery)
 - ✅ BYOS (Bring Your Own Server - no provisioning, just deployment)
 - 🔜 Linode, Fly.io, AWS EC2, Google Cloud, Azure (trivial to add with IP recovery pattern)
 

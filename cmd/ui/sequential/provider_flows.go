@@ -7,7 +7,6 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// CreateProviderSelectionStep creates a step for selecting a cloud provider
 func CreateProviderSelectionStep(id string) Step {
 	return NewStep(id, "Select Cloud Provider").
 		Description("Choose how you want to deploy your application").
@@ -20,15 +19,13 @@ func CreateProviderSelectionStep(id string) Step {
 		OptionDescriptions(
 			"Auto-provision servers on DigitalOcean",
 			"Use an existing server with SSH access",
-			"Auto-provision servers on Hetzner Cloud (coming soon)",
+			"Auto-provision servers on Hetzner Cloud",
 		).
 		Required().
 		Build()
 }
 
-// RunProviderSelectionWithConfigFlow shows provider selection and then runs the appropriate config flow
 func RunProviderSelectionWithConfigFlow(projectName string) (provider string, cfg interface{}, err error) {
-	// Create a flow with just the provider selection step
 	steps := []Step{
 		CreateProviderSelectionStep("provider"),
 	}
@@ -54,11 +51,8 @@ func RunProviderSelectionWithConfigFlow(projectName string) (provider string, cf
 	results := final.GetResults()
 	selectedProvider := results["provider"]
 
-	// Now run the appropriate configuration flow based on the selected provider
 	switch selectedProvider {
 	case "digitalocean":
-		// Check if we need to provision or if user has existing server
-		// For now, assume auto-provision (we can add another step later)
 		doConfig, err := RunProvisionDigitalOceanFlow(projectName)
 		if err != nil {
 			return "", nil, fmt.Errorf("DigitalOcean configuration failed: %w", err)
@@ -73,14 +67,17 @@ func RunProviderSelectionWithConfigFlow(projectName string) (provider string, cf
 		return "byos", byosConfig, nil
 
 	case "hetzner":
-		return "", nil, fmt.Errorf("Hetzner Cloud support coming soon")
+		hetznerConfig, err := RunProvisionHetznerFlow(projectName)
+		if err != nil {
+			return "", nil, fmt.Errorf("Hetzner Cloud configuration failed: %w", err)
+		}
+		return "hetzner", hetznerConfig, nil
 
 	default:
 		return "", nil, fmt.Errorf("unsupported provider: %s", selectedProvider)
 	}
 }
 
-// CreateBYOSConfigurationFlow creates a configuration flow for BYOS mode
 func CreateBYOSConfigurationFlow(projectName string) *FlowModel {
 	steps := []Step{
 		CreateIPStep("ip", "192.168.1.100"),
@@ -93,7 +90,6 @@ func CreateBYOSConfigurationFlow(projectName string) *FlowModel {
 	return flow
 }
 
-// RunBYOSConfigurationFlow runs the BYOS configuration flow and returns the config
 func RunBYOSConfigurationFlow(projectName string) (*config.DigitalOceanConfig, error) {
 	flow := CreateBYOSConfigurationFlow(projectName)
 
@@ -120,6 +116,6 @@ func RunBYOSConfigurationFlow(projectName string) (*config.DigitalOceanConfig, e
 		SSHKey:      sshKeyPath,
 		SSHKeyName:  sshKeyName,
 		Username:    results["username"],
-		Provisioned: false, // BYOS is not provisioned by us
+		Provisioned: false,
 	}, nil
 }

@@ -333,6 +333,120 @@ func CreateDynamicSizeStep(id string, provider providers.Provider, region string
 		Build()
 }
 
+// Hetzner Cloud Steps
+
+func CreateHetznerAPITokenStep(id string) Step {
+	return NewStep(id, "Hetzner Cloud API Token").
+		Type(StepTypePassword).
+		Placeholder("hcloud_...").
+		Required().
+		Validate(ValidateRequired).
+		Build()
+}
+
+func CreateHetznerLocationStep(id string) Step {
+	locations := []string{"nbg1", "fsn1", "hel1", "ash", "hil"}
+	locationDescs := []string{
+		"Nuremberg, Germany",
+		"Falkenstein, Germany",
+		"Helsinki, Finland",
+		"Ashburn, VA, USA",
+		"Hillsboro, OR, USA",
+	}
+
+	return NewStep(id, "Hetzner Location").
+		Type(StepTypeSelect).
+		DefaultValue("nbg1").
+		Options(locations...).
+		OptionDescriptions(locationDescs...).
+		Required().
+		Build()
+}
+
+func CreateHetznerServerTypeStep(id string) Step {
+	serverTypes := []string{"cx11", "cx21", "cx31", "cx41", "cx51", "cpx11", "cpx21", "cpx31"}
+	serverTypeDescs := []string{
+		"1 vCPU, 2 GB RAM, 20 GB SSD",
+		"2 vCPUs, 4 GB RAM, 40 GB SSD",
+		"2 vCPUs, 8 GB RAM, 80 GB SSD",
+		"4 vCPUs, 16 GB RAM, 160 GB SSD",
+		"8 vCPUs, 32 GB RAM, 240 GB SSD",
+		"2 vCPUs, 2 GB RAM, 40 GB SSD (AMD)",
+		"3 vCPUs, 4 GB RAM, 80 GB SSD (AMD)",
+		"4 vCPUs, 8 GB RAM, 160 GB SSD (AMD)",
+	}
+
+	return NewStep(id, "Server Type").
+		Type(StepTypeSelect).
+		DefaultValue("cx11").
+		Options(serverTypes...).
+		OptionDescriptions(serverTypeDescs...).
+		Required().
+		Build()
+}
+
+func CreateDynamicHetznerLocationStep(id string, provider providers.Provider) Step {
+	ctx := context.Background()
+
+	locations, err := provider.GetRegions(ctx)
+	if err != nil {
+		return CreateHetznerLocationStep(id)
+	}
+
+	var locationIDs []string
+	var locationDescs []string
+	for _, location := range locations {
+		locationIDs = append(locationIDs, location.ID)
+		locationDescs = append(locationDescs, location.Location)
+	}
+
+	defaultValue := "nbg1"
+	if len(locationIDs) > 0 {
+		defaultValue = locationIDs[0]
+	}
+
+	return NewStep(id, "Hetzner Location").
+		Type(StepTypeSelect).
+		DefaultValue(defaultValue).
+		Options(locationIDs...).
+		OptionDescriptions(locationDescs...).
+		Required().
+		Build()
+}
+
+func CreateDynamicHetznerServerTypeStep(id string, provider providers.Provider) Step {
+	ctx := context.Background()
+
+	serverTypes, err := provider.GetSizes(ctx, "")
+	if err != nil {
+		return CreateHetznerServerTypeStep(id)
+	}
+
+	sort.Slice(serverTypes, func(i, j int) bool {
+		return serverTypes[i].Memory < serverTypes[j].Memory
+	})
+
+	var typeIDs []string
+	var typeDescs []string
+	for _, st := range serverTypes {
+		typeIDs = append(typeIDs, st.ID)
+		typeDescs = append(typeDescs, st.Name)
+	}
+
+	defaultValue := "cx11"
+	if len(typeIDs) > 0 {
+		defaultValue = typeIDs[0]
+	}
+
+	return NewStep(id, "Server Type").
+		Type(StepTypeSelect).
+		DefaultValue(defaultValue).
+		Options(typeIDs...).
+		OptionDescriptions(typeDescs...).
+		Required().
+		Build()
+}
+
 func (m *FlowModel) UpdateStepWithDynamicSizes(stepID string, provider providers.Provider, region string) error {
 	ctx := context.Background()
 

@@ -29,7 +29,7 @@ lightfold deploy --target myapp-prod
 ```
 
 On first run, you'll be prompted to:
-- Select a cloud provider (DigitalOcean, BYOS, etc.)
+- Select a cloud provider (DigitalOcean, Hetzner Cloud, BYOS, etc.)
 - Provide credentials (API tokens, SSH keys)
 - Choose region and server size
 
@@ -144,10 +144,10 @@ Uses scoring system based on:
 
 ### Available
 - **DigitalOcean** - Full provisioning support
+- **Hetzner Cloud** - Full provisioning support
 - **BYOS (Bring Your Own Server)** - Use any existing server
 
 ### Coming Soon
-- [ ] Hetzner Cloud
 - [ ] Vultr
 - [ ] Linode/Akamai
 - [ ] AWS EC2

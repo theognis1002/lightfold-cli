@@ -18,8 +18,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/lipgloss"
 	tui "lightfold/cmd/ui"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // loadConfigOrExit loads the configuration and exits with an error message if it fails
@@ -83,6 +84,12 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 				targetConfig.SetProviderConfig("digitalocean", doConfig)
 			} else {
 				return config.TargetConfig{}, fmt.Errorf("invalid DigitalOcean configuration")
+			}
+		case "hetzner":
+			if hetznerConfig, ok := providerConfig.(*config.HetznerConfig); ok {
+				targetConfig.SetProviderConfig("hetzner", hetznerConfig)
+			} else {
+				return config.TargetConfig{}, fmt.Errorf("invalid Hetzner configuration")
 			}
 		case "byos":
 			if byosConfig, ok := providerConfig.(*config.DigitalOceanConfig); ok {
@@ -213,6 +220,25 @@ func configureTarget(target config.TargetConfig, targetName string, force bool) 
 		}
 	}
 
+	if target.Provider == "hetzner" {
+		hetznerConfig, err := target.GetHetznerConfig()
+		if err == nil {
+			serverID := hetznerConfig.ServerID
+			if serverID == "" {
+				if targetState, err := state.LoadState(targetName); err == nil && targetState.ProvisionedID != "" {
+					serverID = targetState.ProvisionedID
+				}
+			}
+
+			if hetznerConfig.IP == "" && serverID != "" {
+				fmt.Println("Recovering server IP from Hetzner Cloud...")
+				if err := recoverIPFromHetzner(&target, targetName, serverID); err != nil {
+					return fmt.Errorf("failed to recover IP: %w", err)
+				}
+			}
+		}
+	}
+
 	if err := validateConfigureTargetConfig(target); err != nil {
 		return fmt.Errorf("invalid target configuration: %w", err)
 	}
@@ -228,11 +254,9 @@ func configureTarget(target config.TargetConfig, targetName string, force bool) 
 			sshExecutor.Disconnect()
 
 			if result.ExitCode == 0 && strings.TrimSpace(result.Stdout) == "configured" {
-				// Update local state to match server state
 				if err := state.MarkConfigured(targetName); err != nil {
 					fmt.Printf("Warning: failed to update local state: %v\n", err)
 				}
-				// Print skip message with consistent styling
 				skipStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 				fmt.Printf("%s\n", skipStyle.Render("Server already configured (skipping)"))
 				return nil
@@ -352,11 +376,24 @@ func handleProvisionWithFlags(targetConfig *config.TargetConfig, targetName, pro
 			}
 			targetConfig.Provider = "digitalocean"
 			targetConfig.SetProviderConfig("digitalocean", doConfig)
+		} else if provider == "hetzner" {
+			hetznerConfig, err := sequential.RunProvisionHetznerFlow(targetName)
+			if err != nil {
+				return fmt.Errorf("failed to get Hetzner token: %w", err)
+			}
+			tokens, _ = config.LoadTokens()
+			token = tokens.GetToken("hetzner")
+			if token == "" {
+				return fmt.Errorf("no Hetzner Cloud API token provided")
+			}
+			targetConfig.Provider = "hetzner"
+			targetConfig.SetProviderConfig("hetzner", hetznerConfig)
 		} else {
 			return fmt.Errorf("provider %s not supported yet", provider)
 		}
 	} else {
-		if provider == "do" || provider == "digitalocean" {
+		switch provider {
+		case "do", "digitalocean":
 			targetConfig.Provider = "digitalocean"
 
 			sshKeyPath := filepath.Join(os.Getenv("HOME"), config.LocalConfigDir, config.LocalKeysDir, "lightfold_ed25519")
@@ -376,7 +413,27 @@ func handleProvisionWithFlags(targetConfig *config.TargetConfig, targetName, pro
 				Provisioned: true,
 			}
 			targetConfig.SetProviderConfig("digitalocean", doConfig)
-		} else {
+		case "hetzner":
+			targetConfig.Provider = "hetzner"
+
+			sshKeyPath := filepath.Join(os.Getenv("HOME"), config.LocalConfigDir, config.LocalKeysDir, "lightfold_ed25519")
+			if _, err := os.Stat(sshKeyPath); os.IsNotExist(err) {
+				publicKeyPath, err := sshpkg.GenerateKeyPair(sshKeyPath)
+				if err != nil {
+					return fmt.Errorf("failed to generate SSH key: %w", err)
+				}
+				_ = publicKeyPath
+			}
+
+			hetznerConfig := &config.HetznerConfig{
+				Location:    regionFlag,
+				ServerType:  sizeFlag,
+				SSHKey:      sshKeyPath,
+				Username:    "deploy",
+				Provisioned: true,
+			}
+			targetConfig.SetProviderConfig("hetzner", hetznerConfig)
+		default:
 			return fmt.Errorf("provider %s not supported yet", provider)
 		}
 	}
@@ -415,7 +472,7 @@ func handleProvisionWithFlags(targetConfig *config.TargetConfig, targetName, pro
 	return nil
 }
 
-func validateConfigureTargetConfig(target config.TargetConfig) error {
+var validateConfigureTargetConfig = func(target config.TargetConfig) error {
 	if target.Provider == "" {
 		return fmt.Errorf("provider is required")
 	}
@@ -445,8 +502,7 @@ func validateConfigureTargetConfig(target config.TargetConfig) error {
 }
 
 // recoverIPFromDigitalOcean fetches the IP address from DigitalOcean API when droplet exists but IP is missing
-func recoverIPFromDigitalOcean(target *config.TargetConfig, targetName, dropletID string) error {
-	// Load tokens
+var recoverIPFromDigitalOcean = func(target *config.TargetConfig, targetName, dropletID string) error {
 	tokens, err := config.LoadTokens()
 	if err != nil {
 		return fmt.Errorf("failed to load tokens: %w", err)
@@ -457,13 +513,11 @@ func recoverIPFromDigitalOcean(target *config.TargetConfig, targetName, dropletI
 		return fmt.Errorf("DigitalOcean API token not found")
 	}
 
-	// Get the provider to fetch droplet info
 	provider, err := providers.GetProvider("digitalocean", doToken)
 	if err != nil {
 		return fmt.Errorf("failed to get DigitalOcean provider: %w", err)
 	}
 
-	// Fetch droplet info
 	server, err := provider.GetServer(context.Background(), dropletID)
 	if err != nil {
 		return fmt.Errorf("failed to fetch droplet info: %w", err)
@@ -478,6 +532,57 @@ func recoverIPFromDigitalOcean(target *config.TargetConfig, targetName, dropletI
 	doConfig.IP = server.PublicIPv4
 	doConfig.DropletID = dropletID
 	target.SetProviderConfig("digitalocean", doConfig)
+	fmt.Printf("  ✓ Recovered IP: %s\n", server.PublicIPv4)
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if err := cfg.SetTarget(targetName, *target); err != nil {
+		return fmt.Errorf("failed to update target config: %w", err)
+	}
+
+	if err := cfg.SaveConfig(); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	return nil
+}
+
+// recoverIPFromHetzner fetches the IP address from Hetzner Cloud API when server exists but IP is missing
+var recoverIPFromHetzner = func(target *config.TargetConfig, targetName, serverID string) error {
+	tokens, err := config.LoadTokens()
+	if err != nil {
+		return fmt.Errorf("failed to load tokens: %w", err)
+	}
+
+	hetznerToken := tokens.Tokens["hetzner"]
+	if hetznerToken == "" {
+		return fmt.Errorf("Hetzner Cloud API token not found")
+	}
+
+	// Get the provider to fetch server info
+	provider, err := providers.GetProvider("hetzner", hetznerToken)
+	if err != nil {
+		return fmt.Errorf("failed to get Hetzner provider: %w", err)
+	}
+
+	// Fetch server info
+	server, err := provider.GetServer(context.Background(), serverID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch server info: %w", err)
+	}
+
+	// Update config with the IP and server_id
+	hetznerConfig, err := target.GetHetznerConfig()
+	if err != nil {
+		return fmt.Errorf("failed to get Hetzner config: %w", err)
+	}
+
+	hetznerConfig.IP = server.PublicIPv4
+	hetznerConfig.ServerID = serverID
+	target.SetProviderConfig("hetzner", hetznerConfig)
 	fmt.Printf("  ✓ Recovered IP: %s\n", server.PublicIPv4)
 
 	// Save the updated config

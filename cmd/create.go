@@ -31,6 +31,7 @@ This command supports two modes:
 
 2. Auto-provision - Create new infrastructure:
    lightfold create --target myapp --provider do --region nyc1 --size s-1vcpu-1gb
+   lightfold create --target myapp --provider hetzner --region nbg1 --size cx11
 
 If no target name is provided, the current directory name will be used.`,
 	Args: cobra.MaximumNArgs(1),
