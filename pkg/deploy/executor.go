@@ -106,11 +106,11 @@ func formatSSHError(operation string, result *sshpkg.CommandResult) error {
 
 // WaitForAptLock waits for apt/dpkg locks to be released (cloud-init might be running)
 func (e *Executor) WaitForAptLock(maxRetries int, retryDelay time.Duration) error {
-	// First, wait for cloud-init to finish completely (with 5 minute timeout)
+	// First, wait for cloud-init to finish completely
 	if e.outputCallback != nil {
 		e.outputCallback("  Waiting for cloud-init to complete...")
 	}
-	cloudInitCmd := "timeout 300 cloud-init status --wait 2>/dev/null || echo 'done'"
+	cloudInitCmd := fmt.Sprintf("timeout %d cloud-init status --wait 2>/dev/null || echo 'done'", int(config.DefaultCloudInitTimeout.Seconds()))
 	result := e.ssh.Execute(cloudInitCmd)
 	if result.Error != nil {
 		// cloud-init command not available or failed, continue anyway
@@ -150,7 +150,7 @@ func (e *Executor) InstallBasePackages() error {
 	e.ssh.ExecuteSudo("apt-get clean 2>/dev/null || true")
 
 	var result *sshpkg.CommandResult
-	maxRetries := 3
+	maxRetries := config.DefaultAptMaxRetries
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		result = e.ssh.ExecuteSudo("apt-get update 2>&1")
 		if result.Error == nil && result.ExitCode == 0 {
@@ -316,7 +316,7 @@ func (e *Executor) InstallBasePackages() error {
 
 // SetupDirectoryStructure creates the deployment directory structure
 func (e *Executor) SetupDirectoryStructure() error {
-	appPath := fmt.Sprintf("/srv/%s", e.appName)
+	appPath := fmt.Sprintf("%s/%s", config.RemoteAppBaseDir, e.appName)
 
 	directories := []string{
 		appPath,
@@ -438,7 +438,7 @@ func (e *Executor) CreateReleaseTarball(outputPath string) error {
 
 func (e *Executor) UploadRelease(tarballPath string) (string, error) {
 	timestamp := time.Now().Format("20060102150405")
-	releasePath := fmt.Sprintf("/srv/%s/releases/%s", e.appName, timestamp)
+	releasePath := fmt.Sprintf("%s/%s/releases/%s", config.RemoteAppBaseDir, e.appName, timestamp)
 
 	result := e.ssh.ExecuteSudo(fmt.Sprintf("mkdir -p %s", releasePath))
 	if result.Error != nil {
@@ -524,7 +524,7 @@ func (e *Executor) BuildReleaseWithEnv(releasePath string, envVars map[string]st
 		}
 
 		envPath := fmt.Sprintf("%s/.env", releasePath)
-		if err := e.ssh.WriteRemoteFile(envPath, envContent.String(), 0600); err != nil {
+		if err := e.ssh.WriteRemoteFile(envPath, envContent.String(), config.PermEnvFile); err != nil {
 			return fmt.Errorf("failed to write .env for build: %w", err)
 		}
 
@@ -533,7 +533,7 @@ func (e *Executor) BuildReleaseWithEnv(releasePath string, envVars map[string]st
 	}
 
 	if e.detection != nil && e.detection.Language == "Python" {
-		venvPath := fmt.Sprintf("/srv/%s/shared/venv", e.appName)
+		venvPath := fmt.Sprintf("%s/%s/shared/venv", config.RemoteAppBaseDir, e.appName)
 		result := e.ssh.ExecuteSudo(fmt.Sprintf("python3 -m venv %s", venvPath))
 		if result.Error != nil || result.ExitCode != 0 {
 			return fmt.Errorf("failed to create venv: %s", result.Stderr)
@@ -724,7 +724,7 @@ func (e *Executor) adjustBuildCommand(cmd string, _ string) string {
 	switch e.detection.Language {
 	case "Python":
 		if strings.Contains(cmd, "pip install") {
-			venvPath := fmt.Sprintf("/srv/%s/shared/venv", e.appName)
+			venvPath := fmt.Sprintf("%s/%s/shared/venv", config.RemoteAppBaseDir, e.appName)
 			return strings.Replace(cmd, "pip install", fmt.Sprintf("%s/bin/pip install", venvPath), 1)
 		}
 		if strings.Contains(cmd, "poetry install") {
@@ -768,11 +768,11 @@ func (e *Executor) WriteEnvironmentFile(envVars map[string]string) error {
 	}
 
 	tmpEnvPath := "/tmp/lightfold.env"
-	if err := e.ssh.WriteRemoteFile(tmpEnvPath, envContent.String(), 0600); err != nil {
+	if err := e.ssh.WriteRemoteFile(tmpEnvPath, envContent.String(), config.PermEnvFile); err != nil {
 		return fmt.Errorf("failed to write environment file: %w", err)
 	}
 
-	finalEnvPath := fmt.Sprintf("/srv/%s/shared/env/.env", e.appName)
+	finalEnvPath := fmt.Sprintf("%s/%s/shared/env/.env", config.RemoteAppBaseDir, e.appName)
 	result := e.ssh.ExecuteSudo(fmt.Sprintf("mv %s %s", tmpEnvPath, finalEnvPath))
 	if result.Error != nil || result.ExitCode != 0 {
 		return fmt.Errorf("failed to move env file to final location: %s", result.Stderr)
@@ -787,7 +787,7 @@ func (e *Executor) WriteEnvironmentFile(envVars map[string]string) error {
 }
 
 func (e *Executor) GetCurrentRelease() (string, error) {
-	currentLink := fmt.Sprintf("/srv/%s/current", e.appName)
+	currentLink := fmt.Sprintf("%s/%s/current", config.RemoteAppBaseDir, e.appName)
 	result := e.ssh.Execute(fmt.Sprintf("readlink -f %s", currentLink))
 	if result.Error != nil || result.ExitCode != 0 {
 		return "", nil
@@ -796,7 +796,7 @@ func (e *Executor) GetCurrentRelease() (string, error) {
 }
 
 func (e *Executor) ListReleases() ([]string, error) {
-	releasesPath := fmt.Sprintf("/srv/%s/releases", e.appName)
+	releasesPath := fmt.Sprintf("%s/%s/releases", config.RemoteAppBaseDir, e.appName)
 	result := e.ssh.Execute(fmt.Sprintf("ls -1t %s", releasesPath))
 	if result.Error != nil || result.ExitCode != 0 {
 		return []string{}, nil
@@ -824,7 +824,7 @@ func (e *Executor) CleanupOldReleases(keepCount int) error {
 	toDelete := releases[keepCount:]
 
 	for _, release := range toDelete {
-		releasePath := fmt.Sprintf("/srv/%s/releases/%s", e.appName, release)
+		releasePath := fmt.Sprintf("%s/%s/releases/%s", config.RemoteAppBaseDir, e.appName, release)
 		result := e.ssh.ExecuteSudo(fmt.Sprintf("rm -rf %s", releasePath))
 		if result.Error != nil || result.ExitCode != 0 {
 			return fmt.Errorf("failed to delete release %s: %s", release, result.Stderr)
@@ -843,7 +843,7 @@ func (e *Executor) GenerateSystemdUnit(releasePath string) error {
 	}
 
 	tmpPath := fmt.Sprintf("/tmp/%s.service", e.appName)
-	if err := e.ssh.RenderAndWriteTemplate(systemdTemplate, data, tmpPath, 0644); err != nil {
+	if err := e.ssh.RenderAndWriteTemplate(systemdTemplate, data, tmpPath, config.PermConfigFile); err != nil {
 		return fmt.Errorf("failed to write systemd unit to temp: %w", err)
 	}
 
@@ -903,7 +903,7 @@ func (e *Executor) getExecStartCommand() string {
 		}
 
 		if e.detection != nil && e.detection.Language == "Python" {
-			venvBin := fmt.Sprintf("/srv/%s/shared/venv/bin", e.appName)
+			venvBin := fmt.Sprintf("%s/%s/shared/venv/bin", config.RemoteAppBaseDir, e.appName)
 			if strings.Contains(runCommand, "uvicorn ") {
 				return strings.Replace(runCommand, "uvicorn ", venvBin+"/uvicorn ", 1)
 			}
@@ -921,7 +921,7 @@ func (e *Executor) getExecStartCommand() string {
 
 	framework := e.detection.Framework
 	language := e.detection.Language
-	appPath := fmt.Sprintf("/srv/%s", e.appName)
+	appPath := fmt.Sprintf("%s/%s", config.RemoteAppBaseDir, e.appName)
 
 	switch language {
 	case "Python":
@@ -964,7 +964,7 @@ func (e *Executor) GenerateNginxConfig() error {
 	}
 
 	tmpPath := fmt.Sprintf("/tmp/nginx-%s.conf", e.appName)
-	if err := e.ssh.RenderAndWriteTemplate(nginxTemplate, data, tmpPath, 0644); err != nil {
+	if err := e.ssh.RenderAndWriteTemplate(nginxTemplate, data, tmpPath, config.PermConfigFile); err != nil {
 		return fmt.Errorf("failed to write nginx config to temp: %w", err)
 	}
 
@@ -1040,8 +1040,8 @@ func (e *Executor) GetServiceStatus() (bool, error) {
 }
 
 func (e *Executor) SwitchRelease(releasePath string) error {
-	currentLink := fmt.Sprintf("/srv/%s/current", e.appName)
-	tempLink := fmt.Sprintf("/srv/%s/current.tmp", e.appName)
+	currentLink := fmt.Sprintf("%s/%s/current", config.RemoteAppBaseDir, e.appName)
+	tempLink := fmt.Sprintf("%s/%s/current.tmp", config.RemoteAppBaseDir, e.appName)
 
 	result := e.ssh.ExecuteSudo(fmt.Sprintf("ln -sf %s %s", releasePath, tempLink))
 	if result.Error != nil || result.ExitCode != 0 {
@@ -1063,7 +1063,7 @@ func (e *Executor) PerformHealthCheck(maxRetries int, retryDelay time.Duration) 
 
 	healthPath := "/"
 	expectedStatus := 200
-	timeout := 30
+	timeout := int(config.DefaultHealthCheckTimeout.Seconds())
 
 	if path, ok := e.detection.Healthcheck["path"].(string); ok {
 		healthPath = path
@@ -1119,7 +1119,7 @@ func (e *Executor) RollbackToPreviousRelease() error {
 	}
 
 	previousRelease := releases[len(releases)-2]
-	previousPath := fmt.Sprintf("/srv/%s/releases/%s", e.appName, previousRelease)
+	previousPath := fmt.Sprintf("%s/%s/releases/%s", config.RemoteAppBaseDir, e.appName, previousRelease)
 
 	if err := e.StopService(); err != nil {
 		return fmt.Errorf("failed to stop service during rollback: %w", err)
@@ -1138,7 +1138,7 @@ func (e *Executor) RollbackToPreviousRelease() error {
 
 // RollbackToRelease rolls back to a specific release by timestamp
 func (e *Executor) RollbackToRelease(timestamp string) error {
-	releasePath := fmt.Sprintf("/srv/%s/releases/%s", e.appName, timestamp)
+	releasePath := fmt.Sprintf("%s/%s/releases/%s", config.RemoteAppBaseDir, e.appName, timestamp)
 
 	result := e.ssh.Execute(fmt.Sprintf("test -d %s", releasePath))
 	if result.ExitCode != 0 {

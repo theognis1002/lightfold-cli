@@ -352,7 +352,7 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		return nil, fmt.Errorf("failed to connect to SSH server: %w", err)
 	}
 
-	markerCheck := sshExecutor.Execute("test -f /etc/lightfold/configured && echo 'configured'")
+	markerCheck := sshExecutor.Execute(fmt.Sprintf("test -f %s/%s && echo 'configured'", config.RemoteLightfoldDir, config.RemoteConfiguredMarker))
 	isConfigured := markerCheck.ExitCode == 0 && strings.TrimSpace(markerCheck.Stdout) == "configured"
 
 	executor := NewExecutor(sshExecutor, o.projectName, o.projectPath, &detection)
@@ -504,7 +504,7 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		Progress:    85,
 	})
 
-	if err := executor.DeployWithHealthCheck(releasePath, 5, 3*time.Second); err != nil {
+	if err := executor.DeployWithHealthCheck(releasePath, config.DefaultHealthCheckMaxRetries, config.DefaultHealthCheckRetryDelay); err != nil {
 		return nil, fmt.Errorf("deployment failed: %w", err)
 	}
 
@@ -517,7 +517,7 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Printf("Warning: failed to load config for cleanup: %v\n", err)
-		cfg = &config.Config{KeepReleases: 5}
+		cfg = &config.Config{KeepReleases: config.DefaultKeepReleases}
 	}
 
 	if err := executor.CleanupOldReleases(cfg.KeepReleases); err != nil {
@@ -531,8 +531,8 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 	})
 
 	if !isConfigured {
-		sshExecutor.Execute("sudo mkdir -p /etc/lightfold")
-		markerResult := sshExecutor.Execute("echo 'configured' | sudo tee /etc/lightfold/configured > /dev/null")
+		sshExecutor.Execute(fmt.Sprintf("sudo mkdir -p %s", config.RemoteLightfoldDir))
+		markerResult := sshExecutor.Execute(fmt.Sprintf("echo 'configured' | sudo tee %s/%s > /dev/null", config.RemoteLightfoldDir, config.RemoteConfiguredMarker))
 		if markerResult.Error != nil {
 			return nil, fmt.Errorf("failed to write configured marker: %w", markerResult.Error)
 		}
@@ -545,7 +545,7 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 			Description: "Scheduling system updates and reboot...",
 			Progress:    98,
 		})
-		updateCmd := "nohup bash -c 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" && shutdown -r +5' > /var/log/lightfold-update.log 2>&1 &"
+		updateCmd := fmt.Sprintf("nohup bash -c 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" && shutdown -r +%d' > /var/log/lightfold-update.log 2>&1 &", config.DefaultRebootDelayMinutes)
 		sshExecutor.ExecuteSudo(updateCmd)
 	}
 

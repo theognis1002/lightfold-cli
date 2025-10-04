@@ -175,23 +175,23 @@ type Config struct {
 func GetConfigPath() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return ".lightfold/config.json"
+		return filepath.Join(LocalConfigDir, LocalConfigFile)
 	}
-	return filepath.Join(homeDir, ".lightfold", "config.json")
+	return filepath.Join(homeDir, LocalConfigDir, LocalConfigFile)
 }
 
 func LoadConfig() (*Config, error) {
 	configPath := GetConfigPath()
 
 	dir := filepath.Dir(configPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, PermDirectory); err != nil {
 		return nil, fmt.Errorf("failed to create config directory: %w", err)
 	}
 
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return &Config{
 			Targets:      make(map[string]TargetConfig),
-			KeepReleases: 5, // Default to keeping 5 releases
+			KeepReleases: DefaultKeepReleases,
 		}, nil
 	}
 
@@ -210,7 +210,7 @@ func LoadConfig() (*Config, error) {
 	}
 
 	if config.KeepReleases == 0 {
-		config.KeepReleases = 5
+		config.KeepReleases = DefaultKeepReleases
 	}
 
 	return &config, nil
@@ -220,7 +220,7 @@ func (c *Config) SaveConfig() error {
 	configPath := GetConfigPath()
 
 	dir := filepath.Dir(configPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, PermDirectory); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
@@ -229,7 +229,7 @@ func (c *Config) SaveConfig() error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	if err := os.WriteFile(configPath, data, PermConfigFile); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
@@ -281,9 +281,9 @@ type TokenConfig struct {
 func GetTokensPath() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return ".lightfold/tokens.json"
+		return filepath.Join(LocalConfigDir, LocalTokensFile)
 	}
-	return filepath.Join(homeDir, ".lightfold", "tokens.json")
+	return filepath.Join(homeDir, LocalConfigDir, LocalTokensFile)
 }
 
 func LoadTokens() (*TokenConfig, error) {
@@ -330,7 +330,7 @@ func (t *TokenConfig) SaveTokens() error {
 		return fmt.Errorf("failed to marshal tokens: %w", err)
 	}
 
-	if err := os.WriteFile(tokensPath, data, 0600); err != nil {
+	if err := os.WriteFile(tokensPath, data, PermTokenFile); err != nil {
 		return fmt.Errorf("failed to write tokens file: %w", err)
 	}
 

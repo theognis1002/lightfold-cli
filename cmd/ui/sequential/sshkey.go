@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"lightfold/pkg/config"
+
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -107,7 +109,7 @@ func (h *SSHKeyHandler) saveContentToFile(content string) error {
 		return fmt.Errorf("cannot determine home directory: %w", err)
 	}
 
-	keysDir := filepath.Join(homeDir, ".lightfold", "keys")
+	keysDir := filepath.Join(homeDir, config.LocalConfigDir, config.LocalKeysDir)
 	if err := os.MkdirAll(keysDir, 0700); err != nil {
 		return fmt.Errorf("cannot create keys directory: %w", err)
 	}
@@ -115,7 +117,7 @@ func (h *SSHKeyHandler) saveContentToFile(content string) error {
 	filename := fmt.Sprintf("%s_rsa", h.sanitizeProjectName())
 	keyPath := filepath.Join(keysDir, filename)
 
-	if err := os.WriteFile(keyPath, []byte(content), 0600); err != nil {
+	if err := os.WriteFile(keyPath, []byte(content), config.PermPrivateKey); err != nil {
 		return fmt.Errorf("cannot save SSH key: %w", err)
 	}
 
@@ -220,7 +222,7 @@ func (h *SSHKeyHandler) RenderSSHKeyInput(value string) string {
 	s.WriteString("\n")
 	s.WriteString(helpStyle.Render("• Or paste SSH private key content"))
 	s.WriteString("\n")
-	s.WriteString(helpStyle.Render("• Pasted keys will be saved to ~/.lightfold/keys/"))
+	s.WriteString(helpStyle.Render(fmt.Sprintf("• Pasted keys will be saved to ~/.%s/%s/", config.LocalConfigDir, config.LocalKeysDir)))
 
 	return s.String()
 }

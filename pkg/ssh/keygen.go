@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"lightfold/pkg/config"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,12 +65,12 @@ func GenerateKeyPair(keyName string) (*KeyPair, error) {
 	publicKeyPath := privateKeyPath + ".pub"
 
 	// Write private key
-	if err := os.WriteFile(privateKeyPath, privateKeyPEM, 0600); err != nil {
+	if err := os.WriteFile(privateKeyPath, privateKeyPEM, config.PermPrivateKey); err != nil {
 		return nil, fmt.Errorf("failed to write private key: %w", err)
 	}
 
 	// Write public key
-	if err := os.WriteFile(publicKeyPath, sshPublicKeyBytes, 0644); err != nil {
+	if err := os.WriteFile(publicKeyPath, sshPublicKeyBytes, config.PermPublicKey); err != nil {
 		return nil, fmt.Errorf("failed to write public key: %w", err)
 	}
 
@@ -88,7 +89,7 @@ func GetKeysDirectory() (string, error) {
 		return "", fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	keysDir := filepath.Join(homeDir, ".lightfold", "keys")
+	keysDir := filepath.Join(homeDir, config.LocalConfigDir, config.LocalKeysDir)
 
 	// Create directory if it doesn't exist
 	if err := os.MkdirAll(keysDir, 0700); err != nil {

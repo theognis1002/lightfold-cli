@@ -161,7 +161,7 @@ func executeSSHCommand(host, username, keyPath, command string) error {
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
-	addr := fmt.Sprintf("%s:22", host)
+	addr := fmt.Sprintf("%s:%s", host, config.DefaultSSHPort)
 	client, err := ssh.Dial("tcp", addr, sshConfig)
 	if err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
@@ -215,7 +215,7 @@ func connectInteractiveSSH(host, username, keyPath string) error {
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
-	addr := fmt.Sprintf("%s:22", host)
+	addr := fmt.Sprintf("%s:%s", host, config.DefaultSSHPort)
 	client, err := ssh.Dial("tcp", addr, sshConfig)
 	if err != nil {
 		return fmt.Errorf("failed to connect: %w", err)

@@ -12,7 +12,6 @@ import (
 	"lightfold/pkg/util"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -130,7 +129,7 @@ Examples:
 						destroyWarningStyle.Render("⚠"), destroyMutedStyle.Render(fmt.Sprintf("Error getting provider '%s': %v", target.Provider, err)))
 					fmt.Printf("%s %s\n", destroyMutedStyle.Render("→"), destroyMutedStyle.Render("Continuing with local cleanup..."))
 				} else {
-					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+					ctx, cancel := context.WithTimeout(context.Background(), config.DefaultDestroyTimeout)
 					defer cancel()
 
 					if err := provider.Destroy(ctx, provisionedID); err != nil {

@@ -118,7 +118,7 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 
 			fmt.Println("✓ SSH connection validated")
 
-			markerCmd := "sudo mkdir -p /etc/lightfold && echo 'created' | sudo tee /etc/lightfold/created > /dev/null"
+			markerCmd := fmt.Sprintf("sudo mkdir -p %s && echo 'created' | sudo tee %s/%s > /dev/null", config.RemoteLightfoldDir, config.RemoteLightfoldDir, config.RemoteCreatedMarker)
 			result = sshExecutor.Execute(markerCmd)
 			if result.Error != nil || result.ExitCode != 0 {
 				return config.TargetConfig{}, fmt.Errorf("failed to write created marker: %v", result.Error)
@@ -134,7 +134,7 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 				return config.TargetConfig{}, fmt.Errorf("failed to create orchestrator: %w", err)
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			ctx, cancel := context.WithTimeout(context.Background(), config.DefaultProvisioningTimeout)
 			defer cancel()
 
 			result, err := tui.ShowProvisioningProgressWithOrchestrator(ctx, orchestrator)
@@ -224,7 +224,7 @@ func configureTarget(target config.TargetConfig, targetName string, force bool) 
 
 		sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
 		if err := sshExecutor.Connect(3, 2*time.Second); err == nil {
-			result := sshExecutor.Execute("test -f /etc/lightfold/configured && echo 'configured'")
+			result := sshExecutor.Execute(fmt.Sprintf("test -f %s/%s && echo 'configured'", config.RemoteLightfoldDir, config.RemoteConfiguredMarker))
 			sshExecutor.Disconnect()
 
 			if result.ExitCode == 0 && strings.TrimSpace(result.Stdout) == "configured" {
@@ -251,7 +251,7 @@ func configureTarget(target config.TargetConfig, targetName string, force bool) 
 		return err
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), config.DefaultProvisioningTimeout)
 	defer cancel()
 
 	if err := tui.ShowConfigurationProgressWithOrchestrator(ctx, orchestrator, providerCfg); err != nil {
@@ -302,7 +302,7 @@ func handleBYOSWithFlags(targetConfig *config.TargetConfig, targetName string) e
 
 	fmt.Println("✓ SSH connection validated")
 
-	markerCmd := "sudo mkdir -p /etc/lightfold && echo 'created' | sudo tee /etc/lightfold/created > /dev/null"
+	markerCmd := fmt.Sprintf("sudo mkdir -p %s && echo 'created' | sudo tee %s/%s > /dev/null", config.RemoteLightfoldDir, config.RemoteLightfoldDir, config.RemoteCreatedMarker)
 	result = sshExecutor.Execute(markerCmd)
 	if result.Error != nil || result.ExitCode != 0 {
 		return fmt.Errorf("failed to write created marker: %v", result.Error)
@@ -359,7 +359,7 @@ func handleProvisionWithFlags(targetConfig *config.TargetConfig, targetName, pro
 		if provider == "do" || provider == "digitalocean" {
 			targetConfig.Provider = "digitalocean"
 
-			sshKeyPath := filepath.Join(os.Getenv("HOME"), ".lightfold", "keys", "lightfold_ed25519")
+			sshKeyPath := filepath.Join(os.Getenv("HOME"), config.LocalConfigDir, config.LocalKeysDir, "lightfold_ed25519")
 			if _, err := os.Stat(sshKeyPath); os.IsNotExist(err) {
 				publicKeyPath, err := sshpkg.GenerateKeyPair(sshKeyPath)
 				if err != nil {
@@ -388,7 +388,7 @@ func handleProvisionWithFlags(targetConfig *config.TargetConfig, targetName, pro
 		return fmt.Errorf("failed to create orchestrator: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), config.DefaultProvisioningTimeout)
 	defer cancel()
 
 	result, err := orchestrator.Deploy(ctx)

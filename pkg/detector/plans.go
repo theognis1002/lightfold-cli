@@ -1,6 +1,9 @@
 package detector
 
-import "fmt"
+import (
+	"fmt"
+	"lightfold/pkg/config"
+)
 
 func djangoPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	pm := detectPythonPackageManager(root)
@@ -11,7 +14,7 @@ func djangoPlan(root string) ([]string, []string, map[string]any, []string, map[
 	run := []string{
 		"gunicorn <yourproject>.wsgi:application --bind 0.0.0.0:8000 --workers 2",
 	}
-	health := map[string]any{"path": "/healthz", "expect": 200, "timeout_seconds": 30}
+	health := map[string]any{"path": "/healthz", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{
 		"DJANGO_SETTINGS_MODULE",
 		"SECRET_KEY",
@@ -29,7 +32,7 @@ func nextPlan(root string) ([]string, []string, map[string]any, []string, map[st
 		getJSBuildCommand(pm),
 	}
 	run := []string{getJSStartCommand(pm)}
-	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
+	health := map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"NEXT_PUBLIC_*, any server-only envs"}
 	meta := map[string]string{"package_manager": pm}
 	return build, run, health, env, meta
@@ -44,7 +47,7 @@ func astroPlan(root string) ([]string, []string, map[string]any, []string, map[s
 	run := []string{
 		getPreviewCommand(pm),
 	}
-	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
+	health := map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"PUBLIC_*, any server-only envs for SSR"}
 	meta := map[string]string{"package_manager": pm}
 	return build, run, health, env, meta
@@ -59,7 +62,7 @@ func gatsbyPlan(root string) ([]string, []string, map[string]any, []string, map[
 	run := []string{
 		getRunCommand(pm, "serve"),
 	}
-	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
+	health := map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"GATSBY_*, any build-time envs"}
 	meta := map[string]string{"package_manager": pm}
 	return build, run, health, env, meta
@@ -74,7 +77,7 @@ func sveltePlan(root string) ([]string, []string, map[string]any, []string, map[
 	run := []string{
 		getPreviewCommand(pm),
 	}
-	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
+	health := map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"PUBLIC_*, any server-only envs for SvelteKit SSR"}
 	meta := map[string]string{"package_manager": pm}
 	return build, run, health, env, meta
@@ -89,7 +92,7 @@ func vuePlan(root string) ([]string, []string, map[string]any, []string, map[str
 	run := []string{
 		getPreviewCommand(pm),
 	}
-	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
+	health := map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"VUE_APP_*, VITE_* for Vite-based setups"}
 	meta := map[string]string{"package_manager": pm}
 	return build, run, health, env, meta
@@ -104,7 +107,7 @@ func angularPlan(root string) ([]string, []string, map[string]any, []string, map
 	run := []string{
 		getJSStartCommand(pm),
 	}
-	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
+	health := map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"NG_APP_*, any environment-specific configs"}
 	meta := map[string]string{"package_manager": pm}
 	return build, run, health, env, meta
@@ -118,7 +121,7 @@ func flaskPlan(root string) ([]string, []string, map[string]any, []string, map[s
 	run := []string{
 		"gunicorn --bind 0.0.0.0:5000 --workers 2 app:app",
 	}
-	health := map[string]any{"path": "/health", "expect": 200, "timeout_seconds": 30}
+	health := map[string]any{"path": "/health", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"FLASK_ENV", "FLASK_APP", "DATABASE_URL", "SECRET_KEY"}
 	meta := map[string]string{"package_manager": pm}
 	return build, run, health, env, meta
@@ -134,7 +137,7 @@ func expressPlan(root string) ([]string, []string, map[string]any, []string, map
 		"node server.js",
 		fmt.Sprintf("%s", getJSStartCommand(pm)),
 	}
-	health := map[string]any{"path": "/health", "expect": 200, "timeout_seconds": 30}
+	health := map[string]any{"path": "/health", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"NODE_ENV", "PORT", "DATABASE_URL"}
 	meta := map[string]string{"package_manager": pm}
 	return build, run, health, env, meta
@@ -148,7 +151,7 @@ func fastApiPlan(root string) ([]string, []string, map[string]any, []string, map
 	run := []string{
 		"uvicorn main:app --host 0.0.0.0 --port 8000",
 	}
-	health := map[string]any{"path": "/health", "expect": 200, "timeout_seconds": 30}
+	health := map[string]any{"path": "/health", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"DATABASE_URL", "SECRET_KEY", "DEBUG"}
 	meta := map[string]string{"package_manager": pm}
 	return build, run, health, env, meta
@@ -171,7 +174,7 @@ func springBootPlan(root string) ([]string, []string, map[string]any, []string, 
 	run := []string{
 		"java -jar target/*.jar",
 	}
-	health := map[string]any{"path": "/actuator/health", "expect": 200, "timeout_seconds": 30}
+	health := map[string]any{"path": "/actuator/health", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"SPRING_PROFILES_ACTIVE", "DATABASE_URL", "SERVER_PORT"}
 	meta := map[string]string{"build_tool": buildTool}
 	return build, run, health, env, meta
@@ -185,7 +188,7 @@ func aspNetPlan(root string) ([]string, []string, map[string]any, []string, map[
 	run := []string{
 		"dotnet out/*.dll",
 	}
-	health := map[string]any{"path": "/health", "expect": 200, "timeout_seconds": 30}
+	health := map[string]any{"path": "/health", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"ASPNETCORE_ENVIRONMENT", "ConnectionStrings__DefaultConnection"}
 	meta := map[string]string{}
 	return build, run, health, env, meta
@@ -201,7 +204,7 @@ func phoenixPlan(root string) ([]string, []string, map[string]any, []string, map
 	run := []string{
 		"mix phx.server",
 	}
-	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
+	health := map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"DATABASE_URL", "SECRET_KEY_BASE", "PHX_HOST"}
 	meta := map[string]string{}
 	return build, run, health, env, meta
@@ -217,7 +220,7 @@ func nestjsPlan(root string) ([]string, []string, map[string]any, []string, map[
 		"node dist/main",
 		getRunCommand(pm, "start:prod"),
 	}
-	health := map[string]any{"path": "/health", "expect": 200, "timeout_seconds": 30}
+	health := map[string]any{"path": "/health", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"NODE_ENV", "PORT", "DATABASE_URL"}
 	meta := map[string]string{"package_manager": pm}
 	return build, run, health, env, meta
@@ -232,7 +235,7 @@ func laravelPlan(root string) ([]string, []string, map[string]any, []string, map
 	run := []string{
 		"php-fpm (with nginx)",
 	}
-	health := map[string]any{"path": "/health", "expect": 200, "timeout_seconds": 30}
+	health := map[string]any{"path": "/health", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"APP_KEY", "APP_ENV", "DB_CONNECTION/DB_*"}
 	meta := map[string]string{}
 	return build, run, health, env, meta
@@ -247,7 +250,7 @@ func railsPlan(root string) ([]string, []string, map[string]any, []string, map[s
 	run := []string{
 		"bundle exec puma -C config/puma.rb",
 	}
-	health := map[string]any{"path": "/up", "expect": 200, "timeout_seconds": 30}
+	health := map[string]any{"path": "/up", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"RAILS_ENV", "DATABASE_URL", "SECRET_KEY_BASE"}
 	meta := map[string]string{}
 	return build, run, health, env, meta
@@ -260,7 +263,7 @@ func goPlan(root string) ([]string, []string, map[string]any, []string, map[stri
 	run := []string{
 		"./app -port 8080",
 	}
-	health := map[string]any{"path": "/healthz", "expect": 200, "timeout_seconds": 30}
+	health := map[string]any{"path": "/healthz", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"PORT", "any app-specific envs"}
 	meta := map[string]string{}
 	return build, run, health, env, meta
@@ -269,7 +272,7 @@ func goPlan(root string) ([]string, []string, map[string]any, []string, map[stri
 func dockerPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{"docker build -t app:latest ."}
 	run := []string{"docker run -p 8080:8080 app:latest"}
-	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
+	health := map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{}
 	meta := map[string]string{}
 	return build, run, health, env, meta

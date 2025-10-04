@@ -206,11 +206,11 @@ func showTargetDetail(cfg *config.Config, targetName string) {
 				fmt.Printf("  Service:   %s\n", statusMutedStyle.Render("? Unable to check"))
 			}
 
-			result = sshExecutor.Execute(fmt.Sprintf("readlink -f /srv/%s/current 2>/dev/null || echo 'none'", appName))
+			result = sshExecutor.Execute(fmt.Sprintf("readlink -f %s/%s/current 2>/dev/null || echo 'none'", config.RemoteAppBaseDir, appName))
 			if result.ExitCode == 0 {
 				currentRelease := strings.TrimSpace(result.Stdout)
 				if currentRelease != "none" && currentRelease != "" {
-					releaseTimestamp := strings.TrimPrefix(currentRelease, fmt.Sprintf("/srv/%s/releases/", appName))
+					releaseTimestamp := strings.TrimPrefix(currentRelease, fmt.Sprintf("%s/%s/releases/", config.RemoteAppBaseDir, appName))
 					fmt.Printf("  Current:   %s\n", statusValueStyle.Render(releaseTimestamp))
 				} else {
 					fmt.Printf("  Current:   %s\n", statusMutedStyle.Render("- No release deployed"))

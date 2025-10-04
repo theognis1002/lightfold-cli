@@ -3,6 +3,7 @@ package state
 import (
 	"encoding/json"
 	"fmt"
+	"lightfold/pkg/config"
 	"os"
 	"path/filepath"
 	"time"
@@ -22,9 +23,9 @@ type TargetState struct {
 func GetStatePath() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return ".lightfold/state"
+		return filepath.Join(config.LocalConfigDir, config.LocalStateDir)
 	}
-	return filepath.Join(homeDir, ".lightfold", "state")
+	return filepath.Join(homeDir, config.LocalConfigDir, config.LocalStateDir)
 }
 
 // GetTargetStatePath returns the path to a specific target's state file
@@ -38,7 +39,7 @@ func LoadState(targetName string) (*TargetState, error) {
 
 	// Ensure state directory exists
 	stateDir := filepath.Dir(statePath)
-	if err := os.MkdirAll(stateDir, 0755); err != nil {
+	if err := os.MkdirAll(stateDir, config.PermDirectory); err != nil {
 		return nil, fmt.Errorf("failed to create state directory: %w", err)
 	}
 
@@ -66,7 +67,7 @@ func SaveState(targetName string, state *TargetState) error {
 
 	// Ensure state directory exists
 	stateDir := filepath.Dir(statePath)
-	if err := os.MkdirAll(stateDir, 0755); err != nil {
+	if err := os.MkdirAll(stateDir, config.PermDirectory); err != nil {
 		return fmt.Errorf("failed to create state directory: %w", err)
 	}
 
@@ -75,7 +76,7 @@ func SaveState(targetName string, state *TargetState) error {
 		return fmt.Errorf("failed to marshal state: %w", err)
 	}
 
-	if err := os.WriteFile(statePath, data, 0644); err != nil {
+	if err := os.WriteFile(statePath, data, config.PermConfigFile); err != nil {
 		return fmt.Errorf("failed to write state file: %w", err)
 	}
 

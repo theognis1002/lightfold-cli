@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"lightfold/pkg/config"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,7 +23,7 @@ type Executor struct {
 
 func NewExecutor(host, port, username, sshKeyPath string) *Executor {
 	if port == "" {
-		port = "22"
+		port = config.DefaultSSHPort
 	}
 	return &Executor{
 		Host:       host,
@@ -68,7 +69,7 @@ func (e *Executor) Connect(retries int, retryDelay time.Duration) error {
 				ssh.PublicKeys(signer),
 			},
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-			Timeout:         30 * time.Second,
+			Timeout:         config.DefaultSSHTimeout,
 		}
 
 		addr := fmt.Sprintf("%s:%s", e.Host, e.Port)
