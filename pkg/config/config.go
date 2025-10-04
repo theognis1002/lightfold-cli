@@ -166,7 +166,8 @@ func (t *TargetConfig) GetAnyProviderConfig() (ProviderConfig, error) {
 }
 
 type Config struct {
-	Targets map[string]TargetConfig `json:"targets"`
+	Targets      map[string]TargetConfig `json:"targets"`
+	KeepReleases int                     `json:"keep_releases,omitempty"` // Number of releases to keep (default: 5)
 }
 
 func GetConfigPath() string {
@@ -186,7 +187,10 @@ func LoadConfig() (*Config, error) {
 	}
 
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return &Config{Targets: make(map[string]TargetConfig)}, nil
+		return &Config{
+			Targets:      make(map[string]TargetConfig),
+			KeepReleases: 5, // Default to keeping 5 releases
+		}, nil
 	}
 
 	data, err := os.ReadFile(configPath)
@@ -201,6 +205,11 @@ func LoadConfig() (*Config, error) {
 
 	if config.Targets == nil {
 		config.Targets = make(map[string]TargetConfig)
+	}
+
+	// Set default for KeepReleases if not configured
+	if config.KeepReleases == 0 {
+		config.KeepReleases = 5
 	}
 
 	return &config, nil

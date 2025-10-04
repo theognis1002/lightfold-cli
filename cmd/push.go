@@ -57,7 +57,6 @@ Examples:
 			projectPath = args[0]
 		}
 
-		// Validate project path
 		var err error
 		projectPath, err = util.ValidateProjectPath(projectPath)
 		if err != nil {
@@ -188,7 +187,7 @@ Examples:
 		}
 		fmt.Printf("%s %s\n", pushSuccessStyle.Render("✓"), pushMutedStyle.Render("Deploying and running health checks..."))
 
-		if err := executor.CleanupOldReleases(5); err != nil {
+		if err := executor.CleanupOldReleases(cfg.KeepReleases); err != nil {
 			fmt.Printf("Warning: failed to cleanup old releases: %v\n", err)
 		}
 		fmt.Printf("%s %s\n", pushSuccessStyle.Render("✓"), pushMutedStyle.Render("Cleaning up old releases..."))
@@ -199,7 +198,6 @@ Examples:
 
 		fmt.Println()
 
-		// Success banner with cleaner bubbletea style
 		successBox := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("82")).

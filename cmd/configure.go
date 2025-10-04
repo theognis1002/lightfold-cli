@@ -53,7 +53,7 @@ func init() {
 	rootCmd.AddCommand(configureCmd)
 
 	configureCmd.Flags().StringVar(&configureTargetFlag, "target", "", "Target name (required)")
-	configureCmd.Flags().BoolVar(&configureForceFlag, "force", false, "Force reconfiguration even if already configured")
+	configureCmd.Flags().BoolVarP(&configureForceFlag, "force", "f", false, "Force reconfiguration even if already configured")
 	configureCmd.Flags().StringVar(&envFile, "env-file", "", "Path to .env file with environment variables")
 	configureCmd.Flags().StringArrayVar(&envVars, "env", []string{}, "Environment variables in KEY=VALUE format (can be used multiple times)")
 	configureCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "Skip the build step during configuration")

@@ -35,16 +35,16 @@ func GetPythonInstallCommand(pm string) string {
 // Plan functions for testing
 
 // NextPlan exports nextPlan for testing
-func NextPlan(root string) ([]string, []string, map[string]any, []string) {
+func NextPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	return nextPlan(root)
 }
 
 // DjangoPlan exports djangoPlan for testing
-func DjangoPlan(root string) ([]string, []string, map[string]any, []string) {
+func DjangoPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	return djangoPlan(root)
 }
 
 // GoPlan exports goPlan for testing
-func GoPlan(root string) ([]string, []string, map[string]any, []string) {
+func GoPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	return goPlan(root)
 }

@@ -93,11 +93,11 @@ func formatSSHError(operation string, result *sshpkg.CommandResult) error {
 
 // WaitForAptLock waits for apt/dpkg locks to be released (cloud-init might be running)
 func (e *Executor) WaitForAptLock(maxRetries int, retryDelay time.Duration) error {
-	// First, wait for cloud-init to finish completely
+	// First, wait for cloud-init to finish completely (with 5 minute timeout)
 	if e.outputCallback != nil {
 		e.outputCallback("  Waiting for cloud-init to complete...")
 	}
-	cloudInitCmd := "cloud-init status --wait 2>/dev/null || echo 'done'"
+	cloudInitCmd := "timeout 300 cloud-init status --wait 2>/dev/null || echo 'done'"
 	result := e.ssh.Execute(cloudInitCmd)
 	if result.Error != nil {
 		// cloud-init command not available or failed, continue anyway
@@ -131,22 +131,45 @@ func (e *Executor) WaitForAptLock(maxRetries int, retryDelay time.Duration) erro
 
 // InstallBasePackages installs required system packages
 func (e *Executor) InstallBasePackages() error {
-	// Fix common APT issues before updating
+	// Fix common APT issues before installing
 	// Remove corrupted command-not-found files that cause apt-get update to fail
 	e.ssh.ExecuteSudo("rm -f /var/lib/apt/lists/*_Commands-* 2>/dev/null || true")
 
-	// Update with retries and better error handling
-	result := e.ssh.ExecuteSudo("apt-get update -y || (apt-get clean && apt-get update -y)")
-	e.sendOutput(result.Stdout, 3)
-	if result.Error != nil || result.ExitCode != 0 {
-		return formatSSHError("failed to update packages", result)
+	// Kill any stale apt/dpkg processes that might be holding locks
+	e.ssh.ExecuteSudo("killall -q apt-get dpkg 2>/dev/null || true")
+
+	// Remove stale lock files (with safety check for process ownership)
+	e.ssh.ExecuteSudo("rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true")
+
+	// Clean apt cache
+	e.ssh.ExecuteSudo("apt-get clean 2>/dev/null || true")
+
+	// Quick update of package lists with retry logic
+	var result *sshpkg.CommandResult
+	maxRetries := 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		result = e.ssh.ExecuteSudo("apt-get update 2>&1")
+		if result.Error == nil && result.ExitCode == 0 {
+			// Success - only show output if there's actual content to show
+			// Don't send output for successful apt-get update to avoid confusion
+			break
+		}
+
+		if attempt < maxRetries {
+			if e.outputCallback != nil {
+				e.outputCallback(fmt.Sprintf("  apt-get update failed (attempt %d/%d), retrying...", attempt, maxRetries))
+			}
+			time.Sleep(time.Duration(attempt*2) * time.Second) // Exponential backoff
+
+			// Additional cleanup before retry
+			e.ssh.ExecuteSudo("dpkg --configure -a 2>/dev/null || true")
+			e.ssh.ExecuteSudo("apt-get clean && rm -rf /var/lib/apt/lists/* && mkdir -p /var/lib/apt/lists/partial")
+		}
 	}
 
-	// Upgrade all packages (only on initial setup)
-	result = e.ssh.ExecuteSudo("DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold'")
-	e.sendOutput(result.Stdout, 5)
 	if result.Error != nil || result.ExitCode != 0 {
-		return formatSSHError("failed to upgrade packages", result)
+		e.sendOutput(result.Stdout+"\n"+result.Stderr, 10)
+		return formatSSHError("failed to update package lists after retries", result)
 	}
 
 	result = e.ssh.ExecuteSudo("apt-get install -y nginx")
@@ -158,15 +181,98 @@ func (e *Executor) InstallBasePackages() error {
 	if e.detection != nil {
 		switch e.detection.Language {
 		case "JavaScript/TypeScript":
-			result = e.ssh.ExecuteSudo("curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -")
-			e.sendOutput(result.Stdout, 3)
-			if result.Error != nil || result.ExitCode != 0 {
-				return formatSSHError("failed to setup NodeSource repository", result)
+			// Check if Node.js v20 is already installed (check /usr/local/bin first, then /usr/bin)
+			result = e.ssh.Execute("/usr/local/bin/node --version 2>/dev/null || /usr/bin/node --version 2>/dev/null || echo 'not-found'")
+			existingVersion := strings.TrimSpace(result.Stdout)
+
+			// Skip installation if v20 is already installed
+			if strings.HasPrefix(existingVersion, "v20.") {
+				if e.outputCallback != nil {
+					e.outputCallback(fmt.Sprintf("  Node.js already installed: %s", existingVersion))
+				}
+				// Ensure symlinks exist
+				e.ssh.ExecuteSudo("ln -sf /usr/local/bin/node /usr/bin/node")
+				e.ssh.ExecuteSudo("ln -sf /usr/local/bin/npm /usr/bin/npm")
+				e.ssh.ExecuteSudo("ln -sf /usr/local/bin/npx /usr/bin/npx")
+			} else {
+				// Node.js not installed or wrong version - install it
+				if e.outputCallback != nil {
+					e.outputCallback("  Installing Node.js v20.11.1...")
+				}
+
+				// Aggressively remove ALL old Node.js installations
+				e.ssh.ExecuteSudo("apt-get remove -y nodejs npm libnode-dev libnode72 2>/dev/null || true")
+				e.ssh.ExecuteSudo("apt-get purge -y nodejs npm libnode-dev libnode72 2>/dev/null || true")
+				e.ssh.ExecuteSudo("apt-get autoremove -y 2>/dev/null || true")
+
+				// Remove any stray node binaries and old repos
+				e.ssh.ExecuteSudo("rm -f /usr/bin/node /usr/bin/npm /usr/bin/npx 2>/dev/null || true")
+				e.ssh.ExecuteSudo("rm -rf /usr/lib/node_modules 2>/dev/null || true")
+				e.ssh.ExecuteSudo("rm -f /etc/apt/sources.list.d/nodesource.list 2>/dev/null || true")
+
+				// Install Node.js using official binary distribution (more reliable than apt)
+				// Download Node.js
+				result = e.ssh.ExecuteSudo("curl -fsSL https://nodejs.org/dist/v20.11.1/node-v20.11.1-linux-x64.tar.xz -o /tmp/node.tar.xz")
+				if result.Error != nil || result.ExitCode != 0 {
+					return formatSSHError("failed to download Node.js", result)
+				}
+
+				// Extract
+				result = e.ssh.ExecuteSudo("tar -xf /tmp/node.tar.xz -C /tmp")
+				if result.Error != nil || result.ExitCode != 0 {
+					return formatSSHError("failed to extract Node.js", result)
+				}
+
+				// Copy to /usr/local
+				result = e.ssh.ExecuteSudo("cp -r /tmp/node-v20.11.1-linux-x64/* /usr/local/")
+				if result.Error != nil || result.ExitCode != 0 {
+					return formatSSHError("failed to install Node.js to /usr/local", result)
+				}
+
+				// Create symlinks
+				e.ssh.ExecuteSudo("ln -sf /usr/local/bin/node /usr/bin/node")
+				e.ssh.ExecuteSudo("ln -sf /usr/local/bin/npm /usr/bin/npm")
+				e.ssh.ExecuteSudo("ln -sf /usr/local/bin/npx /usr/bin/npx")
+
+				// Cleanup
+				e.ssh.ExecuteSudo("rm -rf /tmp/node-v20.11.1-linux-x64 /tmp/node.tar.xz")
+
+				// Verify Node.js version and location
+				result = e.ssh.Execute("/usr/bin/node --version")
+				nodeVersion := strings.TrimSpace(result.Stdout)
+				if e.outputCallback != nil {
+					e.outputCallback(fmt.Sprintf("  Node.js installed: %s at /usr/bin/node", nodeVersion))
+				}
+
+				// Ensure it's actually modern Node (v14+, should be v20)
+				if !strings.HasPrefix(nodeVersion, "v1") && !strings.HasPrefix(nodeVersion, "v2") {
+					return fmt.Errorf("failed to install modern Node.js, got version: %s - NodeSource repo may not be configured correctly", nodeVersion)
+				}
 			}
-			result = e.ssh.ExecuteSudo("apt-get install -y nodejs")
-			e.sendOutput(result.Stdout, 3)
-			if result.Error != nil || result.ExitCode != 0 {
-				return formatSSHError("failed to install Node.js", result)
+
+			// Install package manager if not npm (npm comes with Node.js)
+			if pm, ok := e.detection.Meta["package_manager"]; ok && pm != "npm" {
+				switch pm {
+				case "bun":
+					// Install bun for deploy user
+					result = e.ssh.Execute("curl -fsSL https://bun.sh/install | bash")
+					e.sendOutput(result.Stdout, 3)
+					if result.Error != nil || result.ExitCode != 0 {
+						return formatSSHError("failed to install bun", result)
+					}
+				case "pnpm":
+					result = e.ssh.ExecuteSudo("npm install -g pnpm")
+					e.sendOutput(result.Stdout, 3)
+					if result.Error != nil || result.ExitCode != 0 {
+						return formatSSHError("failed to install pnpm", result)
+					}
+				case "yarn":
+					result = e.ssh.ExecuteSudo("npm install -g yarn")
+					e.sendOutput(result.Stdout, 3)
+					if result.Error != nil || result.ExitCode != 0 {
+						return formatSSHError("failed to install yarn", result)
+					}
+				}
 			}
 
 		case "Python":
@@ -174,6 +280,30 @@ func (e *Executor) InstallBasePackages() error {
 			e.sendOutput(result.Stdout, 3)
 			if result.Error != nil || result.ExitCode != 0 {
 				return formatSSHError("failed to install Python", result)
+			}
+
+			// Install Python package manager if not pip (pip comes with python3)
+			if pm, ok := e.detection.Meta["package_manager"]; ok && pm != "pip" {
+				switch pm {
+				case "poetry":
+					result = e.ssh.Execute("curl -sSL https://install.python-poetry.org | python3 -")
+					e.sendOutput(result.Stdout, 3)
+					if result.Error != nil || result.ExitCode != 0 {
+						return formatSSHError("failed to install poetry", result)
+					}
+				case "pipenv":
+					result = e.ssh.Execute("pip3 install --user pipenv")
+					e.sendOutput(result.Stdout, 3)
+					if result.Error != nil || result.ExitCode != 0 {
+						return formatSSHError("failed to install pipenv", result)
+					}
+				case "uv":
+					result = e.ssh.Execute("curl -LsSf https://astral.sh/uv/install.sh | sh")
+					e.sendOutput(result.Stdout, 3)
+					if result.Error != nil || result.ExitCode != 0 {
+						return formatSSHError("failed to install uv", result)
+					}
+				}
 			}
 
 		case "Go":
@@ -193,34 +323,6 @@ func (e *Executor) InstallBasePackages() error {
 			result = e.ssh.ExecuteSudo("apt-get install -y ruby-full")
 			if result.Error != nil || result.ExitCode != 0 {
 				return formatSSHError("failed to install Ruby", result)
-			}
-		}
-	}
-
-	// Check if reboot is required
-	checkRebootResult := e.ssh.Execute("test -f /var/run/reboot-required && echo 'reboot_required'")
-	needsReboot := checkRebootResult.ExitCode == 0 && strings.TrimSpace(checkRebootResult.Stdout) == "reboot_required"
-
-	if needsReboot {
-		// Trigger reboot
-		e.ssh.ExecuteSudo("reboot")
-
-		// Disconnect the current SSH connection
-		e.ssh.Disconnect()
-
-		// Wait for server to go down (give it a few seconds)
-		time.Sleep(5 * time.Second)
-
-		// Wait for server to come back up (retry SSH connection)
-		maxRetries := 36 // 3 minutes with 5-second intervals
-		for i := 0; i < maxRetries; i++ {
-			time.Sleep(5 * time.Second)
-			if err := e.ssh.Connect(1, 3*time.Second); err == nil {
-				// Server is back online
-				break
-			}
-			if i == maxRetries-1 {
-				return fmt.Errorf("server did not come back online after reboot")
 			}
 		}
 	}
@@ -249,7 +351,7 @@ func (e *Executor) SetupDirectoryStructure() error {
 		}
 	}
 
-	result := e.ssh.ExecuteSudo(fmt.Sprintf("chown -R www-data:www-data %s", appPath))
+	result := e.ssh.ExecuteSudo(fmt.Sprintf("chown -R deploy:deploy %s", appPath))
 	if result.Error != nil || result.ExitCode != 0 {
 		return fmt.Errorf("failed to set ownership: %s", result.Stderr)
 	}
@@ -377,7 +479,8 @@ func (e *Executor) UploadRelease(tarballPath string) (string, error) {
 	}
 
 	e.ssh.Execute(fmt.Sprintf("rm %s", remoteTarball))
-	result = e.ssh.ExecuteSudo(fmt.Sprintf("chown -R www-data:www-data %s", releasePath))
+	// Set ownership to deploy user (service runs as deploy)
+	result = e.ssh.ExecuteSudo(fmt.Sprintf("chown -R deploy:deploy %s", releasePath))
 	if result.Error != nil || result.ExitCode != 0 {
 		return "", fmt.Errorf("failed to set ownership: %s", result.Stderr)
 	}
@@ -386,9 +489,42 @@ func (e *Executor) UploadRelease(tarballPath string) (string, error) {
 }
 
 func (e *Executor) BuildRelease(releasePath string) error {
+	return e.BuildReleaseWithEnv(releasePath, nil)
+}
+
+func (e *Executor) BuildReleaseWithEnv(releasePath string, envVars map[string]string) error {
 	if e.detection == nil || len(e.detection.BuildPlan) == 0 {
 		return nil
 	}
+
+	// Load local .env file and merge with provided envVars
+	localEnvVars := e.LoadLocalEnvFile()
+	if envVars == nil {
+		envVars = make(map[string]string)
+	}
+	// Merge: provided envVars take precedence over local .env
+	for key, value := range localEnvVars {
+		if _, exists := envVars[key]; !exists {
+			envVars[key] = value
+		}
+	}
+
+	// Write .env file to release directory BEFORE building (needed for Next.js NEXT_PUBLIC_* vars)
+	if len(envVars) > 0 {
+		var envContent strings.Builder
+		for key, value := range envVars {
+			envContent.WriteString(fmt.Sprintf("%s=%s\n", key, value))
+		}
+
+		envPath := fmt.Sprintf("%s/.env", releasePath)
+		if err := e.ssh.WriteRemoteFile(envPath, envContent.String(), 0600); err != nil {
+			return fmt.Errorf("failed to write .env for build: %w", err)
+		}
+
+		// Set ownership to deploy user for build
+		e.ssh.ExecuteSudo(fmt.Sprintf("chown deploy:deploy %s", envPath))
+	}
+
 	if e.detection.Language == "Python" {
 		venvPath := fmt.Sprintf("/srv/%s/shared/venv", e.appName)
 		result := e.ssh.ExecuteSudo(fmt.Sprintf("python3 -m venv %s", venvPath))
@@ -405,20 +541,199 @@ func (e *Executor) BuildRelease(releasePath string) error {
 
 		buildCmd := e.adjustBuildCommand(cmd, releasePath)
 
-		result := e.ssh.ExecuteSudo(fmt.Sprintf("sh -c 'cd %s && %s'", releasePath, buildCmd))
+		// Build PATH with package manager locations
+		pathPrefix := e.getPackageManagerPath()
+		fullCmd := fmt.Sprintf("cd %s && %s%s", releasePath, pathPrefix, buildCmd)
+
+		// Run build commands as deploy user (not sudo), so PATH and package managers work correctly
+		result := e.ssh.Execute(fullCmd)
 		if result.Error != nil || result.ExitCode != 0 {
-			return fmt.Errorf("build command failed '%s': %s", cmd, result.Stderr)
+			// Send full output before failing
+			e.sendOutput(result.Stdout, 15)
+			e.sendOutput(result.Stderr, 15)
+
+			// Combine stdout and stderr for error message
+			errorOutput := result.Stderr
+			if result.Stdout != "" {
+				errorOutput = result.Stdout + "\n" + result.Stderr
+			}
+
+			// Exit code 137 = killed by OOM (128 + SIGKILL 9)
+			// Exit code 143 = killed by SIGTERM (128 + 15)
+			// "Killed" in output also suggests OOM
+			if result.ExitCode == 137 || result.ExitCode == 143 || strings.Contains(errorOutput, "Killed") {
+				suggestions := "Suggestions:\n  - Increase server memory (upgrade droplet size)\n  - Add swap space to the server"
+
+				// Add package-manager specific suggestions
+				if strings.Contains(cmd, "bun") {
+					suggestions += "\n  - Use npm instead of bun (bun uses more memory during install)"
+				} else if strings.Contains(cmd, "poetry") || strings.Contains(cmd, "pip") {
+					suggestions += "\n  - Use --no-cache-dir flag with pip to reduce memory usage"
+				}
+
+				return fmt.Errorf("build command failed '%s' (exit code %d):\n\n%s\n\nProcess was killed, likely due to insufficient memory (OOM).\n%s", cmd, result.ExitCode, errorOutput, suggestions)
+			}
+
+			return fmt.Errorf("build command failed '%s' (exit code %d): %s", cmd, result.ExitCode, errorOutput)
 		}
+
+		// Send successful output
+		e.sendOutput(result.Stdout, 5)
+	}
+
+	// Ensure ownership is set to deploy user (service runs as deploy)
+	result := e.ssh.ExecuteSudo(fmt.Sprintf("chown -R deploy:deploy %s", releasePath))
+	if result.Error != nil || result.ExitCode != 0 {
+		return fmt.Errorf("failed to set ownership to deploy: %s", result.Stderr)
 	}
 
 	return nil
 }
 
-func (e *Executor) adjustBuildCommand(cmd, releasePath string) string {
+// LoadLocalEnvFile searches for and loads environment variables from local .env files
+// Priority order: .env.production -> .env.prod -> .env
+func (e *Executor) LoadLocalEnvFile() map[string]string {
+	envFilePath := e.FindEnvFile()
+	if envFilePath == "" {
+		return nil
+	}
+
+	return ParseEnvFile(envFilePath)
+}
+
+// FindEnvFile searches for .env files in priority order
+// Returns the path to the first file found, or empty string if none exist
+func (e *Executor) FindEnvFile() string {
+	candidates := []string{
+		".env.production",
+		".env.prod",
+		".env",
+	}
+
+	for _, candidate := range candidates {
+		path := filepath.Join(e.projectPath, candidate)
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+
+	return ""
+}
+
+// ParseEnvFile reads and parses a .env file into a map
+func ParseEnvFile(path string) map[string]string {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+
+	envVars := make(map[string]string)
+	lines := strings.Split(string(content), "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Parse KEY=VALUE
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			value := strings.TrimSpace(parts[1])
+
+			// Remove quotes if present
+			value = strings.Trim(value, `"'`)
+
+			envVars[key] = value
+		}
+	}
+
+	return envVars
+}
+
+// getPackageManagerPath returns the PATH prefix needed for package managers
+func (e *Executor) getPackageManagerPath() string {
+	if e.detection == nil {
+		return ""
+	}
+
+	// For JavaScript/TypeScript, always prioritize /usr/bin for Node.js from NodeSource
+	if e.detection.Language == "JavaScript/TypeScript" {
+		// Set NODE explicitly to ensure bun uses the correct Node.js for postinstall scripts
+		basePath := "export PATH=\"/usr/bin:$PATH\" && export NODE=\"/usr/bin/node\" && hash -r && "
+
+		pm, ok := e.detection.Meta["package_manager"]
+		if !ok {
+			return basePath
+		}
+
+		switch pm {
+		case "bun":
+			// Bun installs to ~/.bun/bin for the deploy user
+			return basePath + "export PATH=\"$HOME/.bun/bin:$PATH\" && "
+		case "pnpm":
+			// pnpm adds itself to ~/.local/share/pnpm
+			return basePath + "export PNPM_HOME=\"$HOME/.local/share/pnpm\" && export PATH=\"$PNPM_HOME:$PATH\" && "
+		case "yarn":
+			// yarn is installed globally via npm
+			return basePath
+		default:
+			return basePath
+		}
+	}
+
+	// For Python
+	pm, ok := e.detection.Meta["package_manager"]
+	if !ok {
+		return ""
+	}
+
+	switch pm {
+	case "poetry", "uv", "pipenv":
+		// Python package managers install to ~/.local/bin
+		return "export PATH=\"$HOME/.local/bin:$PATH\" && "
+	default:
+		return ""
+	}
+}
+
+func (e *Executor) adjustBuildCommand(cmd string, _ string) string {
 	if e.detection == nil {
 		return cmd
 	}
 
+	// Check for package manager in metadata first (most reliable)
+	if pm, ok := e.detection.Meta["package_manager"]; ok {
+		switch pm {
+		case "bun":
+			if strings.Contains(cmd, "bun") {
+				// Install bun using official installer to /usr/local/bin
+				return "(command -v bun >/dev/null 2>&1 || (curl -fsSL https://bun.sh/install | bash && ln -sf ~/.bun/bin/bun /usr/local/bin/bun)) && " + cmd
+			}
+		case "pnpm":
+			if strings.Contains(cmd, "pnpm") {
+				// Install pnpm first using npm, then run the command
+				return "npm install -g pnpm && " + cmd
+			}
+		case "poetry":
+			if strings.Contains(cmd, "poetry") {
+				return "pip3 install poetry && " + cmd
+			}
+		case "uv":
+			if strings.Contains(cmd, "uv") {
+				return "pip3 install uv && " + cmd
+			}
+		case "pipenv":
+			if strings.Contains(cmd, "pipenv") {
+				return "pip3 install pipenv && " + cmd
+			}
+		}
+	}
+
+	// Fallback to language-based detection (backward compatibility)
 	switch e.detection.Language {
 	case "Python":
 		if strings.Contains(cmd, "pip install") {
@@ -437,7 +752,7 @@ func (e *Executor) adjustBuildCommand(cmd, releasePath string) string {
 			return "npm install -g pnpm && " + cmd
 		}
 		if strings.Contains(cmd, "bun install") {
-			return "npm install -g bun && " + cmd
+			return "(command -v bun >/dev/null 2>&1 || (curl -fsSL https://bun.sh/install | bash && ln -sf ~/.bun/bin/bun /usr/local/bin/bun)) && " + cmd
 		}
 		if strings.Contains(cmd, "npm install") || strings.Contains(cmd, "yarn install") {
 			return cmd
@@ -465,12 +780,21 @@ func (e *Executor) WriteEnvironmentFile(envVars map[string]string) error {
 		envContent.WriteString(fmt.Sprintf("%s=%s\n", key, value))
 	}
 
-	envPath := fmt.Sprintf("/srv/%s/shared/env/.env", e.appName)
-	if err := e.ssh.WriteRemoteFile(envPath, envContent.String(), 0600); err != nil {
+	// Write to temp location first (deploy user has permissions)
+	tmpEnvPath := "/tmp/lightfold.env"
+	if err := e.ssh.WriteRemoteFile(tmpEnvPath, envContent.String(), 0600); err != nil {
 		return fmt.Errorf("failed to write environment file: %w", err)
 	}
 
-	result := e.ssh.ExecuteSudo(fmt.Sprintf("chown www-data:www-data %s", envPath))
+	// Move to final location with sudo
+	finalEnvPath := fmt.Sprintf("/srv/%s/shared/env/.env", e.appName)
+	result := e.ssh.ExecuteSudo(fmt.Sprintf("mv %s %s", tmpEnvPath, finalEnvPath))
+	if result.Error != nil || result.ExitCode != 0 {
+		return fmt.Errorf("failed to move env file to final location: %s", result.Stderr)
+	}
+
+	// Set ownership to deploy user
+	result = e.ssh.ExecuteSudo(fmt.Sprintf("chown deploy:deploy %s", finalEnvPath))
 	if result.Error != nil || result.ExitCode != 0 {
 		return fmt.Errorf("failed to set env file ownership: %s", result.Stderr)
 	}
@@ -489,7 +813,8 @@ func (e *Executor) GetCurrentRelease() (string, error) {
 
 func (e *Executor) ListReleases() ([]string, error) {
 	releasesPath := fmt.Sprintf("/srv/%s/releases", e.appName)
-	result := e.ssh.Execute(fmt.Sprintf("ls -1 %s", releasesPath))
+	// Use -t flag to sort by modification time (newest first)
+	result := e.ssh.Execute(fmt.Sprintf("ls -1t %s", releasesPath))
 	if result.Error != nil || result.ExitCode != 0 {
 		return []string{}, nil
 	}
@@ -513,7 +838,8 @@ func (e *Executor) CleanupOldReleases(keepCount int) error {
 		return nil
 	}
 
-	toDelete := releases[:len(releases)-keepCount]
+	// ListReleases returns newest first, so keep the first N and delete the rest
+	toDelete := releases[keepCount:]
 
 	for _, release := range toDelete {
 		releasePath := fmt.Sprintf("/srv/%s/releases/%s", e.appName, release)
@@ -562,11 +888,52 @@ func (e *Executor) GenerateSystemdUnit(releasePath string) error {
 	return nil
 }
 
+// adjustPackageManagerPath replaces package manager commands with full paths
+// This is necessary because systemd doesn't execute with user's shell environment
+// Only replaces if the command starts with the package manager name
+func adjustPackageManagerPath(runCommand, packageManager string) string {
+	var fullPath string
+
+	switch packageManager {
+	case "bun":
+		fullPath = "/home/deploy/.bun/bin/bun"
+	case "pnpm":
+		fullPath = "/home/deploy/.local/share/pnpm/pnpm"
+	case "npm":
+		fullPath = "/usr/bin/npm"
+	case "yarn":
+		fullPath = "/usr/bin/yarn"
+	default:
+		return runCommand
+	}
+
+	// Only replace if command starts with package manager name
+	if strings.HasPrefix(runCommand, packageManager+" ") {
+		return strings.Replace(runCommand, packageManager+" ", fullPath+" ", 1)
+	}
+
+	return runCommand
+}
+
 func (e *Executor) getExecStartCommand() string {
 	if e.detection == nil {
 		return "/usr/bin/true"
 	}
 
+	// Prefer RunPlan from detection - this respects the framework-specific plan
+	if len(e.detection.RunPlan) > 0 {
+		runCommand := e.detection.RunPlan[0]
+
+		// For JavaScript/TypeScript, adjust package manager paths
+		if e.detection.Language == "JavaScript/TypeScript" {
+			pm, _ := e.detection.Meta["package_manager"]
+			return adjustPackageManagerPath(runCommand, pm)
+		}
+
+		return runCommand
+	}
+
+	// Fallback to hardcoded commands if RunPlan is not available (should rarely happen)
 	framework := e.detection.Framework
 	language := e.detection.Language
 	appPath := fmt.Sprintf("/srv/%s", e.appName)
@@ -586,11 +953,11 @@ func (e *Executor) getExecStartCommand() string {
 	case "JavaScript/TypeScript":
 		switch framework {
 		case "Next.js":
-			return fmt.Sprintf("PORT=8000 /usr/bin/node %s/current/.next/standalone/server.js", appPath)
+			return fmt.Sprintf("/usr/bin/node %s/current/.next/standalone/server.js", appPath)
 		case "Express.js":
-			return fmt.Sprintf("PORT=8000 /usr/bin/node %s/current/server.js", appPath)
+			return fmt.Sprintf("/usr/bin/node %s/current/server.js", appPath)
 		case "NestJS":
-			return fmt.Sprintf("PORT=8000 /usr/bin/node %s/current/dist/main.js", appPath)
+			return fmt.Sprintf("/usr/bin/node %s/current/dist/main.js", appPath)
 		}
 
 	case "Go":
@@ -600,11 +967,6 @@ func (e *Executor) getExecStartCommand() string {
 		if framework == "Rails" {
 			return fmt.Sprintf("%s/shared/bundle/bin/puma -C %s/current/config/puma.rb", appPath, appPath)
 		}
-	}
-
-	// Fallback - use the first run command if available
-	if len(e.detection.RunPlan) > 0 {
-		return e.detection.RunPlan[0]
 	}
 
 	return "/usr/bin/true"

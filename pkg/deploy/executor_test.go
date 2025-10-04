@@ -420,9 +420,9 @@ func TestGetExecStartCommand_JavaScript(t *testing.T) {
 		framework string
 		want      string
 	}{
-		{"Next.js", "PORT=8000 /usr/bin/node /srv/test-app/current/.next/standalone/server.js"},
-		{"Express.js", "PORT=8000 /usr/bin/node /srv/test-app/current/server.js"},
-		{"NestJS", "PORT=8000 /usr/bin/node /srv/test-app/current/dist/main.js"},
+		{"Next.js", "/usr/bin/node /srv/test-app/current/.next/standalone/server.js"},
+		{"Express.js", "/usr/bin/node /srv/test-app/current/server.js"},
+		{"NestJS", "/usr/bin/node /srv/test-app/current/dist/main.js"},
 	}
 
 	for _, tt := range tests {

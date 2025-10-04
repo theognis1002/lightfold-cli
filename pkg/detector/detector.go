@@ -26,7 +26,7 @@ type candidate struct {
 	score    float64
 	language string
 	signals  []string
-	plan     func(root string) (build []string, run []string, health map[string]any, env []string)
+	plan     func(root string) (build []string, run []string, health map[string]any, env []string, meta map[string]string)
 }
 
 func DetectFramework(root string) Detection {
@@ -590,7 +590,7 @@ func DetectFramework(root string) Detection {
 
 	best := pickBest(cands)
 
-	build, run, health, env := best.plan(root)
+	build, run, health, env, meta := best.plan(root)
 
 	out := Detection{
 		Framework:   best.name,
@@ -601,6 +601,7 @@ func DetectFramework(root string) Detection {
 		RunPlan:     run,
 		Healthcheck: health,
 		EnvSchema:   env,
+		Meta:        meta,
 	}
 	return out
 }

@@ -17,20 +17,23 @@ import (
 )
 
 var (
-	sshTargetFlag string
+	sshTargetFlag    string
+	sshCommandFlag   string
 )
 
 var sshCmd = &cobra.Command{
 	Use:   "ssh",
 	Short: "SSH into a deployment target",
-	Long: `Open an interactive SSH session to a deployment target server.
+	Long: `Open an interactive SSH session or run a command on a deployment target server.
 
 Without --target flag: Attempts to find target by matching current directory
 With --target flag: Connects to the specified target
+With --command flag: Runs a single command instead of an interactive session
 
 Examples:
-  lightfold ssh                    # SSH to target in current directory
-  lightfold ssh --target myapp     # SSH to specific target`,
+  lightfold ssh                                    # SSH to target in current directory
+  lightfold ssh --target myapp                     # SSH to specific target
+  lightfold ssh --target myapp --command "uptime"  # Run a command`,
 	Args: cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg := loadConfigOrExit()
@@ -69,27 +72,23 @@ Examples:
 			target = loadTargetOrExit(cfg, targetName)
 		}
 
-		// Check if provider supports SSH
 		if target.Provider == "s3" {
 			fmt.Fprintf(os.Stderr, "Error: Target '%s' uses S3 provider, which does not support SSH\n", targetName)
 			fmt.Fprintf(os.Stderr, "\nS3 targets are for static site deployments only.\n")
 			os.Exit(1)
 		}
 
-		// Get SSH provider config
 		providerCfg, err := target.GetSSHProviderConfig()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: Cannot get SSH configuration: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Validate SSH connection details
 		ip := providerCfg.GetIP()
 		username := providerCfg.GetUsername()
 		sshKey := providerCfg.GetSSHKey()
 
 		if ip == "" {
-			// Check state to provide better error message
 			targetState, err := state.LoadState(targetName)
 			if err == nil && !targetState.Created {
 				fmt.Fprintf(os.Stderr, "Error: Target '%s' has not been created yet\n", targetName)
@@ -117,20 +116,25 @@ Examples:
 			os.Exit(1)
 		}
 
-		// Connect and start interactive session
-		if err := connectInteractiveSSH(ip, username, sshKey); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: SSH connection failed: %v\n", err)
-			fmt.Fprintf(os.Stderr, "\nTroubleshooting:\n")
-			fmt.Fprintf(os.Stderr, "  1. Verify the server is running and reachable\n")
-			fmt.Fprintf(os.Stderr, "  2. Check your SSH key has correct permissions (chmod 600 %s)\n", sshKey)
-			fmt.Fprintf(os.Stderr, "  3. Verify network connectivity to %s\n", ip)
-			os.Exit(1)
+		if sshCommandFlag != "" {
+			if err := executeSSHCommand(ip, username, sshKey, sshCommandFlag); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: SSH command failed: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			if err := connectInteractiveSSH(ip, username, sshKey); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: SSH connection failed: %v\n", err)
+				fmt.Fprintf(os.Stderr, "\nTroubleshooting:\n")
+				fmt.Fprintf(os.Stderr, "  1. Verify the server is running and reachable\n")
+				fmt.Fprintf(os.Stderr, "  2. Check your SSH key has correct permissions (chmod 600 %s)\n", sshKey)
+				fmt.Fprintf(os.Stderr, "  3. Verify network connectivity to %s\n", ip)
+				os.Exit(1)
+			}
 		}
 	},
 }
 
-func connectInteractiveSSH(host, username, keyPath string) error {
-	// Expand home directory in key path
+func executeSSHCommand(host, username, keyPath, command string) error {
 	if keyPath[:2] == "~/" {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -139,7 +143,6 @@ func connectInteractiveSSH(host, username, keyPath string) error {
 		keyPath = filepath.Join(home, keyPath[2:])
 	}
 
-	// Read private key
 	keyBytes, err := os.ReadFile(keyPath)
 	if err != nil {
 		return fmt.Errorf("failed to read SSH key: %w", err)
@@ -150,7 +153,6 @@ func connectInteractiveSSH(host, username, keyPath string) error {
 		return fmt.Errorf("failed to parse SSH key: %w", err)
 	}
 
-	// Create SSH client config
 	sshConfig := &ssh.ClientConfig{
 		User: username,
 		Auth: []ssh.AuthMethod{
@@ -159,7 +161,6 @@ func connectInteractiveSSH(host, username, keyPath string) error {
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
-	// Connect to SSH server
 	addr := fmt.Sprintf("%s:22", host)
 	client, err := ssh.Dial("tcp", addr, sshConfig)
 	if err != nil {
@@ -167,14 +168,66 @@ func connectInteractiveSSH(host, username, keyPath string) error {
 	}
 	defer client.Close()
 
-	// Create session
 	session, err := client.NewSession()
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 	defer session.Close()
 
-	// Set up terminal modes
+	session.Stdout = os.Stdout
+	session.Stderr = os.Stderr
+	session.Stdin = os.Stdin
+
+	if err := session.Run(command); err != nil {
+		if exitErr, ok := err.(*ssh.ExitError); ok {
+			os.Exit(exitErr.ExitStatus())
+		}
+		return err
+	}
+
+	return nil
+}
+
+func connectInteractiveSSH(host, username, keyPath string) error {
+	if keyPath[:2] == "~/" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("failed to get home directory: %w", err)
+		}
+		keyPath = filepath.Join(home, keyPath[2:])
+	}
+
+	keyBytes, err := os.ReadFile(keyPath)
+	if err != nil {
+		return fmt.Errorf("failed to read SSH key: %w", err)
+	}
+
+	signer, err := ssh.ParsePrivateKey(keyBytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse SSH key: %w", err)
+	}
+
+	sshConfig := &ssh.ClientConfig{
+		User: username,
+		Auth: []ssh.AuthMethod{
+			ssh.PublicKeys(signer),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+
+	addr := fmt.Sprintf("%s:22", host)
+	client, err := ssh.Dial("tcp", addr, sshConfig)
+	if err != nil {
+		return fmt.Errorf("failed to connect: %w", err)
+	}
+	defer client.Close()
+
+	session, err := client.NewSession()
+	if err != nil {
+		return fmt.Errorf("failed to create session: %w", err)
+	}
+	defer session.Close()
+
 	fd := int(os.Stdin.Fd())
 	state, err := term.MakeRaw(fd)
 	if err != nil {
@@ -182,14 +235,12 @@ func connectInteractiveSSH(host, username, keyPath string) error {
 	}
 	defer term.Restore(fd, state)
 
-	// Get terminal size
 	width, height, err := term.GetSize(fd)
 	if err != nil {
 		width = 80
 		height = 24
 	}
 
-	// Request PTY
 	modes := ssh.TerminalModes{
 		ssh.ECHO:          1,
 		ssh.TTY_OP_ISPEED: 14400,
@@ -200,12 +251,10 @@ func connectInteractiveSSH(host, username, keyPath string) error {
 		return fmt.Errorf("failed to request PTY: %w", err)
 	}
 
-	// Set up I/O
 	session.Stdout = os.Stdout
 	session.Stderr = os.Stderr
 	session.Stdin = os.Stdin
 
-	// Handle terminal resize
 	sigwinch := make(chan os.Signal, 1)
 	signal.Notify(sigwinch, syscall.SIGWINCH)
 	go func() {
@@ -217,15 +266,12 @@ func connectInteractiveSSH(host, username, keyPath string) error {
 		}
 	}()
 
-	// Start shell
 	if err := session.Shell(); err != nil {
 		return fmt.Errorf("failed to start shell: %w", err)
 	}
 
-	// Wait for session to finish
 	if err := session.Wait(); err != nil {
 		if exitErr, ok := err.(*ssh.ExitError); ok {
-			// Normal exit with status code
 			if exitErr.ExitStatus() != 0 {
 				return fmt.Errorf("remote shell exited with status %d", exitErr.ExitStatus())
 			}
@@ -241,4 +287,5 @@ func init() {
 	rootCmd.AddCommand(sshCmd)
 
 	sshCmd.Flags().StringVar(&sshTargetFlag, "target", "", "Target name (optional - auto-detects from current directory)")
+	sshCmd.Flags().StringVar(&sshCommandFlag, "command", "", "Command to execute (if not specified, starts interactive session)")
 }

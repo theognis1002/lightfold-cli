@@ -27,14 +27,14 @@ type progressModel struct {
 	result            *deploy.DeploymentResult
 	program           *tea.Program
 	spinner           spinner.Model
-	skipInit          bool   // Skip auto-start in Init() when managing deployment manually
-	completionMessage string // Custom message to show when complete (e.g. "Provisioning complete!", "Configuration complete!")
+	skipInit          bool
+	completionMessage string
 }
 
 type stepHistoryItem struct {
 	name        string
 	description string
-	status      string // "in_progress", "success", "error"
+	status      string
 }
 
 type progressMsg struct {
@@ -59,17 +59,14 @@ type deployResultMsg struct {
 
 func (m progressModel) Init() tea.Cmd {
 	if m.skipInit {
-		// Deployment managed externally (e.g., configuration mode)
 		return m.spinner.Tick
 	}
 	if m.orchestrator != nil {
-		// Use real deployment with orchestrator
 		return tea.Batch(
 			m.startDeployment(),
 			m.spinner.Tick,
 		)
 	}
-	// Fallback to mock progress
 	return tea.Batch(
 		m.startProgress(),
 		m.spinner.Tick,
@@ -93,36 +90,28 @@ func (m progressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case stepUpdateMsg:
-		// Handle command output (Progress == -1)
 		if msg.step.Progress == -1 {
-			// This is command output, just display it
 			fmt.Println(msg.step.Description)
 			return m, nil
 		}
 
-		// Update progress
 		m.progress = float64(msg.step.Progress)
 		m.currentStep = msg.step.Description
 
-		// Mark previous step as successful if we're moving forward
 		if len(m.stepHistory) > 0 && m.stepHistory[len(m.stepHistory)-1].status == "in_progress" {
 			m.stepHistory[len(m.stepHistory)-1].status = "success"
 		}
 
-		// Add new step to history
 		m.stepHistory = append(m.stepHistory, stepHistoryItem{
 			name:        msg.step.Name,
 			description: msg.step.Description,
 			status:      "in_progress",
 		})
 
-		// Check if deployment is complete
 		if msg.step.Progress >= 100 {
-			// Mark last step as successful
 			if len(m.stepHistory) > 0 {
 				m.stepHistory[len(m.stepHistory)-1].status = "success"
 			}
-			// Don't set completed yet - wait for deployResultMsg
 		}
 
 		return m, nil
@@ -145,24 +134,20 @@ func (m progressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.err = msg.err
 			m.completed = true
-			// Mark last step as failed
 			if len(m.stepHistory) > 0 && m.stepHistory[len(m.stepHistory)-1].status == "in_progress" {
 				m.stepHistory[len(m.stepHistory)-1].status = "error"
 			}
 			return m, tea.Quit
 		}
 
-		// Store the deployment result
 		m.result = msg.result
 		m.completed = true
 		m.progress = m.maxProgress
-		// Use custom completion message if provided, otherwise default
 		if m.completionMessage != "" {
 			m.currentStep = m.completionMessage
 		} else {
 			m.currentStep = "Deployment complete!"
 		}
-		// Mark last step as successful
 		if len(m.stepHistory) > 0 && m.stepHistory[len(m.stepHistory)-1].status == "in_progress" {
 			m.stepHistory[len(m.stepHistory)-1].status = "success"
 		}
@@ -190,16 +175,9 @@ func (m progressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m progressModel) View() string {
 	var s strings.Builder
 
-	// Add spacing at top so output isn't at the very top of terminal
 	s.WriteString("\n")
 
-	// Header
 	if !m.completed {
-		headerStyle := lipgloss.NewStyle().
-			Bold(true).
-			Foreground(lipgloss.Color("86"))
-		s.WriteString(headerStyle.Render("Deploying your app (this may take a few minutes)..."))
-		s.WriteString("\n\n")
 	} else {
 		var headerStyle lipgloss.Style
 		if m.err != nil {
@@ -216,7 +194,6 @@ func (m progressModel) View() string {
 			headerStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(lipgloss.Color("82"))
-			// Use custom completion message if provided, otherwise default
 			completionMsg := "Deployment complete!"
 			if m.completionMessage != "" {
 				completionMsg = m.completionMessage
@@ -226,7 +203,6 @@ func (m progressModel) View() string {
 		}
 	}
 
-	// Step history
 	if len(m.stepHistory) > 0 {
 		successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
 		inProgressStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226"))
@@ -241,7 +217,6 @@ func (m progressModel) View() string {
 				icon = "✓"
 				style = successStyle
 			case "in_progress":
-				// Show animated spinner for in-progress steps
 				icon = m.spinner.View()
 				style = inProgressStyle
 			case "error":
@@ -255,7 +230,6 @@ func (m progressModel) View() string {
 		s.WriteString("\n")
 	}
 
-	// Progress bar
 	progressPercent := (m.progress / m.maxProgress) * 100
 	if progressPercent > 100 {
 		progressPercent = 100
@@ -286,7 +260,6 @@ func (m progressModel) View() string {
 	s.WriteString(fmt.Sprintf(" %.0f%%", progressPercent))
 	s.WriteString("\n\n")
 
-	// Countdown or current step
 	if m.completed && m.err == nil {
 		countdownStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("245"))
@@ -349,7 +322,6 @@ func ShowDeploymentProgress() error {
 		spinner:     s,
 	}
 
-	// Don't use tea.WithAltScreen() so output persists after exit
 	p := tea.NewProgram(m)
 	_, err := p.Run()
 	return err
@@ -369,11 +341,9 @@ func ShowDeploymentProgressWithOrchestrator(ctx context.Context, orchestrator *d
 		spinner:      s,
 	}
 
-	// Don't use tea.WithAltScreen() so output persists after exit
 	p := tea.NewProgram(m)
 	m.program = p
 
-	// Set progress callback on orchestrator to send updates to the UI
 	orchestrator.SetProgressCallback(func(step deploy.DeploymentStep) {
 		if p != nil {
 			p.Send(stepUpdateMsg{step: step})
@@ -385,7 +355,6 @@ func ShowDeploymentProgressWithOrchestrator(ctx context.Context, orchestrator *d
 		return err
 	}
 
-	// Check for deployment errors
 	if final, ok := finalModel.(progressModel); ok && final.err != nil {
 		return final.err
 	}
@@ -393,7 +362,6 @@ func ShowDeploymentProgressWithOrchestrator(ctx context.Context, orchestrator *d
 	return nil
 }
 
-// ShowConfigurationProgressWithOrchestrator shows progress for VM configuration
 func ShowConfigurationProgressWithOrchestrator(ctx context.Context, orchestrator *deploy.Orchestrator, providerCfg config.ProviderConfig) error {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -406,22 +374,19 @@ func ShowConfigurationProgressWithOrchestrator(ctx context.Context, orchestrator
 		orchestrator:      orchestrator,
 		ctx:               ctx,
 		spinner:           s,
-		skipInit:          true, // Don't auto-start Deploy() in Init()
+		skipInit:          true,
 		completionMessage: "Configuration complete!",
 	}
 
-	// Don't use tea.WithAltScreen() so output persists after exit
 	p := tea.NewProgram(m)
 	m.program = p
 
-	// Set progress callback on orchestrator to send updates to the UI
 	orchestrator.SetProgressCallback(func(step deploy.DeploymentStep) {
 		if p != nil {
 			p.Send(stepUpdateMsg{step: step})
 		}
 	})
 
-	// Start configuration in background
 	go func() {
 		result, err := orchestrator.ConfigureServer(ctx, providerCfg)
 		p.Send(deployResultMsg{result: result, err: err})
@@ -432,7 +397,6 @@ func ShowConfigurationProgressWithOrchestrator(ctx context.Context, orchestrator
 		return err
 	}
 
-	// Check for configuration errors
 	if final, ok := finalModel.(progressModel); ok && final.err != nil {
 		return final.err
 	}
@@ -440,7 +404,6 @@ func ShowConfigurationProgressWithOrchestrator(ctx context.Context, orchestrator
 	return nil
 }
 
-// ShowProvisioningProgressWithOrchestrator shows progress for VM provisioning and returns the result
 func ShowProvisioningProgressWithOrchestrator(ctx context.Context, orchestrator *deploy.Orchestrator) (*deploy.DeploymentResult, error) {
 	s := spinner.New()
 	s.Spinner = spinner.Dot
@@ -453,22 +416,19 @@ func ShowProvisioningProgressWithOrchestrator(ctx context.Context, orchestrator 
 		orchestrator:      orchestrator,
 		ctx:               ctx,
 		spinner:           s,
-		skipInit:          true, // Don't auto-start Deploy() in Init()
+		skipInit:          true,
 		completionMessage: "Provisioning complete!",
 	}
 
-	// Don't use tea.WithAltScreen() so output persists after exit
 	p := tea.NewProgram(m)
 	m.program = p
 
-	// Set progress callback on orchestrator to send updates to the UI
 	orchestrator.SetProgressCallback(func(step deploy.DeploymentStep) {
 		if p != nil {
 			p.Send(stepUpdateMsg{step: step})
 		}
 	})
 
-	// Start provisioning in background
 	go func() {
 		result, err := orchestrator.Deploy(ctx)
 		p.Send(deployResultMsg{result: result, err: err})
@@ -479,7 +439,6 @@ func ShowProvisioningProgressWithOrchestrator(ctx context.Context, orchestrator 
 		return nil, err
 	}
 
-	// Check for provisioning errors and return the result
 	if final, ok := finalModel.(progressModel); ok {
 		if final.err != nil {
 			return nil, final.err

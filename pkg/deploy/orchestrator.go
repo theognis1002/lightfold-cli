@@ -66,7 +66,6 @@ func (o *Orchestrator) SetProgressCallback(callback ProgressCallback) {
 	o.progressCallback = callback
 }
 
-
 func (o *Orchestrator) Deploy(ctx context.Context) (*DeploymentResult, error) {
 	if !providers.IsRegistered(o.config.Provider) {
 		return nil, fmt.Errorf("unknown provider: %s", o.config.Provider)
@@ -372,17 +371,17 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 
 	o.notifyProgress(DeploymentStep{
 		Name:        "wait_cloud_init",
-		Description: "Initializing & updating server...",
+		Description: "Initializing server...",
 		Progress:    15,
 	})
 
-	// Only run initial setup if not already configured
-	if !isConfigured {
-		// Wait for apt locks to be released (cloud-init might be running)
-		if err := executor.WaitForAptLock(30, 10*time.Second); err != nil {
-			return nil, fmt.Errorf("failed to acquire apt lock: %w", err)
-		}
+	// Wait for apt locks regardless of configured status
+	if err := executor.WaitForAptLock(30, 10*time.Second); err != nil {
+		return nil, fmt.Errorf("failed to acquire apt lock: %w", err)
+	}
 
+	// Only run full initial setup if not already configured
+	if !isConfigured {
 		o.notifyProgress(DeploymentStep{
 			Name:        "install_packages",
 			Description: "Installing system packages and runtimes...",
@@ -403,9 +402,20 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 			return nil, fmt.Errorf("failed to setup directories: %w", err)
 		}
 	} else {
+		// Server configured, but ensure runtimes are up to date
+		o.notifyProgress(DeploymentStep{
+			Name:        "verify_runtimes",
+			Description: "Verifying runtime versions...",
+			Progress:    20,
+		})
+
+		if err := executor.InstallBasePackages(); err != nil {
+			return nil, fmt.Errorf("failed to update packages: %w", err)
+		}
+
 		o.notifyProgress(DeploymentStep{
 			Name:        "skip_initial_setup",
-			Description: "Server already configured, skipping initial setup...",
+			Description: "Server already configured...",
 			Progress:    30,
 		})
 	}
@@ -433,6 +443,12 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		return nil, fmt.Errorf("failed to upload release: %w", err)
 	}
 
+	// Get env vars first (needed for build-time vars like NEXT_PUBLIC_*)
+	envVars := make(map[string]string)
+	if o.config.Deploy != nil && o.config.Deploy.EnvVars != nil {
+		envVars = o.config.Deploy.EnvVars
+	}
+
 	skipBuild := o.config.Deploy != nil && o.config.Deploy.SkipBuild
 	if !skipBuild {
 		o.notifyProgress(DeploymentStep{
@@ -441,7 +457,8 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 			Progress:    60,
 		})
 
-		if err := executor.BuildRelease(releasePath); err != nil {
+		// Pass env vars to build (for NEXT_PUBLIC_*, etc.)
+		if err := executor.BuildReleaseWithEnv(releasePath, envVars); err != nil {
 			return nil, fmt.Errorf("failed to build release: %w", err)
 		}
 	}
@@ -452,11 +469,7 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		Progress:    65,
 	})
 
-	envVars := make(map[string]string)
-	if o.config.Deploy != nil && o.config.Deploy.EnvVars != nil {
-		envVars = o.config.Deploy.EnvVars
-	}
-
+	// Also write to shared location for runtime
 	if err := executor.WriteEnvironmentFile(envVars); err != nil {
 		return nil, fmt.Errorf("failed to write environment: %w", err)
 	}
@@ -509,7 +522,14 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		Progress:    95,
 	})
 
-	if err := executor.CleanupOldReleases(5); err != nil {
+	// Load config to get KeepReleases setting
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Printf("Warning: failed to load config for cleanup: %v\n", err)
+		cfg = &config.Config{KeepReleases: 5} // Fallback to default
+	}
+
+	if err := executor.CleanupOldReleases(cfg.KeepReleases); err != nil {
 		fmt.Printf("Warning: failed to cleanup old releases: %v\n", err)
 	}
 
@@ -529,6 +549,15 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		if markerResult.ExitCode != 0 {
 			return nil, fmt.Errorf("failed to write configured marker: command exited with code %d, stderr: %s", markerResult.ExitCode, markerResult.Stderr)
 		}
+
+		// Trigger system updates in the background (will reboot in 5 minutes after completion)
+		o.notifyProgress(DeploymentStep{
+			Name:        "schedule_updates",
+			Description: "Scheduling system updates and reboot...",
+			Progress:    98,
+		})
+		updateCmd := "nohup bash -c 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" && shutdown -r +5' > /var/log/lightfold-update.log 2>&1 &"
+		sshExecutor.ExecuteSudo(updateCmd)
 	}
 
 	result.Success = true

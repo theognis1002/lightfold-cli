@@ -25,12 +25,11 @@ var (
 	deployForceFlag  bool
 	deployDryRun     bool
 
-	// Styles for deploy command output (matching bubbletea progress UI)
 	deployHeaderStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAC6")).Bold(true)
-	deployStepHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Bold(true) // Cyan step headers
+	deployStepHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Bold(true)
 	deployStepStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
 	deploySuccessStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
-	deployMutedStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("245")) // Match bubbletea descStyle
+	deployMutedStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	deployValueStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
 )
 
@@ -63,7 +62,6 @@ Examples:
 		var targetName string
 
 		if !exists {
-			// If target doesn't exist, treat --target value as project path
 			projectPath = filepath.Clean(deployTargetFlag)
 			targetName = util.GetTargetName(projectPath)
 		} else {
@@ -105,12 +103,18 @@ Examples:
 			return
 		}
 
-		// Step 1: Framework detection (implicit in createTarget)
 		fmt.Printf("\n%s\n", deployStepHeaderStyle.Render("Step 1/4: Analyzing app"))
 		detection := detector.DetectFramework(projectPath)
+
 		fmt.Printf("%s %s (%s)\n", deploySuccessStyle.Render("✓"), deployMutedStyle.Render(detection.Framework), deployMutedStyle.Render(detection.Language))
 
-		// Step 2: Infrastructure creation (auto-creates if needed)
+		if pm, ok := detection.Meta["package_manager"]; ok && pm != "" {
+			if len(detection.BuildPlan) > 0 {
+				installCmd := detection.BuildPlan[0]
+				fmt.Printf("  %s\n", deployMutedStyle.Render(fmt.Sprintf("%s (%s)", installCmd, pm)))
+			}
+		}
+
 		fmt.Printf("\n%s\n", deployStepHeaderStyle.Render("Step 2/4: Create infra"))
 		var err error
 		target, err = createTarget(targetName, projectPath, cfg)
@@ -119,17 +123,14 @@ Examples:
 			os.Exit(1)
 		}
 
-		// Step 3: Server configuration (auto-configures if needed)
 		fmt.Printf("\n%s\n", deployStepHeaderStyle.Render("Step 3/4: Configure server"))
 		if err := configureTarget(target, targetName, deployForceFlag); err != nil {
 			fmt.Fprintf(os.Stderr, "Error configuring server: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Step 4: Release deployment
 		fmt.Printf("\n%s\n", deployStepHeaderStyle.Render("Step 4/4: Deploy app"))
 
-		// Process deployment options
 		if err := target.ProcessDeploymentOptions(envFile, envVars, skipBuild); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -168,7 +169,8 @@ Examples:
 		fmt.Printf("%s %s\n", deploySuccessStyle.Render("✓"), deployMutedStyle.Render("Uploading release to server..."))
 
 		if !target.Deploy.SkipBuild {
-			if err := executor.BuildRelease(releasePath); err != nil {
+			// Pass env vars to build (for NEXT_PUBLIC_*, etc.)
+			if err := executor.BuildReleaseWithEnv(releasePath, target.Deploy.EnvVars); err != nil {
 				fmt.Fprintf(os.Stderr, "Error building release: %v\n", err)
 				os.Exit(1)
 			}
@@ -176,6 +178,7 @@ Examples:
 		}
 
 		if len(target.Deploy.EnvVars) > 0 {
+			// Also write to shared location for runtime
 			if err := executor.WriteEnvironmentFile(target.Deploy.EnvVars); err != nil {
 				fmt.Fprintf(os.Stderr, "Error writing environment: %v\n", err)
 				os.Exit(1)
@@ -189,7 +192,7 @@ Examples:
 		}
 		fmt.Printf("%s %s\n", deploySuccessStyle.Render("✓"), deployMutedStyle.Render("Deploying and running health checks..."))
 
-		executor.CleanupOldReleases(5)
+		executor.CleanupOldReleases(cfg.KeepReleases)
 		fmt.Printf("%s %s\n", deploySuccessStyle.Render("✓"), deployMutedStyle.Render("Cleaning up old releases..."))
 
 		releaseTimestamp := filepath.Base(releasePath)
@@ -200,7 +203,6 @@ Examples:
 
 		fmt.Println()
 
-		// Success banner with cleaner bubbletea style
 		successBox := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("82")).

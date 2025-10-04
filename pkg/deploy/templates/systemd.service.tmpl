@@ -5,11 +5,12 @@ After=network.target
 [Service]
 WorkingDirectory=/srv/{{APP_NAME}}/current
 EnvironmentFile=-/srv/{{APP_NAME}}/shared/env/.env
+Environment=PORT=8000
 ExecStart={{EXEC_START}}
 Restart=always
 RestartSec=5
-User=www-data
-Group=www-data
+User=deploy
+Group=deploy
 StandardOutput=journal
 StandardError=journal
 

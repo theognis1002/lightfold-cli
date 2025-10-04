@@ -2,7 +2,7 @@ package detector
 
 import "fmt"
 
-func djangoPlan(root string) ([]string, []string, map[string]any, []string) {
+func djangoPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	pm := detectPythonPackageManager(root)
 	build := []string{
 		getPythonInstallCommand(pm),
@@ -18,50 +18,54 @@ func djangoPlan(root string) ([]string, []string, map[string]any, []string) {
 		"DATABASE_URL",
 		"ALLOWED_HOSTS",
 	}
-	return build, run, health, env
+	meta := map[string]string{"package_manager": pm}
+	return build, run, health, env, meta
 }
 
-func nextPlan(root string) ([]string, []string, map[string]any, []string) {
+func nextPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	pm := detectPackageManager(root)
 	build := []string{
 		getJSInstallCommand(pm),
-		"next build",
+		getJSBuildCommand(pm),
 	}
-	run := []string{"next start -p 3000"}
+	run := []string{getJSStartCommand(pm)}
 	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
 	env := []string{"NEXT_PUBLIC_*, any server-only envs"}
-	return build, run, health, env
+	meta := map[string]string{"package_manager": pm}
+	return build, run, health, env, meta
 }
 
-func astroPlan(root string) ([]string, []string, map[string]any, []string) {
+func astroPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	pm := detectPackageManager(root)
 	build := []string{
 		getJSInstallCommand(pm),
-		"astro build",
+		getJSBuildCommand(pm),
 	}
 	run := []string{
-		"astro preview --port 4321",
+		getPreviewCommand(pm),
 	}
 	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
 	env := []string{"PUBLIC_*, any server-only envs for SSR"}
-	return build, run, health, env
+	meta := map[string]string{"package_manager": pm}
+	return build, run, health, env, meta
 }
 
-func gatsbyPlan(root string) ([]string, []string, map[string]any, []string) {
+func gatsbyPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	pm := detectPackageManager(root)
 	build := []string{
 		getJSInstallCommand(pm),
-		"gatsby build",
+		getJSBuildCommand(pm),
 	}
 	run := []string{
-		"gatsby serve -p 9000",
+		getRunCommand(pm, "serve"),
 	}
 	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
 	env := []string{"GATSBY_*, any build-time envs"}
-	return build, run, health, env
+	meta := map[string]string{"package_manager": pm}
+	return build, run, health, env, meta
 }
 
-func sveltePlan(root string) ([]string, []string, map[string]any, []string) {
+func sveltePlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	pm := detectPackageManager(root)
 	build := []string{
 		getJSInstallCommand(pm),
@@ -72,10 +76,11 @@ func sveltePlan(root string) ([]string, []string, map[string]any, []string) {
 	}
 	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
 	env := []string{"PUBLIC_*, any server-only envs for SvelteKit SSR"}
-	return build, run, health, env
+	meta := map[string]string{"package_manager": pm}
+	return build, run, health, env, meta
 }
 
-func vuePlan(root string) ([]string, []string, map[string]any, []string) {
+func vuePlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	pm := detectPackageManager(root)
 	build := []string{
 		getJSInstallCommand(pm),
@@ -86,24 +91,26 @@ func vuePlan(root string) ([]string, []string, map[string]any, []string) {
 	}
 	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
 	env := []string{"VUE_APP_*, VITE_* for Vite-based setups"}
-	return build, run, health, env
+	meta := map[string]string{"package_manager": pm}
+	return build, run, health, env, meta
 }
 
-func angularPlan(root string) ([]string, []string, map[string]any, []string) {
+func angularPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	pm := detectPackageManager(root)
 	build := []string{
 		getJSInstallCommand(pm),
-		"ng build --configuration production",
+		getJSBuildCommand(pm),
 	}
 	run := []string{
-		"ng serve --port 4200 --host 0.0.0.0",
+		getJSStartCommand(pm),
 	}
 	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
 	env := []string{"NG_APP_*, any environment-specific configs"}
-	return build, run, health, env
+	meta := map[string]string{"package_manager": pm}
+	return build, run, health, env, meta
 }
 
-func flaskPlan(root string) ([]string, []string, map[string]any, []string) {
+func flaskPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	pm := detectPythonPackageManager(root)
 	build := []string{
 		getPythonInstallCommand(pm),
@@ -113,10 +120,11 @@ func flaskPlan(root string) ([]string, []string, map[string]any, []string) {
 	}
 	health := map[string]any{"path": "/health", "expect": 200, "timeout_seconds": 30}
 	env := []string{"FLASK_ENV", "FLASK_APP", "DATABASE_URL", "SECRET_KEY"}
-	return build, run, health, env
+	meta := map[string]string{"package_manager": pm}
+	return build, run, health, env, meta
 }
 
-func expressPlan(root string) ([]string, []string, map[string]any, []string) {
+func expressPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	pm := detectPackageManager(root)
 	build := []string{
 		getJSInstallCommand(pm),
@@ -128,10 +136,11 @@ func expressPlan(root string) ([]string, []string, map[string]any, []string) {
 	}
 	health := map[string]any{"path": "/health", "expect": 200, "timeout_seconds": 30}
 	env := []string{"NODE_ENV", "PORT", "DATABASE_URL"}
-	return build, run, health, env
+	meta := map[string]string{"package_manager": pm}
+	return build, run, health, env, meta
 }
 
-func fastApiPlan(root string) ([]string, []string, map[string]any, []string) {
+func fastApiPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	pm := detectPythonPackageManager(root)
 	build := []string{
 		getPythonInstallCommand(pm),
@@ -141,29 +150,34 @@ func fastApiPlan(root string) ([]string, []string, map[string]any, []string) {
 	}
 	health := map[string]any{"path": "/health", "expect": 200, "timeout_seconds": 30}
 	env := []string{"DATABASE_URL", "SECRET_KEY", "DEBUG"}
-	return build, run, health, env
+	meta := map[string]string{"package_manager": pm}
+	return build, run, health, env, meta
 }
 
-func springBootPlan(root string) ([]string, []string, map[string]any, []string) {
+func springBootPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	var build []string
+	var buildTool string
 	if fileExists(root, "pom.xml") {
 		build = []string{
 			"./mvnw clean package -DskipTests",
 		}
+		buildTool = "maven"
 	} else {
 		build = []string{
 			"./gradlew build -x test",
 		}
+		buildTool = "gradle"
 	}
 	run := []string{
 		"java -jar target/*.jar",
 	}
 	health := map[string]any{"path": "/actuator/health", "expect": 200, "timeout_seconds": 30}
 	env := []string{"SPRING_PROFILES_ACTIVE", "DATABASE_URL", "SERVER_PORT"}
-	return build, run, health, env
+	meta := map[string]string{"build_tool": buildTool}
+	return build, run, health, env, meta
 }
 
-func aspNetPlan(root string) ([]string, []string, map[string]any, []string) {
+func aspNetPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{
 		"dotnet restore",
 		"dotnet publish -c Release -o out",
@@ -173,10 +187,11 @@ func aspNetPlan(root string) ([]string, []string, map[string]any, []string) {
 	}
 	health := map[string]any{"path": "/health", "expect": 200, "timeout_seconds": 30}
 	env := []string{"ASPNETCORE_ENVIRONMENT", "ConnectionStrings__DefaultConnection"}
-	return build, run, health, env
+	meta := map[string]string{}
+	return build, run, health, env, meta
 }
 
-func phoenixPlan(root string) ([]string, []string, map[string]any, []string) {
+func phoenixPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{
 		"mix deps.get",
 		"mix compile",
@@ -188,10 +203,11 @@ func phoenixPlan(root string) ([]string, []string, map[string]any, []string) {
 	}
 	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
 	env := []string{"DATABASE_URL", "SECRET_KEY_BASE", "PHX_HOST"}
-	return build, run, health, env
+	meta := map[string]string{}
+	return build, run, health, env, meta
 }
 
-func nestjsPlan(root string) ([]string, []string, map[string]any, []string) {
+func nestjsPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	pm := detectPackageManager(root)
 	build := []string{
 		getJSInstallCommand(pm),
@@ -203,10 +219,11 @@ func nestjsPlan(root string) ([]string, []string, map[string]any, []string) {
 	}
 	health := map[string]any{"path": "/health", "expect": 200, "timeout_seconds": 30}
 	env := []string{"NODE_ENV", "PORT", "DATABASE_URL"}
-	return build, run, health, env
+	meta := map[string]string{"package_manager": pm}
+	return build, run, health, env, meta
 }
 
-func laravelPlan(root string) ([]string, []string, map[string]any, []string) {
+func laravelPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{
 		"composer install --no-dev --optimize-autoloader",
 		"php artisan migrate --force",
@@ -217,10 +234,11 @@ func laravelPlan(root string) ([]string, []string, map[string]any, []string) {
 	}
 	health := map[string]any{"path": "/health", "expect": 200, "timeout_seconds": 30}
 	env := []string{"APP_KEY", "APP_ENV", "DB_CONNECTION/DB_*"}
-	return build, run, health, env
+	meta := map[string]string{}
+	return build, run, health, env, meta
 }
 
-func railsPlan(root string) ([]string, []string, map[string]any, []string) {
+func railsPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{
 		"bundle install --deployment --without development test",
 		"bundle exec rails db:migrate",
@@ -231,10 +249,11 @@ func railsPlan(root string) ([]string, []string, map[string]any, []string) {
 	}
 	health := map[string]any{"path": "/up", "expect": 200, "timeout_seconds": 30}
 	env := []string{"RAILS_ENV", "DATABASE_URL", "SECRET_KEY_BASE"}
-	return build, run, health, env
+	meta := map[string]string{}
+	return build, run, health, env, meta
 }
 
-func goPlan(root string) ([]string, []string, map[string]any, []string) {
+func goPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{
 		"go build -o app ./...",
 	}
@@ -243,20 +262,22 @@ func goPlan(root string) ([]string, []string, map[string]any, []string) {
 	}
 	health := map[string]any{"path": "/healthz", "expect": 200, "timeout_seconds": 30}
 	env := []string{"PORT", "any app-specific envs"}
-	return build, run, health, env
+	meta := map[string]string{}
+	return build, run, health, env, meta
 }
 
-func dockerPlan(root string) ([]string, []string, map[string]any, []string) {
+func dockerPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{"docker build -t app:latest ."}
 	run := []string{"docker run -p 8080:8080 app:latest"}
 	health := map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30}
 	env := []string{}
-	return build, run, health, env
+	meta := map[string]string{}
+	return build, run, health, env, meta
 }
 
 func detectPackageManager(root string) string {
 	switch {
-	case fileExists(root, "bun.lockb"):
+	case fileExists(root, "bun.lockb") || fileExists(root, "bun.lock"):
 		return "bun"
 	case fileExists(root, "pnpm-lock.yaml"):
 		return "pnpm"

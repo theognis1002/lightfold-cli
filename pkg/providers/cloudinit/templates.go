@@ -57,8 +57,11 @@ write_files:
 {{- end}}
 
 runcmd:
-  - mkdir -p /srv/{{.AppName}}/{releases,shared,current}
-  - mkdir -p /srv/{{.AppName}}/shared/{logs,uploads,config}
+  - mkdir -p /srv/{{.AppName}}/releases
+  - mkdir -p /srv/{{.AppName}}/shared/logs
+  - mkdir -p /srv/{{.AppName}}/shared/uploads
+  - mkdir -p /srv/{{.AppName}}/shared/config
+  - mkdir -p /srv/{{.AppName}}/shared/env
   - chown -R {{.Username}}:{{.Username}} /srv/{{.AppName}}
 
 {{- range .UFWRules}}
@@ -149,11 +152,6 @@ func getDefaultPackages() []string {
 		"git",
 		"unzip",
 		"nginx",
-		"python3",
-		"python3-venv",
-		"python3-pip",
-		"nodejs",
-		"npm",
 		"docker.io",
 		"docker-compose",
 		"certbot",
@@ -173,7 +171,6 @@ func getMinimalPackages() []string {
 		"wget",
 		"git",
 		"nginx",
-		"python3",
 		"ufw",
 		"vim",
 	}

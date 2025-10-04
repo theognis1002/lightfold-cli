@@ -71,7 +71,6 @@ var configListCmd = &cobra.Command{
 				fmt.Printf("    Framework: %s\n", configValueStyle.Render(target.Framework))
 				fmt.Printf("    Provider:  %s\n", configValueStyle.Render(target.Provider))
 
-				// Show provider-specific details
 				switch target.Provider {
 				case "digitalocean":
 					if doConfig, err := target.GetDigitalOceanConfig(); err == nil {
@@ -114,6 +113,9 @@ var configListCmd = &cobra.Command{
 				fmt.Printf("  %s %s\n", configLabelStyle.Render("•"), configValueStyle.Render(provider))
 			}
 		}
+
+		fmt.Printf("\n%s\n", configStyle.Render("Global Settings:"))
+		fmt.Printf("  %s: %s\n", configLabelStyle.Render("Keep Releases"), configValueStyle.Render(fmt.Sprintf("%d", cfg.KeepReleases)))
 		fmt.Println()
 	},
 }
@@ -135,7 +137,6 @@ If token is not provided as an argument, you will be prompted to enter it secure
 		if len(args) == 2 {
 			token = args[1]
 		} else {
-			// Prompt for token securely (no echo)
 			fmt.Printf("Enter API token for %s: ", provider)
 			tokenBytes, err := term.ReadPassword(int(syscall.Stdin))
 			fmt.Println()
@@ -187,7 +188,6 @@ var configGetTokenCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		// Mask token for security
 		maskedToken := "****" + token[len(token)-4:]
 		if len(token) < 10 {
 			maskedToken = "********"
@@ -214,7 +214,6 @@ var configDeleteTokenCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		// Confirmation prompt
 		fmt.Printf("Delete token for %s? (y/N): ", provider)
 		var response string
 		fmt.Scanln(&response)
@@ -234,6 +233,42 @@ var configDeleteTokenCmd = &cobra.Command{
 	},
 }
 
+var configSetKeepReleasesCmd = &cobra.Command{
+	Use:   "set-keep-releases <count>",
+	Short: "Set the number of releases to keep during cleanup",
+	Long: `Set the number of releases to keep during cleanup (default: 5).
+
+Old releases beyond this count will be automatically deleted after each deployment.`,
+	Args: cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		var count int
+		if _, err := fmt.Sscanf(args[0], "%d", &count); err != nil {
+			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render("Invalid count: must be a positive integer"))
+			os.Exit(1)
+		}
+
+		if count < 1 {
+			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render("Count must be at least 1"))
+			os.Exit(1)
+		}
+
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Error loading config: %v", err)))
+			os.Exit(1)
+		}
+
+		cfg.KeepReleases = count
+
+		if err := cfg.SaveConfig(); err != nil {
+			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Error saving config: %v", err)))
+			os.Exit(1)
+		}
+
+		fmt.Printf("%s\n", configSuccessStyle.Render(fmt.Sprintf("✓ Keep releases set to %d", count)))
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(configCmd)
 
@@ -241,4 +276,5 @@ func init() {
 	configCmd.AddCommand(configSetTokenCmd)
 	configCmd.AddCommand(configGetTokenCmd)
 	configCmd.AddCommand(configDeleteTokenCmd)
+	configCmd.AddCommand(configSetKeepReleasesCmd)
 }

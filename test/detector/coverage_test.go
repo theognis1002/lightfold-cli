@@ -320,7 +320,7 @@ func TestPackageManagerBuildPlans(t *testing.T) {
 			},
 			expectedFramework:  "Next.js",
 			expectedInstallCmd: "yarn install",
-			expectedBuildCmd:   "next build",
+			expectedBuildCmd:   "yarn build",
 		},
 		{
 			name: "Django with uv",
@@ -344,7 +344,7 @@ func TestPackageManagerBuildPlans(t *testing.T) {
 			},
 			expectedFramework:  "Astro",
 			expectedInstallCmd: "bun install",
-			expectedBuildCmd:   "astro build",
+			expectedBuildCmd:   "bun run build",
 		},
 	}
 

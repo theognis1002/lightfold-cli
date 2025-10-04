@@ -15,8 +15,14 @@ func TestPackageManagerDetection(t *testing.T) {
 		expected string
 	}{
 		{
-			name:     "Bun detection",
+			name:     "Bun detection (bun.lockb)",
 			files:    map[string]string{"bun.lockb": "binary content", "package.json": "{}"},
+			testFunc: detector.DetectPackageManager,
+			expected: "bun",
+		},
+		{
+			name:     "Bun detection (bun.lock)",
+			files:    map[string]string{"bun.lock": "binary content", "package.json": "{}"},
 			testFunc: detector.DetectPackageManager,
 			expected: "bun",
 		},
@@ -129,9 +135,10 @@ func TestPythonCommandGeneration(t *testing.T) {
 func TestBuildPlans(t *testing.T) {
 	tests := []struct {
 		name            string
-		planFunc        func(string) ([]string, []string, map[string]any, []string)
+		planFunc        func(string) ([]string, []string, map[string]any, []string, map[string]string)
 		projectFiles    map[string]string
 		expectedCommands []string
+		expectedPM      string
 	}{
 		{
 			name:     "Next.js with pnpm",
@@ -140,7 +147,28 @@ func TestBuildPlans(t *testing.T) {
 				"pnpm-lock.yaml": "lockfileVersion: 6.0",
 				"package.json":   "{}",
 			},
-			expectedCommands: []string{"pnpm install", "next build"},
+			expectedCommands: []string{"pnpm install", "pnpm run build"},
+			expectedPM:      "pnpm",
+		},
+		{
+			name:     "Next.js with bun (bun.lockb)",
+			planFunc: detector.NextPlan,
+			projectFiles: map[string]string{
+				"bun.lockb":    "binary content",
+				"package.json": "{}",
+			},
+			expectedCommands: []string{"bun install", "bun run build"},
+			expectedPM:      "bun",
+		},
+		{
+			name:     "Next.js with bun (bun.lock)",
+			planFunc: detector.NextPlan,
+			projectFiles: map[string]string{
+				"bun.lock":     "binary content",
+				"package.json": "{}",
+			},
+			expectedCommands: []string{"bun install", "bun run build"},
+			expectedPM:      "bun",
 		},
 		{
 			name:     "Django with poetry",
@@ -150,6 +178,7 @@ func TestBuildPlans(t *testing.T) {
 				"pyproject.toml": "[tool.poetry]",
 			},
 			expectedCommands: []string{"poetry install"},
+			expectedPM:      "poetry",
 		},
 		{
 			name:     "Go service",
@@ -159,13 +188,14 @@ func TestBuildPlans(t *testing.T) {
 				"main.go": "package main",
 			},
 			expectedCommands: []string{"go build -o app ./..."},
+			expectedPM:      "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			projectPath := createTestProject(t, tt.projectFiles)
-			build, _, _, _ := tt.planFunc(projectPath)
+			build, _, _, _, meta := tt.planFunc(projectPath)
 
 			for _, expectedCmd := range tt.expectedCommands {
 				found := false
@@ -179,6 +209,15 @@ func TestBuildPlans(t *testing.T) {
 					t.Errorf("Expected command '%s' not found in build plan: %v", expectedCmd, build)
 				}
 			}
+
+			// Verify package manager is stored in metadata
+			if tt.expectedPM != "" {
+				if pm, ok := meta["package_manager"]; !ok {
+					t.Error("Expected package_manager in meta but not found")
+				} else if pm != tt.expectedPM {
+					t.Errorf("Expected package_manager '%s', got '%s'", tt.expectedPM, pm)
+				}
+			}
 		})
 	}
 }
@@ -186,7 +225,7 @@ func TestBuildPlans(t *testing.T) {
 func TestFrameworkHealthChecks(t *testing.T) {
 	tests := []struct {
 		name          string
-		planFunc      func(string) ([]string, []string, map[string]any, []string)
+		planFunc      func(string) ([]string, []string, map[string]any, []string, map[string]string)
 		projectFiles  map[string]string
 		expectedPath  string
 		expectedCode  int
@@ -223,7 +262,7 @@ func TestFrameworkHealthChecks(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			projectPath := createTestProject(t, tt.projectFiles)
-			_, _, health, _ := tt.planFunc(projectPath)
+			_, _, health, _, _ := tt.planFunc(projectPath)
 
 			if health == nil {
 				t.Fatal("Expected health check config, got nil")
@@ -251,7 +290,7 @@ func TestFrameworkHealthChecks(t *testing.T) {
 func TestFrameworkRunCommands(t *testing.T) {
 	tests := []struct {
 		name         string
-		planFunc     func(string) ([]string, []string, map[string]any, []string)
+		planFunc     func(string) ([]string, []string, map[string]any, []string, map[string]string)
 		projectFiles map[string]string
 		minCommands  int
 	}{
@@ -284,7 +323,7 @@ func TestFrameworkRunCommands(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			projectPath := createTestProject(t, tt.projectFiles)
-			_, run, _, _ := tt.planFunc(projectPath)
+			_, run, _, _, _ := tt.planFunc(projectPath)
 
 			if len(run) < tt.minCommands {
 				t.Errorf("Expected at least %d run command(s), got %d: %v", tt.minCommands, len(run), run)
@@ -296,7 +335,7 @@ func TestFrameworkRunCommands(t *testing.T) {
 func TestFrameworkEnvironmentVariables(t *testing.T) {
 	tests := []struct {
 		name         string
-		planFunc     func(string) ([]string, []string, map[string]any, []string)
+		planFunc     func(string) ([]string, []string, map[string]any, []string, map[string]string)
 		projectFiles map[string]string
 		requiredVars []string
 	}{
@@ -329,7 +368,7 @@ func TestFrameworkEnvironmentVariables(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			projectPath := createTestProject(t, tt.projectFiles)
-			_, _, _, envVars := tt.planFunc(projectPath)
+			_, _, _, envVars, _ := tt.planFunc(projectPath)
 
 			for _, required := range tt.requiredVars {
 				found := false
@@ -354,9 +393,18 @@ func TestPackageManagerPriority(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "bun over pnpm",
+			name: "bun over pnpm (bun.lockb)",
 			files: map[string]string{
 				"bun.lockb":      "binary",
+				"pnpm-lock.yaml": "lockfileVersion: 6.0",
+				"package.json":   "{}",
+			},
+			expected: "bun",
+		},
+		{
+			name: "bun over pnpm (bun.lock)",
+			files: map[string]string{
+				"bun.lock":       "binary",
 				"pnpm-lock.yaml": "lockfileVersion: 6.0",
 				"package.json":   "{}",
 			},
@@ -425,7 +473,7 @@ func TestPackageManagerPriority(t *testing.T) {
 
 func TestAllFrameworkPlansReturnValidStructure(t *testing.T) {
 	// Only test exported plan functions
-	planFuncs := map[string]func(string) ([]string, []string, map[string]any, []string){
+	planFuncs := map[string]func(string) ([]string, []string, map[string]any, []string, map[string]string){
 		"Next.js": detector.NextPlan,
 		"Django":  detector.DjangoPlan,
 		"Go":      detector.GoPlan,
@@ -442,7 +490,7 @@ func TestAllFrameworkPlansReturnValidStructure(t *testing.T) {
 	for name, planFunc := range planFuncs {
 		t.Run(name, func(t *testing.T) {
 			projectPath := createTestProject(t, projectFiles)
-			build, run, health, envVars := planFunc(projectPath)
+			build, run, health, envVars, meta := planFunc(projectPath)
 
 			// Verify build commands exist
 			if len(build) == 0 {
@@ -468,6 +516,103 @@ func TestAllFrameworkPlansReturnValidStructure(t *testing.T) {
 
 			// Environment variables can be empty (not required)
 			_ = envVars
+
+			// Verify meta is returned (can be empty for non-JS/Python frameworks)
+			if meta == nil {
+				t.Error("Meta should not be nil")
+			}
+		})
+	}
+}
+
+// TestPackageManagerInDetection verifies that package manager info flows through detection
+func TestPackageManagerInDetection(t *testing.T) {
+	tests := []struct {
+		name        string
+		files       map[string]string
+		expectedPM  string
+		framework   string
+	}{
+		{
+			name: "Next.js with bun (bun.lockb)",
+			files: map[string]string{
+				"next.config.js": "module.exports = {}",
+				"package.json":   `{"dependencies": {"next": "^13.0.0"}}`,
+				"bun.lockb":      "binary content",
+			},
+			expectedPM: "bun",
+			framework:  "Next.js",
+		},
+		{
+			name: "Next.js with bun (bun.lock)",
+			files: map[string]string{
+				"next.config.js": "module.exports = {}",
+				"package.json":   `{"dependencies": {"next": "^13.0.0"}}`,
+				"bun.lock":       "binary content",
+			},
+			expectedPM: "bun",
+			framework:  "Next.js",
+		},
+		{
+			name: "Next.js with pnpm",
+			files: map[string]string{
+				"next.config.js":  "module.exports = {}",
+				"package.json":    `{"dependencies": {"next": "^13.0.0"}}`,
+				"pnpm-lock.yaml":  "lockfileVersion: 6.0",
+			},
+			expectedPM: "pnpm",
+			framework:  "Next.js",
+		},
+		{
+			name: "Django with poetry",
+			files: map[string]string{
+				"manage.py":     "#!/usr/bin/env python",
+				"poetry.lock":   "[[package]]",
+				"pyproject.toml": `[tool.poetry]
+name = "myapp"
+[tool.poetry.dependencies]
+django = "^4.2.0"`,
+			},
+			expectedPM: "poetry",
+			framework:  "Django",
+		},
+		{
+			name: "FastAPI with uv",
+			files: map[string]string{
+				"main.py":  `from fastapi import FastAPI\napp = FastAPI()`,
+				"uv.lock":  "version = 1",
+			},
+			expectedPM: "uv",
+			framework:  "FastAPI",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projectPath := createTestProject(t, tt.files)
+			detection := detector.DetectFramework(projectPath)
+
+			if detection.Framework != tt.framework {
+				t.Errorf("Expected framework '%s', got '%s'", tt.framework, detection.Framework)
+			}
+
+			if pm, ok := detection.Meta["package_manager"]; !ok {
+				t.Error("Expected package_manager in detection Meta but not found")
+			} else if pm != tt.expectedPM {
+				t.Errorf("Expected package_manager '%s', got '%s'", tt.expectedPM, pm)
+			}
+
+			// Verify the build plan uses the correct package manager
+			foundCorrectPM := false
+			for _, cmd := range detection.BuildPlan {
+				if strings.Contains(cmd, tt.expectedPM) {
+					foundCorrectPM = true
+					break
+				}
+			}
+			if !foundCorrectPM {
+				t.Errorf("Expected build plan to use '%s', but commands are: %v", tt.expectedPM, detection.BuildPlan)
+			}
 		})
 	}
 }
