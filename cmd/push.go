@@ -146,7 +146,14 @@ Examples:
 		defer sshExecutor.Disconnect()
 
 		projectName := util.GetTargetName(target.ProjectPath)
-		executor := deploy.NewExecutor(sshExecutor, projectName, target.ProjectPath, &detection)
+
+		// Use custom deployment options if available
+		var executor *deploy.Executor
+		if target.Deploy != nil && (len(target.Deploy.BuildCommands) > 0 || len(target.Deploy.RunCommands) > 0) {
+			executor = deploy.NewExecutorWithOptions(sshExecutor, projectName, target.ProjectPath, &detection, target.Deploy)
+		} else {
+			executor = deploy.NewExecutor(sshExecutor, projectName, target.ProjectPath, &detection)
+		}
 
 		tmpTarball := fmt.Sprintf("/tmp/lightfold-%s-release.tar.gz", projectName)
 		if err := executor.CreateReleaseTarball(tmpTarball); err != nil {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"lightfold/pkg/config"
 	"lightfold/pkg/detector"
 	sshpkg "lightfold/pkg/ssh"
 	"os"
@@ -30,6 +31,7 @@ type Executor struct {
 	appName        string
 	projectPath    string
 	detection      *detector.Detection
+	deployOptions  *config.DeploymentOptions
 	outputCallback OutputCallback
 }
 
@@ -40,6 +42,17 @@ func NewExecutor(sshExecutor *sshpkg.Executor, appName, projectPath string, dete
 		appName:     appName,
 		projectPath: projectPath,
 		detection:   detection,
+	}
+}
+
+// NewExecutorWithOptions creates a new deployment executor with custom deployment options
+func NewExecutorWithOptions(sshExecutor *sshpkg.Executor, appName, projectPath string, detection *detector.Detection, deployOptions *config.DeploymentOptions) *Executor {
+	return &Executor{
+		ssh:           sshExecutor,
+		appName:       appName,
+		projectPath:   projectPath,
+		detection:     detection,
+		deployOptions: deployOptions,
 	}
 }
 
@@ -131,27 +144,16 @@ func (e *Executor) WaitForAptLock(maxRetries int, retryDelay time.Duration) erro
 
 // InstallBasePackages installs required system packages
 func (e *Executor) InstallBasePackages() error {
-	// Fix common APT issues before installing
-	// Remove corrupted command-not-found files that cause apt-get update to fail
 	e.ssh.ExecuteSudo("rm -f /var/lib/apt/lists/*_Commands-* 2>/dev/null || true")
-
-	// Kill any stale apt/dpkg processes that might be holding locks
 	e.ssh.ExecuteSudo("killall -q apt-get dpkg 2>/dev/null || true")
-
-	// Remove stale lock files (with safety check for process ownership)
 	e.ssh.ExecuteSudo("rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock 2>/dev/null || true")
-
-	// Clean apt cache
 	e.ssh.ExecuteSudo("apt-get clean 2>/dev/null || true")
 
-	// Quick update of package lists with retry logic
 	var result *sshpkg.CommandResult
 	maxRetries := 3
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		result = e.ssh.ExecuteSudo("apt-get update 2>&1")
 		if result.Error == nil && result.ExitCode == 0 {
-			// Success - only show output if there's actual content to show
-			// Don't send output for successful apt-get update to avoid confusion
 			break
 		}
 
@@ -159,9 +161,8 @@ func (e *Executor) InstallBasePackages() error {
 			if e.outputCallback != nil {
 				e.outputCallback(fmt.Sprintf("  apt-get update failed (attempt %d/%d), retrying...", attempt, maxRetries))
 			}
-			time.Sleep(time.Duration(attempt*2) * time.Second) // Exponential backoff
+			time.Sleep(time.Duration(attempt*2) * time.Second)
 
-			// Additional cleanup before retry
 			e.ssh.ExecuteSudo("dpkg --configure -a 2>/dev/null || true")
 			e.ssh.ExecuteSudo("apt-get clean && rm -rf /var/lib/apt/lists/* && mkdir -p /var/lib/apt/lists/partial")
 		}
@@ -181,80 +182,64 @@ func (e *Executor) InstallBasePackages() error {
 	if e.detection != nil {
 		switch e.detection.Language {
 		case "JavaScript/TypeScript":
-			// Check if Node.js v20 is already installed (check /usr/local/bin first, then /usr/bin)
 			result = e.ssh.Execute("/usr/local/bin/node --version 2>/dev/null || /usr/bin/node --version 2>/dev/null || echo 'not-found'")
 			existingVersion := strings.TrimSpace(result.Stdout)
 
-			// Skip installation if v20 is already installed
 			if strings.HasPrefix(existingVersion, "v20.") {
 				if e.outputCallback != nil {
 					e.outputCallback(fmt.Sprintf("  Node.js already installed: %s", existingVersion))
 				}
-				// Ensure symlinks exist
 				e.ssh.ExecuteSudo("ln -sf /usr/local/bin/node /usr/bin/node")
 				e.ssh.ExecuteSudo("ln -sf /usr/local/bin/npm /usr/bin/npm")
 				e.ssh.ExecuteSudo("ln -sf /usr/local/bin/npx /usr/bin/npx")
 			} else {
-				// Node.js not installed or wrong version - install it
 				if e.outputCallback != nil {
 					e.outputCallback("  Installing Node.js v20.11.1...")
 				}
 
-				// Aggressively remove ALL old Node.js installations
 				e.ssh.ExecuteSudo("apt-get remove -y nodejs npm libnode-dev libnode72 2>/dev/null || true")
 				e.ssh.ExecuteSudo("apt-get purge -y nodejs npm libnode-dev libnode72 2>/dev/null || true")
 				e.ssh.ExecuteSudo("apt-get autoremove -y 2>/dev/null || true")
 
-				// Remove any stray node binaries and old repos
 				e.ssh.ExecuteSudo("rm -f /usr/bin/node /usr/bin/npm /usr/bin/npx 2>/dev/null || true")
 				e.ssh.ExecuteSudo("rm -rf /usr/lib/node_modules 2>/dev/null || true")
 				e.ssh.ExecuteSudo("rm -f /etc/apt/sources.list.d/nodesource.list 2>/dev/null || true")
 
-				// Install Node.js using official binary distribution (more reliable than apt)
-				// Download Node.js
 				result = e.ssh.ExecuteSudo("curl -fsSL https://nodejs.org/dist/v20.11.1/node-v20.11.1-linux-x64.tar.xz -o /tmp/node.tar.xz")
 				if result.Error != nil || result.ExitCode != 0 {
 					return formatSSHError("failed to download Node.js", result)
 				}
 
-				// Extract
 				result = e.ssh.ExecuteSudo("tar -xf /tmp/node.tar.xz -C /tmp")
 				if result.Error != nil || result.ExitCode != 0 {
 					return formatSSHError("failed to extract Node.js", result)
 				}
 
-				// Copy to /usr/local
 				result = e.ssh.ExecuteSudo("cp -r /tmp/node-v20.11.1-linux-x64/* /usr/local/")
 				if result.Error != nil || result.ExitCode != 0 {
 					return formatSSHError("failed to install Node.js to /usr/local", result)
 				}
 
-				// Create symlinks
 				e.ssh.ExecuteSudo("ln -sf /usr/local/bin/node /usr/bin/node")
 				e.ssh.ExecuteSudo("ln -sf /usr/local/bin/npm /usr/bin/npm")
 				e.ssh.ExecuteSudo("ln -sf /usr/local/bin/npx /usr/bin/npx")
 
-				// Cleanup
 				e.ssh.ExecuteSudo("rm -rf /tmp/node-v20.11.1-linux-x64 /tmp/node.tar.xz")
 
-				// Verify Node.js version and location
 				result = e.ssh.Execute("/usr/bin/node --version")
 				nodeVersion := strings.TrimSpace(result.Stdout)
 				if e.outputCallback != nil {
 					e.outputCallback(fmt.Sprintf("  Node.js installed: %s at /usr/bin/node", nodeVersion))
 				}
 
-				// Ensure it's actually modern Node (v14+, should be v20)
 				if !strings.HasPrefix(nodeVersion, "v1") && !strings.HasPrefix(nodeVersion, "v2") {
-					return fmt.Errorf("failed to install modern Node.js, got version: %s - NodeSource repo may not be configured correctly", nodeVersion)
+					return fmt.Errorf("failed to install modern Node.js, got version: %s", nodeVersion)
 				}
 			}
 
-			// Install package manager if not npm (npm comes with Node.js)
 			if pm, ok := e.detection.Meta["package_manager"]; ok && pm != "npm" {
 				switch pm {
 				case "bun":
-					// Install bun for deploy user
 					result = e.ssh.Execute("curl -fsSL https://bun.sh/install | bash")
 					e.sendOutput(result.Stdout, 3)
 					if result.Error != nil || result.ExitCode != 0 {
@@ -282,7 +267,6 @@ func (e *Executor) InstallBasePackages() error {
 				return formatSSHError("failed to install Python", result)
 			}
 
-			// Install Python package manager if not pip (pip comes with python3)
 			if pm, ok := e.detection.Meta["package_manager"]; ok && pm != "pip" {
 				switch pm {
 				case "poetry":
@@ -492,8 +476,31 @@ func (e *Executor) BuildRelease(releasePath string) error {
 	return e.BuildReleaseWithEnv(releasePath, nil)
 }
 
+// getBuildPlan returns custom build commands if set, otherwise detection defaults
+func (e *Executor) getBuildPlan() []string {
+	if e.deployOptions != nil && len(e.deployOptions.BuildCommands) > 0 {
+		return e.deployOptions.BuildCommands
+	}
+	if e.detection != nil {
+		return e.detection.BuildPlan
+	}
+	return nil
+}
+
+// getRunPlan returns custom run commands if set, otherwise detection defaults
+func (e *Executor) getRunPlan() []string {
+	if e.deployOptions != nil && len(e.deployOptions.RunCommands) > 0 {
+		return e.deployOptions.RunCommands
+	}
+	if e.detection != nil {
+		return e.detection.RunPlan
+	}
+	return nil
+}
+
 func (e *Executor) BuildReleaseWithEnv(releasePath string, envVars map[string]string) error {
-	if e.detection == nil || len(e.detection.BuildPlan) == 0 {
+	buildPlan := e.getBuildPlan()
+	if len(buildPlan) == 0 {
 		return nil
 	}
 
@@ -525,15 +532,16 @@ func (e *Executor) BuildReleaseWithEnv(releasePath string, envVars map[string]st
 		e.ssh.ExecuteSudo(fmt.Sprintf("chown deploy:deploy %s", envPath))
 	}
 
-	if e.detection.Language == "Python" {
+	if e.detection != nil && e.detection.Language == "Python" {
 		venvPath := fmt.Sprintf("/srv/%s/shared/venv", e.appName)
 		result := e.ssh.ExecuteSudo(fmt.Sprintf("python3 -m venv %s", venvPath))
 		if result.Error != nil || result.ExitCode != 0 {
 			return fmt.Errorf("failed to create venv: %s", result.Stderr)
 		}
+		e.ssh.ExecuteSudo(fmt.Sprintf("chown -R deploy:deploy %s", venvPath))
 	}
 
-	for _, cmd := range e.detection.BuildPlan {
+	for _, cmd := range buildPlan {
 		trimmed := strings.TrimSpace(cmd)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
@@ -541,30 +549,22 @@ func (e *Executor) BuildReleaseWithEnv(releasePath string, envVars map[string]st
 
 		buildCmd := e.adjustBuildCommand(cmd, releasePath)
 
-		// Build PATH with package manager locations
 		pathPrefix := e.getPackageManagerPath()
 		fullCmd := fmt.Sprintf("cd %s && %s%s", releasePath, pathPrefix, buildCmd)
 
-		// Run build commands as deploy user (not sudo), so PATH and package managers work correctly
 		result := e.ssh.Execute(fullCmd)
 		if result.Error != nil || result.ExitCode != 0 {
-			// Send full output before failing
 			e.sendOutput(result.Stdout, 15)
 			e.sendOutput(result.Stderr, 15)
 
-			// Combine stdout and stderr for error message
 			errorOutput := result.Stderr
 			if result.Stdout != "" {
 				errorOutput = result.Stdout + "\n" + result.Stderr
 			}
 
-			// Exit code 137 = killed by OOM (128 + SIGKILL 9)
-			// Exit code 143 = killed by SIGTERM (128 + 15)
-			// "Killed" in output also suggests OOM
 			if result.ExitCode == 137 || result.ExitCode == 143 || strings.Contains(errorOutput, "Killed") {
 				suggestions := "Suggestions:\n  - Increase server memory (upgrade droplet size)\n  - Add swap space to the server"
 
-				// Add package-manager specific suggestions
 				if strings.Contains(cmd, "bun") {
 					suggestions += "\n  - Use npm instead of bun (bun uses more memory during install)"
 				} else if strings.Contains(cmd, "poetry") || strings.Contains(cmd, "pip") {
@@ -577,11 +577,9 @@ func (e *Executor) BuildReleaseWithEnv(releasePath string, envVars map[string]st
 			return fmt.Errorf("build command failed '%s' (exit code %d): %s", cmd, result.ExitCode, errorOutput)
 		}
 
-		// Send successful output
 		e.sendOutput(result.Stdout, 5)
 	}
 
-	// Ensure ownership is set to deploy user (service runs as deploy)
 	result := e.ssh.ExecuteSudo(fmt.Sprintf("chown -R deploy:deploy %s", releasePath))
 	if result.Error != nil || result.ExitCode != 0 {
 		return fmt.Errorf("failed to set ownership to deploy: %s", result.Stderr)
@@ -660,9 +658,7 @@ func (e *Executor) getPackageManagerPath() string {
 		return ""
 	}
 
-	// For JavaScript/TypeScript, always prioritize /usr/bin for Node.js from NodeSource
 	if e.detection.Language == "JavaScript/TypeScript" {
-		// Set NODE explicitly to ensure bun uses the correct Node.js for postinstall scripts
 		basePath := "export PATH=\"/usr/bin:$PATH\" && export NODE=\"/usr/bin/node\" && hash -r && "
 
 		pm, ok := e.detection.Meta["package_manager"]
@@ -672,20 +668,16 @@ func (e *Executor) getPackageManagerPath() string {
 
 		switch pm {
 		case "bun":
-			// Bun installs to ~/.bun/bin for the deploy user
 			return basePath + "export PATH=\"$HOME/.bun/bin:$PATH\" && "
 		case "pnpm":
-			// pnpm adds itself to ~/.local/share/pnpm
 			return basePath + "export PNPM_HOME=\"$HOME/.local/share/pnpm\" && export PATH=\"$PNPM_HOME:$PATH\" && "
 		case "yarn":
-			// yarn is installed globally via npm
 			return basePath
 		default:
 			return basePath
 		}
 	}
 
-	// For Python
 	pm, ok := e.detection.Meta["package_manager"]
 	if !ok {
 		return ""
@@ -693,7 +685,6 @@ func (e *Executor) getPackageManagerPath() string {
 
 	switch pm {
 	case "poetry", "uv", "pipenv":
-		// Python package managers install to ~/.local/bin
 		return "export PATH=\"$HOME/.local/bin:$PATH\" && "
 	default:
 		return ""
@@ -705,17 +696,14 @@ func (e *Executor) adjustBuildCommand(cmd string, _ string) string {
 		return cmd
 	}
 
-	// Check for package manager in metadata first (most reliable)
 	if pm, ok := e.detection.Meta["package_manager"]; ok {
 		switch pm {
 		case "bun":
 			if strings.Contains(cmd, "bun") {
-				// Install bun using official installer to /usr/local/bin
 				return "(command -v bun >/dev/null 2>&1 || (curl -fsSL https://bun.sh/install | bash && ln -sf ~/.bun/bin/bun /usr/local/bin/bun)) && " + cmd
 			}
 		case "pnpm":
 			if strings.Contains(cmd, "pnpm") {
-				// Install pnpm first using npm, then run the command
 				return "npm install -g pnpm && " + cmd
 			}
 		case "poetry":
@@ -733,7 +721,6 @@ func (e *Executor) adjustBuildCommand(cmd string, _ string) string {
 		}
 	}
 
-	// Fallback to language-based detection (backward compatibility)
 	switch e.detection.Language {
 	case "Python":
 		if strings.Contains(cmd, "pip install") {
@@ -780,20 +767,17 @@ func (e *Executor) WriteEnvironmentFile(envVars map[string]string) error {
 		envContent.WriteString(fmt.Sprintf("%s=%s\n", key, value))
 	}
 
-	// Write to temp location first (deploy user has permissions)
 	tmpEnvPath := "/tmp/lightfold.env"
 	if err := e.ssh.WriteRemoteFile(tmpEnvPath, envContent.String(), 0600); err != nil {
 		return fmt.Errorf("failed to write environment file: %w", err)
 	}
 
-	// Move to final location with sudo
 	finalEnvPath := fmt.Sprintf("/srv/%s/shared/env/.env", e.appName)
 	result := e.ssh.ExecuteSudo(fmt.Sprintf("mv %s %s", tmpEnvPath, finalEnvPath))
 	if result.Error != nil || result.ExitCode != 0 {
 		return fmt.Errorf("failed to move env file to final location: %s", result.Stderr)
 	}
 
-	// Set ownership to deploy user
 	result = e.ssh.ExecuteSudo(fmt.Sprintf("chown deploy:deploy %s", finalEnvPath))
 	if result.Error != nil || result.ExitCode != 0 {
 		return fmt.Errorf("failed to set env file ownership: %s", result.Stderr)
@@ -813,7 +797,6 @@ func (e *Executor) GetCurrentRelease() (string, error) {
 
 func (e *Executor) ListReleases() ([]string, error) {
 	releasesPath := fmt.Sprintf("/srv/%s/releases", e.appName)
-	// Use -t flag to sort by modification time (newest first)
 	result := e.ssh.Execute(fmt.Sprintf("ls -1t %s", releasesPath))
 	if result.Error != nil || result.ExitCode != 0 {
 		return []string{}, nil
@@ -838,7 +821,6 @@ func (e *Executor) CleanupOldReleases(keepCount int) error {
 		return nil
 	}
 
-	// ListReleases returns newest first, so keep the first N and delete the rest
 	toDelete := releases[keepCount:]
 
 	for _, release := range toDelete {
@@ -860,26 +842,22 @@ func (e *Executor) GenerateSystemdUnit(releasePath string) error {
 		"EXEC_START": execStart,
 	}
 
-	// Write to /tmp first (SCP can't write directly to /etc with sudo)
 	tmpPath := fmt.Sprintf("/tmp/%s.service", e.appName)
 	if err := e.ssh.RenderAndWriteTemplate(systemdTemplate, data, tmpPath, 0644); err != nil {
 		return fmt.Errorf("failed to write systemd unit to temp: %w", err)
 	}
 
-	// Move to final location with sudo
 	unitPath := fmt.Sprintf("/etc/systemd/system/%s.service", e.appName)
 	result := e.ssh.ExecuteSudo(fmt.Sprintf("mv %s %s", tmpPath, unitPath))
 	if result.Error != nil || result.ExitCode != 0 {
 		return fmt.Errorf("failed to move systemd unit to /etc: %s", result.Stderr)
 	}
 
-	// Set proper ownership
 	result = e.ssh.ExecuteSudo(fmt.Sprintf("chown root:root %s", unitPath))
 	if result.Error != nil || result.ExitCode != 0 {
 		return fmt.Errorf("failed to set systemd unit ownership: %s", result.Stderr)
 	}
 
-	// Reload systemd
 	result = e.ssh.ExecuteSudo("systemctl daemon-reload")
 	if result.Error != nil || result.ExitCode != 0 {
 		return fmt.Errorf("failed to reload systemd: %s", result.Stderr)
@@ -907,7 +885,6 @@ func adjustPackageManagerPath(runCommand, packageManager string) string {
 		return runCommand
 	}
 
-	// Only replace if command starts with package manager name
 	if strings.HasPrefix(runCommand, packageManager+" ") {
 		return strings.Replace(runCommand, packageManager+" ", fullPath+" ", 1)
 	}
@@ -916,24 +893,32 @@ func adjustPackageManagerPath(runCommand, packageManager string) string {
 }
 
 func (e *Executor) getExecStartCommand() string {
-	if e.detection == nil {
-		return "/usr/bin/true"
-	}
+	runPlan := e.getRunPlan()
+	if len(runPlan) > 0 {
+		runCommand := runPlan[0]
 
-	// Prefer RunPlan from detection - this respects the framework-specific plan
-	if len(e.detection.RunPlan) > 0 {
-		runCommand := e.detection.RunPlan[0]
-
-		// For JavaScript/TypeScript, adjust package manager paths
-		if e.detection.Language == "JavaScript/TypeScript" {
+		if e.detection != nil && e.detection.Language == "JavaScript/TypeScript" {
 			pm, _ := e.detection.Meta["package_manager"]
 			return adjustPackageManagerPath(runCommand, pm)
+		}
+
+		if e.detection != nil && e.detection.Language == "Python" {
+			venvBin := fmt.Sprintf("/srv/%s/shared/venv/bin", e.appName)
+			if strings.Contains(runCommand, "uvicorn ") {
+				return strings.Replace(runCommand, "uvicorn ", venvBin+"/uvicorn ", 1)
+			}
+			if strings.Contains(runCommand, "gunicorn ") {
+				return strings.Replace(runCommand, "gunicorn ", venvBin+"/gunicorn ", 1)
+			}
 		}
 
 		return runCommand
 	}
 
-	// Fallback to hardcoded commands if RunPlan is not available (should rarely happen)
+	if e.detection == nil {
+		return "/usr/bin/true"
+	}
+
 	framework := e.detection.Framework
 	language := e.detection.Language
 	appPath := fmt.Sprintf("/srv/%s", e.appName)
@@ -978,20 +963,17 @@ func (e *Executor) GenerateNginxConfig() error {
 		"APP_NAME": e.appName,
 	}
 
-	// Write to /tmp first (SCP can't write directly to /etc with sudo)
 	tmpPath := fmt.Sprintf("/tmp/nginx-%s.conf", e.appName)
 	if err := e.ssh.RenderAndWriteTemplate(nginxTemplate, data, tmpPath, 0644); err != nil {
 		return fmt.Errorf("failed to write nginx config to temp: %w", err)
 	}
 
-	// Move to final location with sudo
 	configPath := fmt.Sprintf("/etc/nginx/sites-available/%s", e.appName)
 	result := e.ssh.ExecuteSudo(fmt.Sprintf("mv %s %s", tmpPath, configPath))
 	if result.Error != nil || result.ExitCode != 0 {
 		return fmt.Errorf("failed to move nginx config to /etc: %s", result.Stderr)
 	}
 
-	// Create symlink to sites-enabled
 	symlinkCmd := fmt.Sprintf("ln -sf /etc/nginx/sites-available/%s /etc/nginx/sites-enabled/%s", e.appName, e.appName)
 	result = e.ssh.ExecuteSudo(symlinkCmd)
 	if result.Error != nil || result.ExitCode != 0 {

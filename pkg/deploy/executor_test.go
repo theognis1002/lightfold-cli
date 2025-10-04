@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"lightfold/pkg/config"
 	"lightfold/pkg/detector"
 	"os"
 	"path/filepath"
@@ -757,5 +758,275 @@ func TestRollbackReleasePath(t *testing.T) {
 	expected := "/srv/test-app/releases/20240115123045"
 	if releasePath != expected {
 		t.Errorf("Rollback release path = %v, want %v", releasePath, expected)
+	}
+}
+
+// --- Custom Build/Run Commands Tests ---
+
+func TestNewExecutorWithOptions(t *testing.T) {
+	detection := &detector.Detection{
+		Framework: "Next.js",
+		Language:  "JavaScript/TypeScript",
+		BuildPlan: []string{"npm install", "npm run build"},
+		RunPlan:   []string{"npm start"},
+	}
+
+	deployOptions := &config.DeploymentOptions{
+		BuildCommands: []string{"npm ci", "npm run custom-build"},
+		RunCommands:   []string{"node custom-server.js"},
+	}
+
+	exec := NewExecutorWithOptions(nil, "test-app", "/path/to/project", detection, deployOptions)
+
+	if exec.appName != "test-app" {
+		t.Errorf("appName = %v, want 'test-app'", exec.appName)
+	}
+	if exec.projectPath != "/path/to/project" {
+		t.Errorf("projectPath = %v, want '/path/to/project'", exec.projectPath)
+	}
+	if exec.deployOptions == nil {
+		t.Error("deployOptions should not be nil")
+	}
+	if len(exec.deployOptions.BuildCommands) != 2 {
+		t.Errorf("BuildCommands length = %v, want 2", len(exec.deployOptions.BuildCommands))
+	}
+}
+
+func TestGetBuildPlan_WithCustomCommands(t *testing.T) {
+	detection := &detector.Detection{
+		Framework: "Next.js",
+		Language:  "JavaScript/TypeScript",
+		BuildPlan: []string{"npm install", "npm run build"},
+	}
+
+	deployOptions := &config.DeploymentOptions{
+		BuildCommands: []string{"npm ci", "npm run custom-build"},
+	}
+
+	exec := NewExecutorWithOptions(nil, "test-app", "/path", detection, deployOptions)
+	buildPlan := exec.getBuildPlan()
+
+	if len(buildPlan) != 2 {
+		t.Errorf("getBuildPlan() length = %v, want 2", len(buildPlan))
+	}
+	if buildPlan[0] != "npm ci" {
+		t.Errorf("getBuildPlan()[0] = %v, want 'npm ci'", buildPlan[0])
+	}
+	if buildPlan[1] != "npm run custom-build" {
+		t.Errorf("getBuildPlan()[1] = %v, want 'npm run custom-build'", buildPlan[1])
+	}
+}
+
+func TestGetBuildPlan_WithoutCustomCommands(t *testing.T) {
+	detection := &detector.Detection{
+		Framework: "Next.js",
+		Language:  "JavaScript/TypeScript",
+		BuildPlan: []string{"npm install", "npm run build"},
+	}
+
+	// No custom commands
+	exec := NewExecutor(nil, "test-app", "/path", detection)
+	buildPlan := exec.getBuildPlan()
+
+	if len(buildPlan) != 2 {
+		t.Errorf("getBuildPlan() length = %v, want 2", len(buildPlan))
+	}
+	if buildPlan[0] != "npm install" {
+		t.Errorf("getBuildPlan()[0] = %v, want 'npm install'", buildPlan[0])
+	}
+	if buildPlan[1] != "npm run build" {
+		t.Errorf("getBuildPlan()[1] = %v, want 'npm run build'", buildPlan[1])
+	}
+}
+
+func TestGetBuildPlan_EmptyCustomCommands(t *testing.T) {
+	detection := &detector.Detection{
+		Framework: "Django",
+		Language:  "Python",
+		BuildPlan: []string{"pip install -r requirements.txt"},
+	}
+
+	deployOptions := &config.DeploymentOptions{
+		BuildCommands: []string{}, // Empty array
+	}
+
+	exec := NewExecutorWithOptions(nil, "test-app", "/path", detection, deployOptions)
+	buildPlan := exec.getBuildPlan()
+
+	// Empty custom commands should fall back to detection
+	if len(buildPlan) != 1 {
+		t.Errorf("getBuildPlan() with empty custom commands should use detection, got length %v", len(buildPlan))
+	}
+	if buildPlan[0] != "pip install -r requirements.txt" {
+		t.Errorf("getBuildPlan()[0] = %v, want detection default", buildPlan[0])
+	}
+}
+
+func TestGetRunPlan_WithCustomCommands(t *testing.T) {
+	detection := &detector.Detection{
+		Framework: "FastAPI",
+		Language:  "Python",
+		RunPlan:   []string{"uvicorn main:app --host 0.0.0.0 --port 8000"},
+	}
+
+	deployOptions := &config.DeploymentOptions{
+		RunCommands: []string{"gunicorn main:app -w 4 --bind 0.0.0.0:8000"},
+	}
+
+	exec := NewExecutorWithOptions(nil, "test-app", "/path", detection, deployOptions)
+	runPlan := exec.getRunPlan()
+
+	if len(runPlan) != 1 {
+		t.Errorf("getRunPlan() length = %v, want 1", len(runPlan))
+	}
+	if runPlan[0] != "gunicorn main:app -w 4 --bind 0.0.0.0:8000" {
+		t.Errorf("getRunPlan()[0] = %v, want custom command", runPlan[0])
+	}
+}
+
+func TestGetRunPlan_WithoutCustomCommands(t *testing.T) {
+	detection := &detector.Detection{
+		Framework: "Express.js",
+		Language:  "JavaScript/TypeScript",
+		RunPlan:   []string{"node server.js"},
+	}
+
+	exec := NewExecutor(nil, "test-app", "/path", detection)
+	runPlan := exec.getRunPlan()
+
+	if len(runPlan) != 1 {
+		t.Errorf("getRunPlan() length = %v, want 1", len(runPlan))
+	}
+	if runPlan[0] != "node server.js" {
+		t.Errorf("getRunPlan()[0] = %v, want 'node server.js'", runPlan[0])
+	}
+}
+
+func TestGetRunPlan_NoDetectionNoOptions(t *testing.T) {
+	exec := NewExecutor(nil, "test-app", "/path", nil)
+	runPlan := exec.getRunPlan()
+
+	if runPlan != nil {
+		t.Errorf("getRunPlan() with nil detection and no options should return nil, got %v", runPlan)
+	}
+}
+
+func TestGetExecStartCommand_WithCustomRunCommands(t *testing.T) {
+	detection := &detector.Detection{
+		Framework: "Next.js",
+		Language:  "JavaScript/TypeScript",
+		RunPlan:   []string{"npm start"},
+		Meta:      map[string]string{"package_manager": "npm"},
+	}
+
+	deployOptions := &config.DeploymentOptions{
+		RunCommands: []string{"node dist/server.js"},
+	}
+
+	exec := NewExecutorWithOptions(nil, "test-app", "/path", detection, deployOptions)
+	cmd := exec.getExecStartCommand()
+
+	// Should use custom run command
+	if cmd != "node dist/server.js" {
+		t.Errorf("getExecStartCommand() with custom run commands = %v, want 'node dist/server.js'", cmd)
+	}
+}
+
+func TestGetExecStartCommand_FallbackToDetection(t *testing.T) {
+	detection := &detector.Detection{
+		Framework: "Flask",
+		Language:  "Python",
+		RunPlan:   []string{"flask run"},
+	}
+
+	// No custom commands - should fall back to detection RunPlan
+	exec := NewExecutor(nil, "test-app", "/path", detection)
+	cmd := exec.getExecStartCommand()
+
+	if cmd != "flask run" {
+		t.Errorf("getExecStartCommand() fallback = %v, want 'flask run'", cmd)
+	}
+}
+
+func TestGetBuildPlan_MultipleCustomCommands(t *testing.T) {
+	detection := &detector.Detection{
+		Framework: "Next.js",
+		Language:  "JavaScript/TypeScript",
+		BuildPlan: []string{"npm install"},
+	}
+
+	deployOptions := &config.DeploymentOptions{
+		BuildCommands: []string{
+			"npm ci",
+			"npm run lint",
+			"npm run test",
+			"npm run build",
+		},
+	}
+
+	exec := NewExecutorWithOptions(nil, "test-app", "/path", detection, deployOptions)
+	buildPlan := exec.getBuildPlan()
+
+	if len(buildPlan) != 4 {
+		t.Errorf("getBuildPlan() length = %v, want 4", len(buildPlan))
+	}
+
+	expected := []string{"npm ci", "npm run lint", "npm run test", "npm run build"}
+	for i, cmd := range buildPlan {
+		if cmd != expected[i] {
+			t.Errorf("getBuildPlan()[%d] = %v, want %v", i, cmd, expected[i])
+		}
+	}
+}
+
+func TestGetRunPlan_MultipleCustomCommands(t *testing.T) {
+	detection := &detector.Detection{
+		Framework: "Custom",
+		Language:  "Go",
+		RunPlan:   []string{"./app"},
+	}
+
+	deployOptions := &config.DeploymentOptions{
+		RunCommands: []string{
+			"./migrate.sh",
+			"./seed.sh",
+			"./app --port 8000",
+		},
+	}
+
+	exec := NewExecutorWithOptions(nil, "test-app", "/path", detection, deployOptions)
+	runPlan := exec.getRunPlan()
+
+	if len(runPlan) != 3 {
+		t.Errorf("getRunPlan() length = %v, want 3", len(runPlan))
+	}
+
+	expected := []string{"./migrate.sh", "./seed.sh", "./app --port 8000"}
+	for i, cmd := range runPlan {
+		if cmd != expected[i] {
+			t.Errorf("getRunPlan()[%d] = %v, want %v", i, cmd, expected[i])
+		}
+	}
+}
+
+func TestGetExecStartCommand_UsesFirstRunCommand(t *testing.T) {
+	detection := &detector.Detection{
+		Framework: "Custom",
+		Language:  "Go",
+	}
+
+	deployOptions := &config.DeploymentOptions{
+		RunCommands: []string{
+			"./migrate.sh",
+			"./app --port 8000",
+		},
+	}
+
+	exec := NewExecutorWithOptions(nil, "test-app", "/path", detection, deployOptions)
+	cmd := exec.getExecStartCommand()
+
+	// Should use the first run command
+	if cmd != "./migrate.sh" {
+		t.Errorf("getExecStartCommand() = %v, want first run command './migrate.sh'", cmd)
 	}
 }

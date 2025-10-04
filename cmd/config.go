@@ -3,7 +3,9 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"lightfold/cmd/ui/deployment"
 	"lightfold/pkg/config"
+	"lightfold/pkg/detector"
 	"os"
 	"strings"
 	"syscall"
@@ -269,6 +271,79 @@ Old releases beyond this count will be automatically deleted after each deployme
 	},
 }
 
+var configEditDeploymentCmd = &cobra.Command{
+	Use:   "edit-deployment --target <name>",
+	Short: "Edit build and run commands for a deployment target",
+	Long: `Interactively edit the build and run commands for a deployment target.
+
+This allows you to customize the deployment plan detected by the framework detector.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		targetName := cmd.Flag("target").Value.String()
+		if targetName == "" {
+			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render("Error: --target flag is required"))
+			os.Exit(1)
+		}
+
+		cfg, err := config.LoadConfig()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Error loading config: %v", err)))
+			os.Exit(1)
+		}
+
+		target, exists := cfg.GetTarget(targetName)
+		if !exists {
+			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Target '%s' not found", targetName)))
+			fmt.Println("\nAvailable targets:")
+			for name := range cfg.Targets {
+				fmt.Printf("  • %s\n", name)
+			}
+			os.Exit(1)
+		}
+
+		// Load detection to get defaults
+		detection := detector.DetectFramework(target.ProjectPath)
+
+		// Get current custom commands or use detection defaults
+		buildCmds := detection.BuildPlan
+		runCmds := detection.RunPlan
+		if target.Deploy != nil {
+			if len(target.Deploy.BuildCommands) > 0 {
+				buildCmds = target.Deploy.BuildCommands
+			}
+			if len(target.Deploy.RunCommands) > 0 {
+				runCmds = target.Deploy.RunCommands
+			}
+		}
+
+		// Show deployment editor
+		wantsDeploy, newBuildCmds, newRunCmds, err := deployment.ShowDeploymentEditor(detection, buildCmds, runCmds)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Error: %v", err)))
+			os.Exit(1)
+		}
+
+		if !wantsDeploy {
+			fmt.Println("Changes cancelled.")
+			return
+		}
+
+		// Update target config
+		if target.Deploy == nil {
+			target.Deploy = &config.DeploymentOptions{}
+		}
+		target.Deploy.BuildCommands = newBuildCmds
+		target.Deploy.RunCommands = newRunCmds
+
+		cfg.SetTarget(targetName, target)
+		if err := cfg.SaveConfig(); err != nil {
+			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Error saving config: %v", err)))
+			os.Exit(1)
+		}
+
+		fmt.Printf("%s\n", configSuccessStyle.Render(fmt.Sprintf("✓ Deployment configuration updated for target '%s'", targetName)))
+	},
+}
+
 func init() {
 	rootCmd.AddCommand(configCmd)
 
@@ -277,4 +352,8 @@ func init() {
 	configCmd.AddCommand(configGetTokenCmd)
 	configCmd.AddCommand(configDeleteTokenCmd)
 	configCmd.AddCommand(configSetKeepReleasesCmd)
+	configCmd.AddCommand(configEditDeploymentCmd)
+
+	configEditDeploymentCmd.Flags().String("target", "", "Target name to edit")
+	configEditDeploymentCmd.MarkFlagRequired("target")
 }

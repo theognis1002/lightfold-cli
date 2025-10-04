@@ -151,7 +151,14 @@ Examples:
 		}
 
 		projectName := util.GetTargetName(projectPath)
-		executor := deploy.NewExecutor(sshExecutor, projectName, projectPath, &detection)
+
+		// Use custom deployment options if available
+		var executor *deploy.Executor
+		if target.Deploy != nil && (len(target.Deploy.BuildCommands) > 0 || len(target.Deploy.RunCommands) > 0) {
+			executor = deploy.NewExecutorWithOptions(sshExecutor, projectName, projectPath, &detection, target.Deploy)
+		} else {
+			executor = deploy.NewExecutor(sshExecutor, projectName, projectPath, &detection)
+		}
 
 		tmpTarball := fmt.Sprintf("/tmp/lightfold-%s-release.tar.gz", projectName)
 		if err := executor.CreateReleaseTarball(tmpTarball); err != nil {

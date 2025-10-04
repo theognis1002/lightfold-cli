@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -430,5 +431,214 @@ func TestMultipleProviders(t *testing.T) {
 	}
 	if _, exists := loadedCfg.Targets["hetzner-app"]; !exists {
 		t.Error("Expected hetzner-app to still exist")
+	}
+}
+
+func TestDeploymentOptionsWithCustomCommands(t *testing.T) {
+	_, cleanup := setupTestConfigDir(t)
+	defer cleanup()
+
+	cfg, _ := LoadConfig()
+
+	// Create target with custom build/run commands
+	target := TargetConfig{
+		ProjectPath: "/path/to/project",
+		Framework:   "Next.js",
+		Provider:    "digitalocean",
+		Deploy: &DeploymentOptions{
+			BuildCommands: []string{
+				"npm install",
+				"npm run custom-build",
+			},
+			RunCommands: []string{
+				"npm run custom-start",
+			},
+			EnvVars: map[string]string{
+				"NODE_ENV": "production",
+			},
+		},
+	}
+
+	cfg.SetTarget("myapp", target)
+	if err := cfg.SaveConfig(); err != nil {
+		t.Fatalf("Failed to save config: %v", err)
+	}
+
+	// Load and verify
+	loadedCfg, err := LoadConfig()
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	loadedTarget, exists := loadedCfg.Targets["myapp"]
+	if !exists {
+		t.Fatal("Expected target to exist")
+	}
+
+	if loadedTarget.Deploy == nil {
+		t.Fatal("Expected Deploy options to exist")
+	}
+
+	// Verify build commands
+	if len(loadedTarget.Deploy.BuildCommands) != 2 {
+		t.Errorf("Expected 2 build commands, got %d", len(loadedTarget.Deploy.BuildCommands))
+	}
+	if loadedTarget.Deploy.BuildCommands[0] != "npm install" {
+		t.Errorf("Expected first build command 'npm install', got '%s'", loadedTarget.Deploy.BuildCommands[0])
+	}
+	if loadedTarget.Deploy.BuildCommands[1] != "npm run custom-build" {
+		t.Errorf("Expected second build command 'npm run custom-build', got '%s'", loadedTarget.Deploy.BuildCommands[1])
+	}
+
+	// Verify run commands
+	if len(loadedTarget.Deploy.RunCommands) != 1 {
+		t.Errorf("Expected 1 run command, got %d", len(loadedTarget.Deploy.RunCommands))
+	}
+	if loadedTarget.Deploy.RunCommands[0] != "npm run custom-start" {
+		t.Errorf("Expected run command 'npm run custom-start', got '%s'", loadedTarget.Deploy.RunCommands[0])
+	}
+
+	// Verify env vars
+	if loadedTarget.Deploy.EnvVars["NODE_ENV"] != "production" {
+		t.Errorf("Expected NODE_ENV 'production', got '%s'", loadedTarget.Deploy.EnvVars["NODE_ENV"])
+	}
+}
+
+func TestDeploymentOptionsEmptyCommands(t *testing.T) {
+	_, cleanup := setupTestConfigDir(t)
+	defer cleanup()
+
+	cfg, _ := LoadConfig()
+
+	// Create target with nil custom commands (should use detection defaults)
+	target := TargetConfig{
+		ProjectPath: "/path/to/project",
+		Framework:   "Django",
+		Provider:    "digitalocean",
+		Deploy: &DeploymentOptions{
+			EnvVars: map[string]string{
+				"DEBUG": "false",
+			},
+		},
+	}
+
+	cfg.SetTarget("django-app", target)
+	cfg.SaveConfig()
+
+	// Load and verify
+	loadedCfg, _ := LoadConfig()
+	loadedTarget := loadedCfg.Targets["django-app"]
+
+	if loadedTarget.Deploy == nil {
+		t.Fatal("Expected Deploy options to exist")
+	}
+
+	// Empty arrays should remain empty (not nil)
+	if loadedTarget.Deploy.BuildCommands == nil {
+		// This is actually OK - JSON omitempty means nil slices are omitted
+		// and loaded back as nil, which is fine for our logic
+	}
+	if loadedTarget.Deploy.RunCommands == nil {
+		// Same here - nil is OK
+	}
+}
+
+func TestDeploymentOptionsUpdate(t *testing.T) {
+	_, cleanup := setupTestConfigDir(t)
+	defer cleanup()
+
+	cfg, _ := LoadConfig()
+
+	// Create target with initial commands
+	target := TargetConfig{
+		ProjectPath: "/path/to/project",
+		Framework:   "Next.js",
+		Provider:    "digitalocean",
+		Deploy: &DeploymentOptions{
+			BuildCommands: []string{"npm install"},
+			RunCommands:   []string{"npm start"},
+		},
+	}
+
+	cfg.SetTarget("myapp", target)
+	cfg.SaveConfig()
+
+	// Update commands
+	target.Deploy.BuildCommands = []string{
+		"npm ci",
+		"npm run build",
+	}
+	target.Deploy.RunCommands = []string{
+		"node server.js",
+	}
+
+	cfg.SetTarget("myapp", target)
+	cfg.SaveConfig()
+
+	// Verify update
+	loadedCfg, _ := LoadConfig()
+	loadedTarget := loadedCfg.Targets["myapp"]
+
+	if len(loadedTarget.Deploy.BuildCommands) != 2 {
+		t.Errorf("Expected 2 build commands after update, got %d", len(loadedTarget.Deploy.BuildCommands))
+	}
+	if loadedTarget.Deploy.BuildCommands[0] != "npm ci" {
+		t.Errorf("Expected 'npm ci', got '%s'", loadedTarget.Deploy.BuildCommands[0])
+	}
+	if loadedTarget.Deploy.RunCommands[0] != "node server.js" {
+		t.Errorf("Expected 'node server.js', got '%s'", loadedTarget.Deploy.RunCommands[0])
+	}
+}
+
+func TestDeploymentOptionsPersistence(t *testing.T) {
+	testHome, cleanup := setupTestConfigDir(t)
+	defer cleanup()
+
+	cfg, _ := LoadConfig()
+
+	// Create target with complex deployment config
+	target := TargetConfig{
+		ProjectPath: "/path/to/project",
+		Framework:   "FastAPI",
+		Provider:    "hetzner",
+		Deploy: &DeploymentOptions{
+			SkipBuild: false,
+			BuildCommands: []string{
+				"pip install -r requirements.txt",
+				"python manage.py collectstatic --noinput",
+			},
+			RunCommands: []string{
+				"uvicorn main:app --host 0.0.0.0 --port 8000",
+			},
+			EnvVars: map[string]string{
+				"ENVIRONMENT": "production",
+				"LOG_LEVEL":   "info",
+			},
+		},
+	}
+
+	cfg.SetTarget("api", target)
+	cfg.SaveConfig()
+
+	// Verify file contents
+	configPath := filepath.Join(testHome, ".lightfold", "config.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("Failed to read config file: %v", err)
+	}
+
+	// Check that custom commands are in the file
+	configStr := string(data)
+	if !strings.Contains(configStr, "build_commands") {
+		t.Error("Expected 'build_commands' in config file")
+	}
+	if !strings.Contains(configStr, "run_commands") {
+		t.Error("Expected 'run_commands' in config file")
+	}
+	if !strings.Contains(configStr, "pip install -r requirements.txt") {
+		t.Error("Expected build command in config file")
+	}
+	if !strings.Contains(configStr, "uvicorn main:app") {
+		t.Error("Expected run command in config file")
 	}
 }

@@ -210,6 +210,10 @@ func (m progressModel) View() string {
 		descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 
 		for _, step := range m.stepHistory {
+			if !m.completed && step.status == "success" {
+				continue
+			}
+
 			var icon string
 			var style lipgloss.Style
 			switch step.status {

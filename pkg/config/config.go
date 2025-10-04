@@ -65,10 +65,12 @@ func (s *S3Config) IsProvisioned() bool  { return false }
 
 // DeploymentOptions contains framework-agnostic deployment settings
 type DeploymentOptions struct {
-	SkipBuild    bool              `json:"skip_build,omitempty"`
-	EnvVars      map[string]string `json:"env_vars,omitempty"`
-	BuildCommand string            `json:"build_command,omitempty"`
-	RunCommand   string            `json:"run_command,omitempty"`
+	SkipBuild     bool              `json:"skip_build,omitempty"`
+	EnvVars       map[string]string `json:"env_vars,omitempty"`
+	BuildCommand  string            `json:"build_command,omitempty"`
+	RunCommand    string            `json:"run_command,omitempty"`
+	BuildCommands []string          `json:"build_commands,omitempty"`
+	RunCommands   []string          `json:"run_commands,omitempty"`
 }
 
 // TargetConfig contains the complete target deployment configuration
@@ -207,7 +209,6 @@ func LoadConfig() (*Config, error) {
 		config.Targets = make(map[string]TargetConfig)
 	}
 
-	// Set default for KeepReleases if not configured
 	if config.KeepReleases == 0 {
 		config.KeepReleases = 5
 	}
@@ -218,7 +219,6 @@ func LoadConfig() (*Config, error) {
 func (c *Config) SaveConfig() error {
 	configPath := GetConfigPath()
 
-	// Ensure config directory exists
 	dir := filepath.Dir(configPath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create config directory: %w", err)
@@ -251,7 +251,7 @@ func (c *Config) SetTarget(targetName string, target TargetConfig) error {
 // DeleteTarget removes a target configuration and saves the config
 func (c *Config) DeleteTarget(targetName string) error {
 	if _, exists := c.Targets[targetName]; !exists {
-		return nil // Already deleted, no error
+		return nil
 	}
 
 	delete(c.Targets, targetName)

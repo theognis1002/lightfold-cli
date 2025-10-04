@@ -352,19 +352,17 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		return nil, fmt.Errorf("failed to connect to SSH server: %w", err)
 	}
 
-	// Check if server is already configured
 	markerCheck := sshExecutor.Execute("test -f /etc/lightfold/configured && echo 'configured'")
 	isConfigured := markerCheck.ExitCode == 0 && strings.TrimSpace(markerCheck.Stdout) == "configured"
 
 	executor := NewExecutor(sshExecutor, o.projectName, o.projectPath, &detection)
 
-	// Set up output callback to show command output as progress
 	executor.SetOutputCallback(func(line string) {
 		if o.progressCallback != nil {
 			o.progressCallback(DeploymentStep{
 				Name:        "command_output",
 				Description: line,
-				Progress:    -1, // -1 indicates this is output, not a progress step
+				Progress:    -1,
 			})
 		}
 	})
@@ -375,16 +373,14 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		Progress:    15,
 	})
 
-	// Wait for apt locks regardless of configured status
 	if err := executor.WaitForAptLock(30, 10*time.Second); err != nil {
 		return nil, fmt.Errorf("failed to acquire apt lock: %w", err)
 	}
 
-	// Only run full initial setup if not already configured
 	if !isConfigured {
 		o.notifyProgress(DeploymentStep{
 			Name:        "install_packages",
-			Description: "Installing system packages and runtimes...",
+			Description: "Installing web server, system packages, and runtimes...",
 			Progress:    20,
 		})
 
@@ -402,7 +398,6 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 			return nil, fmt.Errorf("failed to setup directories: %w", err)
 		}
 	} else {
-		// Server configured, but ensure runtimes are up to date
 		o.notifyProgress(DeploymentStep{
 			Name:        "verify_runtimes",
 			Description: "Verifying runtime versions...",
@@ -443,7 +438,6 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		return nil, fmt.Errorf("failed to upload release: %w", err)
 	}
 
-	// Get env vars first (needed for build-time vars like NEXT_PUBLIC_*)
 	envVars := make(map[string]string)
 	if o.config.Deploy != nil && o.config.Deploy.EnvVars != nil {
 		envVars = o.config.Deploy.EnvVars
@@ -457,7 +451,6 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 			Progress:    60,
 		})
 
-		// Pass env vars to build (for NEXT_PUBLIC_*, etc.)
 		if err := executor.BuildReleaseWithEnv(releasePath, envVars); err != nil {
 			return nil, fmt.Errorf("failed to build release: %w", err)
 		}
@@ -469,7 +462,6 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		Progress:    65,
 	})
 
-	// Also write to shared location for runtime
 	if err := executor.WriteEnvironmentFile(envVars); err != nil {
 		return nil, fmt.Errorf("failed to write environment: %w", err)
 	}
@@ -522,11 +514,10 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		Progress:    95,
 	})
 
-	// Load config to get KeepReleases setting
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Printf("Warning: failed to load config for cleanup: %v\n", err)
-		cfg = &config.Config{KeepReleases: 5} // Fallback to default
+		cfg = &config.Config{KeepReleases: 5}
 	}
 
 	if err := executor.CleanupOldReleases(cfg.KeepReleases); err != nil {
@@ -539,7 +530,6 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		Progress:    100,
 	})
 
-	// Write configured marker to indicate server is fully configured (only on first configure)
 	if !isConfigured {
 		sshExecutor.Execute("sudo mkdir -p /etc/lightfold")
 		markerResult := sshExecutor.Execute("echo 'configured' | sudo tee /etc/lightfold/configured > /dev/null")
@@ -550,7 +540,6 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 			return nil, fmt.Errorf("failed to write configured marker: command exited with code %d, stderr: %s", markerResult.ExitCode, markerResult.Stderr)
 		}
 
-		// Trigger system updates in the background (will reboot in 5 minutes after completion)
 		o.notifyProgress(DeploymentStep{
 			Name:        "schedule_updates",
 			Description: "Scheduling system updates and reboot...",
