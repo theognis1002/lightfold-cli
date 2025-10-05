@@ -8,7 +8,7 @@ Framework detector and deployment tool for web applications with composable, ide
 - **Package Manager Detection**: npm, yarn, pnpm, bun, pip, poetry, uv, pipenv
 - **Composable Commands**: Run deployment steps independently or orchestrated together
 - **Idempotent Operations**: Safe to rerun commands - skips already-completed steps
-- **Multi-Provider Support**: DigitalOcean, Hetzner Cloud, S3, BYOS (Bring Your Own Server)
+- **Multi-Provider Support**: DigitalOcean, Vultr, Hetzner Cloud, S3, BYOS (Bring Your Own Server)
 - **State Tracking**: Remembers what's been done, skips unnecessary work
 - **Blue/Green Deployments**: Zero-downtime releases with automatic rollback
 
@@ -36,7 +36,7 @@ lightfold deploy ~/Projects/myapp
 ```
 
 On first run, you'll be prompted to:
-- Select a cloud provider (DigitalOcean, Hetzner Cloud, BYOS, etc.)
+- Select a cloud provider (DigitalOcean, Vultr, Hetzner Cloud, BYOS, etc.)
 - Provide credentials (API tokens, SSH keys)
 - Choose region and server size
 
@@ -107,6 +107,7 @@ Tokens stored securely in `~/.lightfold/tokens.json` (0600 permissions):
 {
   "tokens": {
     "digitalocean": "dop_v1_...",
+    "vultr": "...",
     "hetzner": "..."
   }
 }
@@ -149,11 +150,11 @@ Uses scoring system based on:
 
 ### Available
 - **DigitalOcean** - Full provisioning support
+- **Vultr** - Full provisioning support
 - **Hetzner Cloud** - Full provisioning support
 - **BYOS (Bring Your Own Server)** - Use any existing server
 
 ### Coming Soon
-- [ ] Vultr
 - [ ] Linode/Akamai
 - [ ] AWS EC2
 - [ ] Google Cloud Compute

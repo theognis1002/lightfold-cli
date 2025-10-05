@@ -281,6 +281,129 @@ func RunProvisionHetznerFlow(projectName string) (*config.HetznerConfig, error) 
 	}, nil
 }
 
+func CreateProvisionVultrFlow(projectName string, hasExistingToken bool) *FlowModel {
+	var steps []Step
+
+	if !hasExistingToken {
+		steps = append(steps, CreateVultrAPITokenStep("api_token"))
+	}
+
+	steps = append(steps,
+		CreateVultrRegionStep("region"),
+		CreateVultrPlanStep("plan"),
+	)
+
+	flow := NewFlow("Provision Vultr Instance", steps)
+	flow.SetProjectName(projectName)
+	return flow
+}
+
+func RunProvisionVultrFlow(projectName string) (*config.VultrConfig, error) {
+	tokens, err := config.LoadTokens()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load tokens: %w", err)
+	}
+
+	existingToken := tokens.GetToken("vultr")
+	hasExistingToken := existingToken != ""
+
+	var activeToken string
+
+	// If no existing token, collect it first
+	if !hasExistingToken {
+		tokenFlow := NewFlow("Configure Vultr", []Step{
+			CreateVultrAPITokenStep("api_token"),
+		})
+		tokenFlow.SetProjectName(projectName)
+
+		p := tea.NewProgram(tokenFlow)
+		tokenModel, err := p.Run()
+		if err != nil {
+			return nil, err
+		}
+
+		tokenFinal := tokenModel.(FlowModel)
+		if tokenFinal.Cancelled {
+			return nil, fmt.Errorf("provisioning cancelled")
+		}
+
+		tokenResults := tokenFinal.GetResults()
+		activeToken = tokenResults["api_token"]
+
+		// Save the token immediately
+		tokens.SetToken("vultr", activeToken)
+		if err := tokens.SaveTokens(); err != nil {
+			return nil, fmt.Errorf("failed to save API token: %w", err)
+		}
+	} else {
+		activeToken = existingToken
+	}
+
+	// Now create the provision flow with dynamic data using the token
+	dynamicSteps := []Step{
+		CreateVultrRegionStepDynamic("region", activeToken),
+		CreateVultrPlanStepDynamic("plan", activeToken, ""),
+	}
+
+	flow := NewFlow("Provision Vultr Instance", dynamicSteps)
+	flow.SetProjectName(projectName)
+
+	p := tea.NewProgram(flow)
+	finalModel, err := p.Run()
+	if err != nil {
+		return nil, err
+	}
+
+	final := finalModel.(FlowModel)
+	if final.Cancelled {
+		return nil, fmt.Errorf("provisioning cancelled")
+	}
+
+	if !final.Completed {
+		return nil, fmt.Errorf("provisioning not completed")
+	}
+
+	results := final.GetResults()
+
+	keyName := ssh.GetKeyName(projectName)
+
+	exists, err := ssh.KeyExists(keyName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check SSH key existence: %w", err)
+	}
+
+	var keyPath string
+	if !exists {
+		keyPair, err := ssh.GenerateKeyPair(keyName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate SSH key pair: %w", err)
+		}
+		keyPath = keyPair.PrivateKeyPath
+	} else {
+		keysDir, err := ssh.GetKeysDirectory()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get keys directory: %w", err)
+		}
+		keyPath = filepath.Join(keysDir, keyName)
+	}
+
+	planStr := results["plan"]
+	planID := planStr
+	if idx := strings.Index(planStr, " ("); idx > 0 {
+		planID = planStr[:idx]
+	}
+
+	return &config.VultrConfig{
+		IP:          "",
+		Username:    "deploy",
+		SSHKey:      keyPath,
+		SSHKeyName:  keyName,
+		Region:      results["region"],
+		Plan:        planID,
+		Provisioned: true,
+	}, nil
+}
+
 func RunS3Flow() (*config.S3Config, error) {
 	flow := CreateS3Flow()
 

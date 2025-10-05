@@ -50,6 +50,23 @@ func (h *HetznerConfig) GetUsername() string  { return h.Username }
 func (h *HetznerConfig) GetSSHKey() string    { return h.SSHKey }
 func (h *HetznerConfig) IsProvisioned() bool  { return h.Provisioned }
 
+// VultrConfig contains Vultr-specific deployment configuration
+type VultrConfig struct {
+	InstanceID  string `json:"instance_id,omitempty"` // For provisioned instances
+	IP          string `json:"ip"`
+	SSHKey      string `json:"ssh_key"`
+	SSHKeyName  string `json:"ssh_key_name,omitempty"`
+	Username    string `json:"username"`
+	Region      string `json:"region,omitempty"`
+	Plan        string `json:"plan,omitempty"`       // Vultr uses "plan" instead of "size"
+	Provisioned bool   `json:"provisioned,omitempty"`
+}
+
+func (v *VultrConfig) GetIP() string        { return v.IP }
+func (v *VultrConfig) GetUsername() string  { return v.Username }
+func (v *VultrConfig) GetSSHKey() string    { return v.SSHKey }
+func (v *VultrConfig) IsProvisioned() bool  { return v.Provisioned }
+
 // S3Config contains S3-specific deployment configuration
 type S3Config struct {
 	Bucket    string `json:"bucket"`
@@ -138,6 +155,15 @@ func (t *TargetConfig) GetS3Config() (*S3Config, error) {
 	return &config, nil
 }
 
+// GetVultrConfig is a convenience method to get Vultr configuration
+func (t *TargetConfig) GetVultrConfig() (*VultrConfig, error) {
+	var config VultrConfig
+	if err := t.GetProviderConfig("vultr", &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
 // GetSSHProviderConfig returns the appropriate ProviderConfig for SSH-based providers
 // This eliminates the need for repetitive switch statements throughout the codebase
 func (t *TargetConfig) GetSSHProviderConfig() (ProviderConfig, error) {
@@ -146,6 +172,8 @@ func (t *TargetConfig) GetSSHProviderConfig() (ProviderConfig, error) {
 		return t.GetDigitalOceanConfig()
 	case "hetzner":
 		return t.GetHetznerConfig()
+	case "vultr":
+		return t.GetVultrConfig()
 	case "s3":
 		return nil, fmt.Errorf("S3 is not an SSH-based provider")
 	default:
@@ -160,6 +188,8 @@ func (t *TargetConfig) GetAnyProviderConfig() (ProviderConfig, error) {
 		return t.GetDigitalOceanConfig()
 	case "hetzner":
 		return t.GetHetznerConfig()
+	case "vultr":
+		return t.GetVultrConfig()
 	case "s3":
 		return t.GetS3Config()
 	default:

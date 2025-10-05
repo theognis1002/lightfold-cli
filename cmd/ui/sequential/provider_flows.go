@@ -13,13 +13,15 @@ func CreateProviderSelectionStep(id string) Step {
 		Type(StepTypeSelect).
 		Options(
 			"digitalocean",
-			"byos",
+			"vultr",
 			"hetzner",
+			"byos",
 		).
 		OptionDescriptions(
 			"Auto-provision servers on DigitalOcean",
-			"Use an existing server with SSH access",
+			"Auto-provision servers on Vultr",
 			"Auto-provision servers on Hetzner Cloud",
+			"Use an existing server with SSH access",
 		).
 		Required().
 		Build()
@@ -72,6 +74,13 @@ func RunProviderSelectionWithConfigFlow(projectName string) (provider string, cf
 			return "", nil, fmt.Errorf("Hetzner Cloud configuration failed: %w", err)
 		}
 		return "hetzner", hetznerConfig, nil
+
+	case "vultr":
+		vultrConfig, err := RunProvisionVultrFlow(projectName)
+		if err != nil {
+			return "", nil, fmt.Errorf("Vultr configuration failed: %w", err)
+		}
+		return "vultr", vultrConfig, nil
 
 	default:
 		return "", nil, fmt.Errorf("unsupported provider: %s", selectedProvider)

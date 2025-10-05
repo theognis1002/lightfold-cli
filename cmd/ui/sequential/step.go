@@ -572,3 +572,140 @@ func (m *FlowModel) UpdateStepWithDynamicSizes(stepID string, provider providers
 
 	return nil
 }
+
+// Vultr Steps
+
+// CreateVultrAPITokenStep creates API token input step
+func CreateVultrAPITokenStep(id string) Step {
+	return NewStep(id, "Vultr API Token").
+		Type(StepTypePassword).
+		Placeholder("Enter your Vultr API token").
+		Required().
+		Validate(ValidateRequired).
+		Build()
+}
+
+// CreateVultrRegionStep creates static region selection (fallback)
+func CreateVultrRegionStep(id string) Step {
+	// Common Vultr regions as fallback
+	regions := []string{"ewr", "ord", "dfw", "sea", "lax", "atl", "ams", "lhr", "fra", "sjc", "syd", "nrt", "sgp"}
+	regionDescs := []string{
+		"New York (EWR)",
+		"Chicago (ORD)",
+		"Dallas (DFW)",
+		"Seattle (SEA)",
+		"Los Angeles (LAX)",
+		"Atlanta (ATL)",
+		"Amsterdam (AMS)",
+		"London (LHR)",
+		"Frankfurt (FRA)",
+		"Silicon Valley (SJC)",
+		"Sydney (SYD)",
+		"Tokyo (NRT)",
+		"Singapore (SGP)",
+	}
+
+	return NewStep(id, "Vultr Region").
+		Type(StepTypeSelect).
+		DefaultValue("ewr").
+		Options(regions...).
+		OptionDescriptions(regionDescs...).
+		Required().
+		Build()
+}
+
+// CreateVultrPlanStep creates static plan selection (fallback)
+func CreateVultrPlanStep(id string) Step {
+	// Common Vultr plans as fallback
+	plans := []string{"vc2-1c-1gb", "vc2-1c-2gb", "vc2-2c-4gb", "vc2-4c-8gb", "vc2-6c-16gb"}
+	planDescs := []string{
+		"1 vCPU, 1 GB RAM, 25 GB SSD",
+		"1 vCPU, 2 GB RAM, 55 GB SSD",
+		"2 vCPUs, 4 GB RAM, 80 GB SSD",
+		"4 vCPUs, 8 GB RAM, 160 GB SSD",
+		"6 vCPUs, 16 GB RAM, 320 GB SSD",
+	}
+
+	return NewStep(id, "Instance Plan").
+		Type(StepTypeSelect).
+		DefaultValue("vc2-1c-1gb").
+		Options(plans...).
+		OptionDescriptions(planDescs...).
+		Required().
+		Build()
+}
+
+// CreateVultrRegionStepDynamic creates region step with dynamic API data
+func CreateVultrRegionStepDynamic(id, token string) Step {
+	ctx := context.Background()
+	provider, err := providers.GetProvider("vultr", token)
+	if err != nil {
+		return CreateVultrRegionStep(id) // Fallback to static
+	}
+
+	regions, err := provider.GetRegions(ctx)
+	if err != nil {
+		return CreateVultrRegionStep(id) // Fallback to static
+	}
+
+	if len(regions) == 0 {
+		return CreateVultrRegionStep(id) // Fallback to static
+	}
+
+	var regionIDs []string
+	var regionDescs []string
+	for _, region := range regions {
+		regionIDs = append(regionIDs, region.ID)
+		regionDescs = append(regionDescs, region.Location)
+	}
+
+	return NewStep(id, "Vultr Region").
+		Type(StepTypeSelect).
+		DefaultValue(regionIDs[0]).
+		Options(regionIDs...).
+		OptionDescriptions(regionDescs...).
+		Required().
+		Build()
+}
+
+// CreateVultrPlanStepDynamic creates plan step with dynamic API data
+func CreateVultrPlanStepDynamic(id, token, region string) Step {
+	ctx := context.Background()
+	provider, err := providers.GetProvider("vultr", token)
+	if err != nil {
+		return CreateVultrPlanStep(id) // Fallback to static
+	}
+
+	sizes, err := provider.GetSizes(ctx, region)
+	if err != nil {
+		return CreateVultrPlanStep(id) // Fallback to static
+	}
+
+	if len(sizes) == 0 {
+		return CreateVultrPlanStep(id) // Fallback to static
+	}
+
+	var planIDs []string
+	var planDescs []string
+	for _, size := range sizes {
+		planIDs = append(planIDs, size.ID)
+		desc := fmt.Sprintf("%d vCPU, %d GB RAM, %d GB SSD", size.VCPUs, size.Memory/1024, size.Disk)
+		if size.PriceMonthly > 0 {
+			desc = fmt.Sprintf("%s ($%.2f/mo)", desc, size.PriceMonthly)
+		}
+		planDescs = append(planDescs, desc)
+	}
+
+	defaultValue := "vc2-1c-1gb"
+	if len(planIDs) > 0 {
+		defaultValue = planIDs[0]
+	}
+
+	return NewStep(id, "Instance Plan").
+		Type(StepTypeSelect).
+		DefaultValue(defaultValue).
+		Options(planIDs...).
+		OptionDescriptions(planDescs...).
+		Required().
+		Build()
+}

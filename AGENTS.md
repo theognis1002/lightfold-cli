@@ -4,7 +4,7 @@ This document provides essential context and guidelines for AI coding agents wor
 
 ## Project Overview
 
-Lightfold CLI is a framework detector and deployment tool with composable, idempotent commands. It automatically identifies 15+ web frameworks, then provides standalone commands for each deployment step (create, configure, push) that can be run independently or orchestrated together. Features include multi-provider support (DigitalOcean, Hetzner, BYOS), state tracking for smart skipping, blue/green deployments with rollback, and secure API token storage. The core design principles are composability, idempotency, and provider-agnostic deployment.
+Lightfold CLI is a framework detector and deployment tool with composable, idempotent commands. It automatically identifies 15+ web frameworks, then provides standalone commands for each deployment step (create, configure, push) that can be run independently or orchestrated together. Features include multi-provider support (DigitalOcean, Vultr, Hetzner, BYOS), state tracking for smart skipping, blue/green deployments with rollback, and secure API token storage. The core design principles are composability, idempotency, and provider-agnostic deployment.
 
 ## Architecture
 
@@ -117,6 +117,7 @@ lightfold/
 │       ├── provider.go   # Provider interface
 │       ├── registry.go   # Provider factory
 │       ├── digitalocean/ # DigitalOcean implementation
+│       ├── vultr/        # Vultr implementation
 │       ├── hetzner/      # Hetzner implementation
 │       └── cloudinit/    # Cloud-init template generation
 ├── test/
@@ -225,7 +226,7 @@ Lightfold uses a composable architecture where each deployment step is an indepe
   - Requires: `--ip`, `--ssh-key`, `--user`
   - Writes `/etc/lightfold/created` marker on server
   - Stores config under `provider: "byos"` key (NOT under digitalocean!)
-- **Provision Mode** (`--provider do|hetzner`): Auto-provisions new server
+- **Provision Mode** (`--provider do|vultr|hetzner`): Auto-provisions new server
   - Requires: `--region`, `--size`, API token
   - Generates SSH keys, provisions via cloud API
   - Stores server ID and IP in config
@@ -406,6 +407,7 @@ This ensures robustness and prevents "stuck in bad state" scenarios.
 
 **Supported Providers:**
 - ✅ DigitalOcean (fully implemented with IP recovery)
+- ✅ Vultr (fully implemented with IP recovery)
 - ✅ Hetzner Cloud (fully implemented with IP recovery)
 - ✅ BYOS (Bring Your Own Server - no provisioning, just deployment)
 - 🔜 Linode, Fly.io, AWS EC2, Google Cloud, Azure (trivial to add with IP recovery pattern)
@@ -810,6 +812,7 @@ lightfold destroy --target myapp       # Destroy VM and cleanup
 - **Provider configuration storage**:
   - BYOS targets MUST store config under `provider: "byos"` key
   - DigitalOcean targets use `provider: "digitalocean"` key
+  - Vultr targets use `provider: "vultr"` key
   - Hetzner targets use `provider: "hetzner"` key
   - NEVER hardcode one provider's key when storing another provider's config!
 - TUI components (`cmd/ui/`) used for interactive flows during initial setup

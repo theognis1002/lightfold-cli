@@ -10,6 +10,7 @@ import (
 	"lightfold/pkg/providers"
 	_ "lightfold/pkg/providers/digitalocean"
 	_ "lightfold/pkg/providers/hetzner"
+	_ "lightfold/pkg/providers/vultr"
 	sshpkg "lightfold/pkg/ssh"
 	"lightfold/pkg/state"
 	"lightfold/pkg/util"
@@ -130,6 +131,12 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 				targetConfig.SetProviderConfig("hetzner", hetznerConfig)
 			} else {
 				return config.TargetConfig{}, fmt.Errorf("invalid Hetzner configuration")
+			}
+		case "vultr":
+			if vultrConfig, ok := providerConfig.(*config.VultrConfig); ok {
+				targetConfig.SetProviderConfig("vultr", vultrConfig)
+			} else {
+				return config.TargetConfig{}, fmt.Errorf("invalid Vultr configuration")
 			}
 		case "byos":
 			if byosConfig, ok := providerConfig.(*config.DigitalOceanConfig); ok {
@@ -273,6 +280,25 @@ func configureTarget(target config.TargetConfig, targetName string, force bool) 
 			if hetznerConfig.IP == "" && serverID != "" {
 				fmt.Println("Recovering server IP from Hetzner Cloud...")
 				if err := recoverIPFromHetzner(&target, targetName, serverID); err != nil {
+					return fmt.Errorf("failed to recover IP: %w", err)
+				}
+			}
+		}
+	}
+
+	if target.Provider == "vultr" {
+		vultrConfig, err := target.GetVultrConfig()
+		if err == nil {
+			instanceID := vultrConfig.InstanceID
+			if instanceID == "" {
+				if targetState, err := state.LoadState(targetName); err == nil && targetState.ProvisionedID != "" {
+					instanceID = targetState.ProvisionedID
+				}
+			}
+
+			if vultrConfig.IP == "" && instanceID != "" {
+				fmt.Println("Recovering server IP from Vultr...")
+				if err := recoverIPFromVultr(&target, targetName, instanceID); err != nil {
 					return fmt.Errorf("failed to recover IP: %w", err)
 				}
 			}
@@ -428,6 +454,18 @@ func handleProvisionWithFlags(targetConfig *config.TargetConfig, targetName, pro
 			}
 			targetConfig.Provider = "hetzner"
 			targetConfig.SetProviderConfig("hetzner", hetznerConfig)
+		} else if provider == "vultr" {
+			vultrConfig, err := sequential.RunProvisionVultrFlow(targetName)
+			if err != nil {
+				return fmt.Errorf("failed to get Vultr token: %w", err)
+			}
+			tokens, _ = config.LoadTokens()
+			token = tokens.GetToken("vultr")
+			if token == "" {
+				return fmt.Errorf("no Vultr API token provided")
+			}
+			targetConfig.Provider = "vultr"
+			targetConfig.SetProviderConfig("vultr", vultrConfig)
 		} else {
 			return fmt.Errorf("provider %s not supported yet", provider)
 		}
@@ -473,6 +511,26 @@ func handleProvisionWithFlags(targetConfig *config.TargetConfig, targetName, pro
 				Provisioned: true,
 			}
 			targetConfig.SetProviderConfig("hetzner", hetznerConfig)
+		case "vultr":
+			targetConfig.Provider = "vultr"
+
+			sshKeyPath := filepath.Join(os.Getenv("HOME"), config.LocalConfigDir, config.LocalKeysDir, "lightfold_ed25519")
+			if _, err := os.Stat(sshKeyPath); os.IsNotExist(err) {
+				publicKeyPath, err := sshpkg.GenerateKeyPair(sshKeyPath)
+				if err != nil {
+					return fmt.Errorf("failed to generate SSH key: %w", err)
+				}
+				_ = publicKeyPath
+			}
+
+			vultrConfig := &config.VultrConfig{
+				Region:      regionFlag,
+				Plan:        sizeFlag,
+				SSHKey:      sshKeyPath,
+				Username:    "deploy",
+				Provisioned: true,
+			}
+			targetConfig.SetProviderConfig("vultr", vultrConfig)
 		default:
 			return fmt.Errorf("provider %s not supported yet", provider)
 		}
@@ -626,6 +684,55 @@ var recoverIPFromHetzner = func(target *config.TargetConfig, targetName, serverI
 	fmt.Printf("  ✓ Recovered IP: %s\n", server.PublicIPv4)
 
 	// Save the updated config
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if err := cfg.SetTarget(targetName, *target); err != nil {
+		return fmt.Errorf("failed to update target config: %w", err)
+	}
+
+	if err := cfg.SaveConfig(); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	return nil
+}
+
+// recoverIPFromVultr fetches the IP address from Vultr API when instance exists but IP is missing
+var recoverIPFromVultr = func(target *config.TargetConfig, targetName, instanceID string) error {
+	tokens, err := config.LoadTokens()
+	if err != nil {
+		return fmt.Errorf("failed to load tokens: %w", err)
+	}
+
+	vultrToken := tokens.Tokens["vultr"]
+	if vultrToken == "" {
+		return fmt.Errorf("Vultr API token not found")
+	}
+
+	provider, err := providers.GetProvider("vultr", vultrToken)
+	if err != nil {
+		return fmt.Errorf("failed to get Vultr provider: %w", err)
+	}
+
+	server, err := provider.GetServer(context.Background(), instanceID)
+	if err != nil {
+		return fmt.Errorf("failed to fetch instance info: %w", err)
+	}
+
+	// Update config with the IP and instance_id
+	vultrConfig, err := target.GetVultrConfig()
+	if err != nil {
+		return fmt.Errorf("failed to get Vultr config: %w", err)
+	}
+
+	vultrConfig.IP = server.PublicIPv4
+	vultrConfig.InstanceID = instanceID
+	target.SetProviderConfig("vultr", vultrConfig)
+	fmt.Printf("  ✓ Recovered IP: %s\n", server.PublicIPv4)
+
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
