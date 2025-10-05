@@ -34,7 +34,7 @@ var (
 )
 
 var deployCmd = &cobra.Command{
-	Use:   "deploy",
+	Use:   "deploy [PROJECT_PATH]",
 	Short: "Deploy your application (orchestrates detect → create → configure → push)",
 	Long: `Orchestrate a full deployment pipeline by running:
 1. detect - Framework detection
@@ -45,28 +45,41 @@ var deployCmd = &cobra.Command{
 Each step is skipped if already completed. Use --force to rerun all steps.
 
 Examples:
-  lightfold deploy --target myapp
-  lightfold deploy --target myapp --force
-  lightfold deploy --target myapp --dry-run`,
-	Args: cobra.NoArgs,
+  lightfold deploy                           # Deploy current directory
+  lightfold deploy ~/Projects/myapp          # Deploy specific project
+  lightfold deploy --target myapp            # Deploy named target
+  lightfold deploy --target myapp --force    # Force rerun all steps
+  lightfold deploy --dry-run                 # Preview deployment plan`,
+	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		if deployTargetFlag == "" {
-			fmt.Fprintf(os.Stderr, "Error: --target flag is required\n")
-			os.Exit(1)
+		// Determine effective target: --target flag, positional arg, or current dir
+		effectiveTarget := deployTargetFlag
+		if effectiveTarget == "" {
+			if len(args) > 0 {
+				effectiveTarget = args[0]
+			} else {
+				effectiveTarget = "."
+			}
 		}
 
 		cfg := loadConfigOrExit()
 
-		target, exists := cfg.GetTarget(deployTargetFlag)
+		target, exists := cfg.GetTarget(effectiveTarget)
 		var projectPath string
 		var targetName string
 
 		if !exists {
-			projectPath = filepath.Clean(deployTargetFlag)
+			// Treat as a path - validate and convert to absolute path
+			var err error
+			projectPath, err = util.ValidateProjectPath(effectiveTarget)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
 			targetName = util.GetTargetName(projectPath)
 		} else {
 			projectPath = target.ProjectPath
-			targetName = deployTargetFlag
+			targetName = effectiveTarget
 		}
 
 		projectPath = filepath.Clean(projectPath)
@@ -266,7 +279,7 @@ func handleRollback(target config.TargetConfig, projectPath string) {
 func init() {
 	rootCmd.AddCommand(deployCmd)
 
-	deployCmd.Flags().StringVar(&deployTargetFlag, "target", "", "Target name (required)")
+	deployCmd.Flags().StringVar(&deployTargetFlag, "target", "", "Target name (defaults to current directory)")
 	deployCmd.Flags().BoolVar(&deployForceFlag, "force", false, "Force rerun all steps")
 	deployCmd.Flags().BoolVar(&deployDryRun, "dry-run", false, "Show deployment plan without executing")
 	deployCmd.Flags().StringVar(&envFile, "env-file", "", "Path to .env file with environment variables")

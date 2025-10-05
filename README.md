@@ -22,10 +22,17 @@ go build -o lightfold ./cmd/lightfold
 
 ## Quick Start
 
-Deploy your application in one command:
+Deploy your application in one command from your project directory:
 
 ```bash
-lightfold deploy --target myapp-prod
+cd ~/Projects/myapp
+lightfold deploy
+```
+
+Or deploy from anywhere:
+
+```bash
+lightfold deploy ~/Projects/myapp
 ```
 
 On first run, you'll be prompted to:
@@ -45,25 +52,25 @@ For subsequent deployments, just run the same command - it intelligently skips c
 
 ### Primary Command
 
-- **`lightfold deploy --target <name>`** - Full deployment (recommended)
-  - First run: Interactive setup with provider selection
-  - Subsequent runs: Fast, intelligent deployment of code changes
-  - Use `--force` to reprovision everything
+- **`lightfold deploy [PATH]`** - Full deployment (recommended)
+  - `lightfold deploy` - Deploy current directory
+  - `lightfold deploy ~/Projects/myapp` - Deploy specific project
+  - `lightfold deploy --target <app>` - Deploy named target
 
 ### Advanced Commands
 
 For granular control over deployment steps:
 
-- **`lightfold create --target <name> --provider <provider>`** - Create infrastructure only
-- **`lightfold configure --target <name>`** - Configure server only
-- **`lightfold push --target <name>`** - Deploy code changes only
+- **`lightfold create --target <app> --provider <provider>`** - Create infrastructure only
+- **`lightfold configure --target <app>`** - Configure server only
+- **`lightfold push --target <app>`** - Deploy code changes only
 
 ### Management Commands
 
-- **`lightfold status --target <name>`** - View deployment status
-- **`lightfold ssh --target <name>`** - SSH into deployment target
-- **`lightfold deploy --target <name> --rollback`** - Rollback to previous release
-- **`lightfold destroy --target <name>`** - Destroy VM and remove local config (requires confirmation)
+- **`lightfold status [PATH]`** - View deployment status
+- **`lightfold ssh [PATH]`** - SSH into deployment target
+- **`lightfold deploy [PATH] --rollback`** - Rollback to previous release
+- **`lightfold destroy --target <app>`** - Destroy VM and remove local config (requires confirmation)
 
 ## Configuration
 

@@ -34,6 +34,9 @@ Lightfold CLI is a framework detector and deployment tool with composable, idemp
      - `configure` - Server configuration with idempotency checks
      - `push` - Release deployment with health checks
      - `deploy` - Orchestrator that chains all steps with smart skipping
+       - `lightfold deploy` - Deploy current directory
+       - `lightfold deploy ~/path/to/project` - Deploy specific path
+       - `lightfold deploy --target myapp` - Deploy named target
      - `status` - View deployment state and server status
      - `config` - Manage targets and API tokens
      - `keygen` - Generate SSH keypairs
@@ -240,8 +243,12 @@ Lightfold uses a composable architecture where each deployment step is an indepe
 - Updates state with commit hash and release ID
 - Idempotent: Skips if commit unchanged
 
-**5. Full Orchestration** (`lightfold deploy --target <name>`)
+**5. Full Orchestration** (`lightfold deploy [PATH]`)
 - **Primary user-facing command** (recommended workflow)
+- Flexible invocation:
+  - `lightfold deploy` - Deploy current directory
+  - `lightfold deploy ~/path/to/project` - Deploy specific path
+  - `lightfold deploy --target myapp` - Deploy named target
 - First run: Interactively prompts for provider selection if target doesn't exist
 - Auto-calls `createTarget()` and `configureTarget()` which handle idempotency internally
 - Chains all steps: detect → create → configure → push
@@ -579,7 +586,14 @@ lightfold push --target myapp
 
 **Orchestrated Usage:**
 ```bash
-lightfold deploy --target myapp  # Runs create → configure → push with smart skipping
+# Deploy current directory
+lightfold deploy
+
+# Deploy specific path
+lightfold deploy ~/Projects/myapp
+
+# Deploy named target
+lightfold deploy --target myapp
 ```
 
 ### Utility Packages (`pkg/util/`)
@@ -686,8 +700,10 @@ This approach provides better test isolation and easier maintenance.
 
 **Command Flow:**
 ```bash
-# Full deployment (orchestrated)
-lightfold deploy --target myapp
+# Full deployment (orchestrated) - 3 usage patterns
+lightfold deploy                       # Deploy current directory
+lightfold deploy ~/Projects/myapp      # Deploy specific path
+lightfold deploy --target myapp        # Deploy named target
 
 # Individual steps (composable)
 lightfold create --target myapp --provider byos --ip 1.2.3.4 --ssh-key ~/.ssh/id_rsa
