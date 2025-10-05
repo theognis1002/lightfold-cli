@@ -298,6 +298,68 @@ func NestJSPlan(root string) ([]string, []string, map[string]any, []string, map[
 	return build, run, health, env, meta
 }
 
+// TRPCPlan returns the build and run plan for tRPC
+func TRPCPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
+	pm := packagemanagers.DetectJS(root)
+	pkg := helpers.ParsePackageJSON(root)
+
+	build := []string{
+		packagemanagers.GetJSInstallCommand(pm),
+		packagemanagers.GetJSBuildCommand(pm),
+	}
+
+	// Determine adapter type from dependencies
+	adapter := "standalone"
+	allDeps := mergeDeps(pkg.Dependencies, pkg.DevDeps)
+
+	if allDeps["@trpc/next"] != "" || allDeps["next"] != "" {
+		adapter = "nextjs"
+	} else if allDeps["@trpc/server"] != "" {
+		// Check for Express or Fastify adapters
+		if allDeps["express"] != "" {
+			adapter = "express"
+		} else if allDeps["fastify"] != "" {
+			adapter = "fastify"
+		}
+	}
+
+	// Determine run command based on adapter
+	var run []string
+	startScript := helpers.GetProductionStartScript(pkg)
+
+	switch adapter {
+	case "nextjs":
+		// Next.js handles tRPC, use Next.js commands
+		run = []string{packagemanagers.GetRunCommand(pm, startScript)}
+	case "express", "fastify":
+		// Use standard start script for these adapters
+		run = []string{packagemanagers.GetRunCommand(pm, startScript)}
+	default:
+		// Standalone tRPC server
+		if startScript != "" && startScript != "start" {
+			run = []string{packagemanagers.GetRunCommand(pm, startScript)}
+		} else {
+			// Fallback to common tRPC build output
+			run = []string{"node dist/server.js", "node dist/index.js"}
+		}
+	}
+
+	health := map[string]any{"path": "/health", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
+	env := []string{"NODE_ENV", "PORT", "DATABASE_URL", "API_*"}
+
+	meta := map[string]string{
+		"package_manager": pm,
+		"adapter":         adapter,
+		"build_output":    "dist/",
+	}
+
+	if monorepoType := helpers.DetectMonorepoType(root); monorepoType != "none" {
+		meta["monorepo"] = monorepoType
+	}
+
+	return build, run, health, env, meta
+}
+
 // EleventyPlan returns the build and run plan for Eleventy
 func EleventyPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
 	pm := packagemanagers.DetectJS(root)

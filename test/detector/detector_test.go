@@ -313,6 +313,216 @@ func TestNestJSDetection(t *testing.T) {
 	}
 }
 
+func TestTRPCDetection(t *testing.T) {
+	tests := []struct {
+		name              string
+		files             map[string]string
+		expectedFramework string
+		expectedLanguage  string
+		expectedSignals   []string
+		minConfidence     float64
+	}{
+		{
+			name: "Standalone tRPC server with router directory",
+			files: map[string]string{
+				"package.json": `{
+					"dependencies": {
+						"@trpc/server": "^11.0.0",
+						"@trpc/client": "^11.0.0",
+						"zod": "^3.22.0"
+					},
+					"scripts": {
+						"build": "tsc",
+						"start": "node dist/server.js"
+					}
+				}`,
+				"tsconfig.json":          `{"compilerOptions": {"target": "ES2020"}}`,
+				"server/routers/user.ts": "import { router } from '../trpc';",
+				"server/trpc.ts":         "import { initTRPC } from '@trpc/server';",
+			},
+			expectedFramework: "tRPC",
+			expectedLanguage:  "TypeScript",
+			expectedSignals:   []string{"package.json has @trpc/server", "package.json has @trpc/client", "zod validation", "tRPC router directory", "TypeScript config"},
+			minConfidence:     0.8,
+		},
+		{
+			name: "tRPC with Next.js integration",
+			files: map[string]string{
+				"package.json": `{
+					"dependencies": {
+						"@trpc/server": "^11.0.0",
+						"@trpc/client": "^11.0.0",
+						"@trpc/next": "^11.0.0",
+						"next": "^14.0.0"
+					}
+				}`,
+				"tsconfig.json":        `{"compilerOptions": {}}`,
+				"src/server/trpc.ts":   "import { initTRPC } from '@trpc/server';",
+				"src/server/router.ts": "export const appRouter = router({});",
+			},
+			expectedFramework: "tRPC",
+			expectedLanguage:  "TypeScript",
+			expectedSignals:   []string{"package.json has @trpc/server", "package.json has @trpc/client", "tRPC router files", "TypeScript config"},
+			minConfidence:     0.7,
+		},
+		{
+			name: "tRPC with Express adapter",
+			files: map[string]string{
+				"package.json": `{
+					"dependencies": {
+						"@trpc/server": "^11.0.0",
+						"express": "^4.18.0"
+					},
+					"scripts": {
+						"start": "node dist/index.js"
+					}
+				}`,
+				"tsconfig.json":          `{"compilerOptions": {}}`,
+				"src/server/routers/index.ts": "export const router = {};",
+			},
+			expectedFramework: "tRPC",
+			expectedLanguage:  "TypeScript",
+			expectedSignals:   []string{"package.json has @trpc/server", "tRPC router directory", "TypeScript config"},
+			minConfidence:     0.6,
+		},
+		{
+			name: "tRPC with Fastify adapter",
+			files: map[string]string{
+				"package.json": `{
+					"dependencies": {
+						"@trpc/server": "^11.0.0",
+						"fastify": "^4.24.0"
+					}
+				}`,
+				"server/router.ts": "import { initTRPC } from '@trpc/server';",
+				"tsconfig.json":    `{}`,
+			},
+			expectedFramework: "tRPC",
+			expectedLanguage:  "TypeScript",
+			expectedSignals:   []string{"package.json has @trpc/server", "tRPC router files", "TypeScript config"},
+			minConfidence:     0.6,
+		},
+		{
+			name: "Minimal tRPC setup",
+			files: map[string]string{
+				"package.json": `{
+					"dependencies": {
+						"@trpc/server": "^11.0.0"
+					}
+				}`,
+				"server/trpc.ts": "import { initTRPC } from '@trpc/server';",
+				"tsconfig.json":  `{}`,
+			},
+			expectedFramework: "tRPC",
+			expectedLanguage:  "TypeScript",
+			expectedSignals:   []string{"package.json has @trpc/server", "tRPC router files", "TypeScript config"},
+			minConfidence:     0.6,
+		},
+		{
+			name: "tRPC in monorepo with Turborepo",
+			files: map[string]string{
+				"package.json": `{
+					"dependencies": {
+						"@trpc/server": "^11.0.0",
+						"@trpc/client": "^11.0.0",
+						"zod": "^3.22.0"
+					}
+				}`,
+				"turbo.json":              `{"pipeline": {}}`,
+				"tsconfig.json":           `{}`,
+				"src/server/routers/api.ts": "export const apiRouter = {};",
+			},
+			expectedFramework: "tRPC",
+			expectedLanguage:  "TypeScript",
+			expectedSignals:   []string{"package.json has @trpc/server", "package.json has @trpc/client", "zod validation", "tRPC router directory", "TypeScript config"},
+			minConfidence:     0.8,
+		},
+		{
+			name: "tRPC v10 with standalone adapter",
+			files: map[string]string{
+				"package.json": `{
+					"dependencies": {
+						"@trpc/server": "^10.45.0"
+					}
+				}`,
+				"server/index.ts": "import { createHTTPServer } from '@trpc/server/adapters/standalone';",
+				"tsconfig.json":   `{}`,
+			},
+			expectedFramework: "tRPC",
+			expectedLanguage:  "TypeScript",
+			expectedSignals:   []string{"package.json has @trpc/server", "TypeScript config"},
+			minConfidence:     0.5,
+		},
+		{
+			name: "tRPC with custom router structure",
+			files: map[string]string{
+				"package.json": `{
+					"dependencies": {
+						"@trpc/server": "^11.0.0",
+						"@trpc/client": "^11.0.0"
+					}
+				}`,
+				"src/server/trpc.ts": "import { initTRPC } from '@trpc/server';",
+				"tsconfig.json":      `{}`,
+			},
+			expectedFramework: "tRPC",
+			expectedLanguage:  "TypeScript",
+			expectedSignals:   []string{"package.json has @trpc/server", "package.json has @trpc/client", "tRPC router files", "TypeScript config"},
+			minConfidence:     0.7,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projectPath := createTestProject(t, tt.files)
+			detection := captureDetectFramework(t, projectPath)
+
+			if detection.Framework != tt.expectedFramework {
+				t.Errorf("Expected framework %s, got %s", tt.expectedFramework, detection.Framework)
+			}
+
+			if detection.Language != tt.expectedLanguage {
+				t.Errorf("Expected language %s, got %s", tt.expectedLanguage, detection.Language)
+			}
+
+			if detection.Confidence < tt.minConfidence {
+				t.Errorf("Expected confidence >= %f, got %f", tt.minConfidence, detection.Confidence)
+			}
+
+			for _, expectedSignal := range tt.expectedSignals {
+				found := false
+				for _, signal := range detection.Signals {
+					if signal == expectedSignal {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("Expected signal '%s' not found in %v", expectedSignal, detection.Signals)
+				}
+			}
+
+			// Verify build and run plans exist
+			if len(detection.BuildPlan) == 0 {
+				t.Error("Expected build plan to be present")
+			}
+
+			if len(detection.RunPlan) == 0 {
+				t.Error("Expected run plan to be present")
+			}
+
+			// Verify metadata
+			if detection.Meta["package_manager"] == "" {
+				t.Error("Expected package_manager in metadata")
+			}
+
+			if detection.Meta["adapter"] == "" {
+				t.Error("Expected adapter in metadata")
+			}
+		})
+	}
+}
+
 func TestFrameworkPriority(t *testing.T) {
 	// Test that specific frameworks are preferred over generic ones
 	projectPath := createTestProject(t, map[string]string{

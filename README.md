@@ -4,7 +4,7 @@ Framework detector and deployment tool for web applications with composable, ide
 
 ## Features
 
-- **Framework Detection**: Detects 15+ frameworks (Next.js, Astro, Django, FastAPI, Express.js, Laravel, Rails, etc.)
+- **Framework Detection**: Detects 16+ frameworks (Next.js, Astro, Django, FastAPI, Express.js, tRPC, NestJS, Laravel, Rails, etc.)
 - **Package Manager Detection**: npm, yarn, pnpm, bun, pip, poetry, uv, pipenv
 - **Composable Commands**: Run deployment steps independently or orchestrated together
 - **Idempotent Operations**: Safe to rerun commands - skips already-completed steps
@@ -143,7 +143,7 @@ Uses scoring system based on:
 ## Supported Frameworks
 
 **Frontend**: Next.js, Astro, Gatsby, Svelte/SvelteKit, Vue.js, Angular
-**Backend**: Django, Flask, FastAPI, Express.js, NestJS, Laravel, Rails, Spring Boot, ASP.NET Core, Phoenix
+**Backend**: Django, Flask, FastAPI, Express.js, NestJS, tRPC, Laravel, Rails, Spring Boot, ASP.NET Core, Phoenix
 **Languages**: JavaScript/TypeScript, Python, PHP, Ruby, Go, Java, C#, Elixir
 
 ## Supported Providers

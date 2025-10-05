@@ -46,6 +46,10 @@ func DetectJavaScript(root string, allFiles []string, helpers HelperFuncs) []Can
 		candidates = append(candidates, c)
 	}
 
+	if c := detectTRPC(root, helpers); c.Score > 0 {
+		candidates = append(candidates, c)
+	}
+
 	if c := detectEleventy(root, helpers); c.Score > 0 {
 		candidates = append(candidates, c)
 	}
@@ -341,6 +345,54 @@ func detectNestJS(root string, h HelperFuncs) Candidate {
 		Language: "TypeScript",
 		Signals:  signals,
 		Plan:     plans.NestJSPlan,
+	}
+}
+
+func detectTRPC(root string, h HelperFuncs) Candidate {
+	score := 0.0
+	signals := []string{}
+
+	if h.Has("package.json") {
+		pj := strings.ToLower(h.Read("package.json"))
+		if strings.Contains(pj, `"@trpc/server"`) {
+			score += 3
+			signals = append(signals, "package.json has @trpc/server")
+		}
+		if strings.Contains(pj, `"@trpc/client"`) {
+			score += 2
+			signals = append(signals, "package.json has @trpc/client")
+		}
+		if strings.Contains(pj, `"zod"`) {
+			score += 1
+			signals = append(signals, "zod validation")
+		}
+		if strings.Contains(pj, `"@trpc/server/adapters/standalone"`) {
+			score += 0.5
+			signals = append(signals, "standalone adapter")
+		}
+	}
+
+	// Check for typical tRPC router structure
+	if h.DirExists(root, "server/routers") || h.DirExists(root, "src/server/routers") {
+		score += 2.5
+		signals = append(signals, "tRPC router directory")
+	} else if h.Has("server/trpc.ts") || h.Has("src/server/trpc.ts") || h.Has("server/router.ts") || h.Has("src/server/router.ts") {
+		score += 2.5
+		signals = append(signals, "tRPC router files")
+	}
+
+	// TypeScript configuration (common for tRPC projects)
+	if h.Has("tsconfig.json") {
+		score += 0.5
+		signals = append(signals, "TypeScript config")
+	}
+
+	return Candidate{
+		Name:     "tRPC",
+		Score:    score,
+		Language: "TypeScript",
+		Signals:  signals,
+		Plan:     plans.TRPCPlan,
 	}
 }
 
