@@ -226,6 +226,14 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 			Details:  map[string]interface{}{"error": err.Error()},
 		}
 	}
+	if serverType == nil {
+		return nil, &providers.ProviderError{
+			Provider: "hetzner",
+			Code:     "server_type_not_found",
+			Message:  fmt.Sprintf("Server type not found: %s", config.Size),
+			Details:  map[string]interface{}{},
+		}
+	}
 
 	// Fetch location
 	location, _, err := c.client.Location.GetByName(ctx, config.Region)
@@ -237,6 +245,14 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 			Details:  map[string]interface{}{"error": err.Error()},
 		}
 	}
+	if location == nil {
+		return nil, &providers.ProviderError{
+			Provider: "hetzner",
+			Code:     "location_not_found",
+			Message:  fmt.Sprintf("Location not found: %s", config.Region),
+			Details:  map[string]interface{}{},
+		}
+	}
 
 	// Fetch image
 	image, _, err := c.client.Image.GetByName(ctx, config.Image)
@@ -246,6 +262,14 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 			Code:     "invalid_image",
 			Message:  fmt.Sprintf("Invalid image: %s", config.Image),
 			Details:  map[string]interface{}{"error": err.Error()},
+		}
+	}
+	if image == nil {
+		return nil, &providers.ProviderError{
+			Provider: "hetzner",
+			Code:     "image_not_found",
+			Message:  fmt.Sprintf("Image not found: %s", config.Image),
+			Details:  map[string]interface{}{},
 		}
 	}
 

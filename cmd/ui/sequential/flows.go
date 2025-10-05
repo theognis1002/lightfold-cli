@@ -183,7 +183,46 @@ func RunProvisionHetznerFlow(projectName string) (*config.HetznerConfig, error) 
 	existingToken := tokens.GetToken("hetzner")
 	hasExistingToken := existingToken != ""
 
-	flow := CreateProvisionHetznerFlow(projectName, hasExistingToken)
+	var activeToken string
+
+	// If no existing token, collect it first
+	if !hasExistingToken {
+		tokenFlow := NewFlow("Configure Hetzner Cloud", []Step{
+			CreateHetznerAPITokenStep("api_token"),
+		})
+		tokenFlow.SetProjectName(projectName)
+
+		p := tea.NewProgram(tokenFlow)
+		tokenModel, err := p.Run()
+		if err != nil {
+			return nil, err
+		}
+
+		tokenFinal := tokenModel.(FlowModel)
+		if tokenFinal.Cancelled {
+			return nil, fmt.Errorf("provisioning cancelled")
+		}
+
+		tokenResults := tokenFinal.GetResults()
+		activeToken = tokenResults["api_token"]
+
+		// Save the token immediately
+		tokens.SetToken("hetzner", activeToken)
+		if err := tokens.SaveTokens(); err != nil {
+			return nil, fmt.Errorf("failed to save API token: %w", err)
+		}
+	} else {
+		activeToken = existingToken
+	}
+
+	// Now create the provision flow with dynamic data using the token
+	dynamicSteps := []Step{
+		CreateHetznerLocationStepDynamic("location", activeToken),
+		CreateHetznerServerTypeStepDynamic("server_type", activeToken, ""),
+	}
+
+	flow := NewFlow("Provision Hetzner Cloud Server", dynamicSteps)
+	flow.SetProjectName(projectName)
 
 	p := tea.NewProgram(flow)
 	finalModel, err := p.Run()
@@ -201,14 +240,6 @@ func RunProvisionHetznerFlow(projectName string) (*config.HetznerConfig, error) 
 	}
 
 	results := final.GetResults()
-
-	// Store API token securely if a new one was provided
-	if newToken, ok := results["api_token"]; ok && newToken != "" {
-		tokens.SetToken("hetzner", newToken)
-		if err := tokens.SaveTokens(); err != nil {
-			return nil, fmt.Errorf("failed to save API token: %w", err)
-		}
-	}
 
 	keyName := ssh.GetKeyName(projectName)
 

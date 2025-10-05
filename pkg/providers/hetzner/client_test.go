@@ -264,3 +264,457 @@ func TestProviderRegistration(t *testing.T) {
 func parseIP(ip string) net.IP {
 	return net.ParseIP(ip)
 }
+
+// TestConvertServerToProvider_EdgeCases tests edge cases in server conversion
+func TestConvertServerToProvider_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name   string
+		server *hcloud.Server
+		checks func(*testing.T, *providers.Server)
+	}{
+		{
+			name: "server with nil datacenter",
+			server: &hcloud.Server{
+				ID:     12345,
+				Name:   "test-server",
+				Status: hcloud.ServerStatusRunning,
+				ServerType: &hcloud.ServerType{
+					Name:   "cpx11",
+					Cores:  2,
+					Memory: 2.0,
+					Disk:   40,
+				},
+				PublicNet: hcloud.ServerPublicNet{
+					IPv4: hcloud.ServerPublicNetIPv4{
+						IP: parseIP("1.2.3.4"),
+					},
+				},
+				Datacenter: nil,
+				Image: &hcloud.Image{
+					Name: "ubuntu-22.04",
+				},
+				Created: time.Now(),
+				Labels:  map[string]string{},
+			},
+			checks: func(t *testing.T, s *providers.Server) {
+				if s.Region != "" {
+					t.Errorf("Expected empty region, got %s", s.Region)
+				}
+				if s.Metadata["datacenter"] != "" {
+					t.Errorf("Expected empty datacenter metadata, got %s", s.Metadata["datacenter"])
+				}
+			},
+		},
+		{
+			name: "server with nil image",
+			server: &hcloud.Server{
+				ID:     12345,
+				Name:   "test-server",
+				Status: hcloud.ServerStatusRunning,
+				ServerType: &hcloud.ServerType{
+					Name:   "cpx11",
+					Cores:  2,
+					Memory: 2.0,
+					Disk:   40,
+				},
+				PublicNet: hcloud.ServerPublicNet{
+					IPv4: hcloud.ServerPublicNetIPv4{
+						IP: parseIP("1.2.3.4"),
+					},
+				},
+				Datacenter: &hcloud.Datacenter{
+					Name: "nbg1-dc3",
+					Location: &hcloud.Location{
+						Name: "nbg1",
+						City: "Nuremberg",
+					},
+				},
+				Image:   nil,
+				Created: time.Now(),
+				Labels:  map[string]string{},
+			},
+			checks: func(t *testing.T, s *providers.Server) {
+				if s.Image != "" {
+					t.Errorf("Expected empty image, got %s", s.Image)
+				}
+			},
+		},
+		{
+			name: "server with private network",
+			server: &hcloud.Server{
+				ID:     12345,
+				Name:   "test-server",
+				Status: hcloud.ServerStatusRunning,
+				ServerType: &hcloud.ServerType{
+					Name:   "cpx11",
+					Cores:  2,
+					Memory: 2.0,
+					Disk:   40,
+				},
+				PublicNet: hcloud.ServerPublicNet{
+					IPv4: hcloud.ServerPublicNetIPv4{
+						IP: parseIP("1.2.3.4"),
+					},
+				},
+				PrivateNet: []hcloud.ServerPrivateNet{
+					{
+						IP: parseIP("10.0.0.5"),
+					},
+				},
+				Datacenter: &hcloud.Datacenter{
+					Name: "nbg1-dc3",
+					Location: &hcloud.Location{
+						Name: "nbg1",
+						City: "Nuremberg",
+					},
+				},
+				Image: &hcloud.Image{
+					Name: "ubuntu-22.04",
+				},
+				Created: time.Now(),
+				Labels:  map[string]string{},
+			},
+			checks: func(t *testing.T, s *providers.Server) {
+				if s.PrivateIPv4 != "10.0.0.5" {
+					t.Errorf("Expected private IP 10.0.0.5, got %s", s.PrivateIPv4)
+				}
+			},
+		},
+		{
+			name: "server with locked status",
+			server: &hcloud.Server{
+				ID:     12345,
+				Name:   "test-server",
+				Status: hcloud.ServerStatusRunning,
+				ServerType: &hcloud.ServerType{
+					Name:   "cpx11",
+					Cores:  2,
+					Memory: 2.0,
+					Disk:   40,
+				},
+				PublicNet: hcloud.ServerPublicNet{
+					IPv4: hcloud.ServerPublicNetIPv4{
+						IP: parseIP("1.2.3.4"),
+					},
+				},
+				Datacenter: &hcloud.Datacenter{
+					Name: "nbg1-dc3",
+					Location: &hcloud.Location{
+						Name: "nbg1",
+						City: "Nuremberg",
+					},
+				},
+				Image: &hcloud.Image{
+					Name: "ubuntu-22.04",
+				},
+				Created: time.Now(),
+				Labels:  map[string]string{},
+				Locked:  true,
+			},
+			checks: func(t *testing.T, s *providers.Server) {
+				if s.Metadata["locked"] != "true" {
+					t.Errorf("Expected locked true, got %s", s.Metadata["locked"])
+				}
+			},
+		},
+		{
+			name: "server with complex labels",
+			server: &hcloud.Server{
+				ID:     12345,
+				Name:   "test-server",
+				Status: hcloud.ServerStatusRunning,
+				ServerType: &hcloud.ServerType{
+					Name:   "cpx11",
+					Cores:  2,
+					Memory: 2.0,
+					Disk:   40,
+				},
+				PublicNet: hcloud.ServerPublicNet{
+					IPv4: hcloud.ServerPublicNetIPv4{
+						IP: parseIP("1.2.3.4"),
+					},
+				},
+				Datacenter: &hcloud.Datacenter{
+					Name: "nbg1-dc3",
+					Location: &hcloud.Location{
+						Name: "nbg1",
+						City: "Nuremberg",
+					},
+				},
+				Image: &hcloud.Image{
+					Name: "ubuntu-22.04",
+				},
+				Created: time.Now(),
+				Labels: map[string]string{
+					"env":     "production",
+					"project": "lightfold",
+					"managed": "true",
+				},
+			},
+			checks: func(t *testing.T, s *providers.Server) {
+				if len(s.Tags) != 3 {
+					t.Errorf("Expected 3 tags, got %d", len(s.Tags))
+				}
+				hasEnvTag := false
+				for _, tag := range s.Tags {
+					if tag == "env:production" {
+						hasEnvTag = true
+						break
+					}
+				}
+				if !hasEnvTag {
+					t.Error("Expected env:production tag not found")
+				}
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertServerToProvider(tt.server)
+			if result == nil {
+				t.Fatal("Expected non-nil server, got nil")
+			}
+			tt.checks(t, result)
+		})
+	}
+}
+
+// TestExtractVersionFromImageName_EdgeCases tests additional edge cases
+func TestExtractVersionFromImageName_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "Ubuntu 22.04",
+			input:    "Ubuntu 22.04",
+			expected: "22.04",
+		},
+		{
+			name:     "Ubuntu 20.04 LTS",
+			input:    "Ubuntu 20.04 LTS",
+			expected: "20.04",
+		},
+		{
+			name:     "Debian 11.5",
+			input:    "Debian 11.5",
+			expected: "11.5",
+		},
+		{
+			name:     "No version",
+			input:    "Ubuntu Server",
+			expected: "",
+		},
+		{
+			name:     "Version with more digits (7 chars, exceeds 6 char limit)",
+			input:    "Ubuntu 24.04.1",
+			expected: "",
+		},
+		{
+			name:     "Empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name:     "Only numbers",
+			input:    "22.04",
+			expected: "22.04",
+		},
+		{
+			name:     "Long version number (should be skipped)",
+			input:    "Ubuntu 22.04.1234",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractVersionFromImageName(tt.input)
+			if result != tt.expected {
+				t.Errorf("Expected version %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+// TestConvertTagsToLabels_EdgeCases tests additional edge cases
+func TestConvertTagsToLabels_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name     string
+		tags     []string
+		expected map[string]string
+	}{
+		{
+			name:     "key-value tags",
+			tags:     []string{"env:production", "app:myapp"},
+			expected: map[string]string{"env": "production", "app": "myapp"},
+		},
+		{
+			name:     "simple tags",
+			tags:     []string{"production", "critical"},
+			expected: map[string]string{"production": "true", "critical": "true"},
+		},
+		{
+			name:     "mixed tags",
+			tags:     []string{"env:prod", "critical"},
+			expected: map[string]string{"env": "prod", "critical": "true"},
+		},
+		{
+			name:     "empty tags",
+			tags:     []string{},
+			expected: map[string]string{},
+		},
+		{
+			name:     "tags with multiple colons",
+			tags:     []string{"url:https://example.com"},
+			expected: map[string]string{"url": "https://example.com"},
+		},
+		{
+			name:     "tags with empty values",
+			tags:     []string{"key:", "emptykey"},
+			expected: map[string]string{"key": "", "emptykey": "true"},
+		},
+		{
+			name:     "duplicate keys (last wins)",
+			tags:     []string{"env:dev", "env:prod"},
+			expected: map[string]string{"env": "prod"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertTagsToLabels(tt.tags)
+
+			if len(result) != len(tt.expected) {
+				t.Errorf("Expected %d labels, got %d", len(tt.expected), len(result))
+			}
+
+			for key, expectedValue := range tt.expected {
+				if result[key] != expectedValue {
+					t.Errorf("Expected label %s=%q, got %q", key, expectedValue, result[key])
+				}
+			}
+		})
+	}
+}
+
+// TestValidateCredentials_ErrorCases tests various credential validation error cases
+func TestValidateCredentials_ErrorCases(t *testing.T) {
+	tests := []struct {
+		name          string
+		token         string
+		expectedCode  string
+		shouldHaveErr bool
+	}{
+		{
+			name:          "empty token",
+			token:         "",
+			expectedCode:  "invalid_credentials",
+			shouldHaveErr: true,
+		},
+		{
+			name:          "whitespace token",
+			token:         "   ",
+			expectedCode:  "",
+			shouldHaveErr: false,
+		},
+		{
+			name:          "valid format token",
+			token:         "test-token-12345",
+			expectedCode:  "",
+			shouldHaveErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := NewClient(tt.token)
+			err := client.ValidateCredentials(context.Background())
+
+			if tt.shouldHaveErr && err == nil {
+				t.Fatal("Expected error, got nil")
+			}
+
+			if tt.shouldHaveErr {
+				provErr, ok := err.(*providers.ProviderError)
+				if !ok {
+					t.Fatalf("Expected ProviderError, got %T", err)
+				}
+
+				if provErr.Code != tt.expectedCode {
+					t.Errorf("Expected error code %q, got %q", tt.expectedCode, provErr.Code)
+				}
+
+				if provErr.Provider != "hetzner" {
+					t.Errorf("Expected provider 'hetzner', got %q", provErr.Provider)
+				}
+			}
+		})
+	}
+}
+
+// TestProviderInterface ensures Client implements the Provider interface
+func TestProviderInterface(t *testing.T) {
+	var _ providers.Provider = (*Client)(nil)
+}
+
+// TestClientCreationWithValidToken tests client creation with various token formats
+func TestClientCreationWithValidToken(t *testing.T) {
+	tests := []struct {
+		name  string
+		token string
+	}{
+		{
+			name:  "standard token",
+			token: "test-token",
+		},
+		{
+			name:  "long token",
+			token: "very-long-token-with-many-characters-1234567890",
+		},
+		{
+			name:  "token with special chars",
+			token: "token-with_underscores.and.dots",
+		},
+		{
+			name:  "empty token (should still create client)",
+			token: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := NewClient(tt.token)
+
+			if client == nil {
+				t.Fatal("Expected client to be created, got nil")
+			}
+
+			if client.token != tt.token {
+				t.Errorf("Expected token %q, got %q", tt.token, client.token)
+			}
+
+			if client.client == nil {
+				t.Fatal("Expected hcloud client to be initialized, got nil")
+			}
+
+			if client.Name() != "hetzner" {
+				t.Errorf("Expected name 'hetzner', got %q", client.Name())
+			}
+
+			if client.DisplayName() != "Hetzner Cloud" {
+				t.Errorf("Expected display name 'Hetzner Cloud', got %q", client.DisplayName())
+			}
+
+			if !client.SupportsProvisioning() {
+				t.Error("Expected to support provisioning")
+			}
+
+			if !client.SupportsBYOS() {
+				t.Error("Expected to support BYOS")
+			}
+		})
+	}
+}

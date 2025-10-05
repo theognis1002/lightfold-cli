@@ -240,11 +240,17 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 	// Sanitize project name for use as hostname (only a-z, A-Z, 0-9, . and -)
 	sanitizedName := util.SanitizeHostname(o.projectName)
 
+	// Determine image name based on provider
+	imageName := "ubuntu-22-04-x64" // Default for DigitalOcean
+	if o.config.Provider == "hetzner" {
+		imageName = "ubuntu-22.04"
+	}
+
 	provisionConfig := providers.ProvisionConfig{
 		Name:              fmt.Sprintf("%s-app", sanitizedName),
 		Region:            region,
 		Size:              size,
-		Image:             "ubuntu-22-04-x64",
+		Image:             imageName,
 		SSHKeys:           []string{uploadedKey.ID},
 		UserData:          userData,
 		Tags:              []string{"lightfold", "auto-provisioned", o.projectName},

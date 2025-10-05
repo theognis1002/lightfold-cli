@@ -345,18 +345,20 @@ func CreateHetznerAPITokenStep(id string) Step {
 }
 
 func CreateHetznerLocationStep(id string) Step {
-	locations := []string{"nbg1", "fsn1", "hel1", "ash", "hil"}
+	// Official Hetzner Cloud locations as of 2025 (verified from docs.hetzner.com)
+	locations := []string{"fsn1", "nbg1", "hel1", "ash", "hil", "sin"}
 	locationDescs := []string{
-		"Nuremberg, Germany",
 		"Falkenstein, Germany",
+		"Nuremberg, Germany",
 		"Helsinki, Finland",
 		"Ashburn, VA, USA",
 		"Hillsboro, OR, USA",
+		"Singapore",
 	}
 
 	return NewStep(id, "Hetzner Location").
 		Type(StepTypeSelect).
-		DefaultValue("nbg1").
+		DefaultValue("fsn1").
 		Options(locations...).
 		OptionDescriptions(locationDescs...).
 		Required().
@@ -364,23 +366,103 @@ func CreateHetznerLocationStep(id string) Step {
 }
 
 func CreateHetznerServerTypeStep(id string) Step {
-	serverTypes := []string{"cx11", "cx21", "cx31", "cx41", "cx51", "cpx11", "cpx21", "cpx31"}
+	// Current Hetzner server types (2025):
+	// - CPX series (AMD EPYC): cpx11, cpx21, cpx31, cpx41, cpx51
+	// - New CX series (Intel): cx22, cx32, cx42, cx52
+	// Old CX series (cx11-cx51) deprecated Sept 2024 but may still appear in API
+	serverTypes := []string{"cpx11", "cpx21", "cpx31", "cpx41", "cx22", "cx32", "cx42", "cx52"}
 	serverTypeDescs := []string{
-		"1 vCPU, 2 GB RAM, 20 GB SSD",
-		"2 vCPUs, 4 GB RAM, 40 GB SSD",
-		"2 vCPUs, 8 GB RAM, 80 GB SSD",
-		"4 vCPUs, 16 GB RAM, 160 GB SSD",
-		"8 vCPUs, 32 GB RAM, 240 GB SSD",
-		"2 vCPUs, 2 GB RAM, 40 GB SSD (AMD)",
+		"2 vCPU, 2 GB RAM, 40 GB SSD (AMD)",
 		"3 vCPUs, 4 GB RAM, 80 GB SSD (AMD)",
 		"4 vCPUs, 8 GB RAM, 160 GB SSD (AMD)",
+		"8 vCPUs, 16 GB RAM, 240 GB SSD (AMD)",
+		"2 vCPUs, 4 GB RAM, 40 GB SSD (Intel)",
+		"4 vCPUs, 8 GB RAM, 80 GB SSD (Intel)",
+		"8 vCPUs, 16 GB RAM, 160 GB SSD (Intel)",
+		"16 vCPUs, 32 GB RAM, 320 GB SSD (Intel)",
 	}
 
 	return NewStep(id, "Server Type").
 		Type(StepTypeSelect).
-		DefaultValue("cx11").
+		DefaultValue("cpx11").
 		Options(serverTypes...).
 		OptionDescriptions(serverTypeDescs...).
+		Required().
+		Build()
+}
+
+// CreateHetznerLocationStepDynamic creates a Hetzner location step with dynamic API data
+func CreateHetznerLocationStepDynamic(id, token string) Step {
+	ctx := context.Background()
+	provider, err := providers.GetProvider("hetzner", token)
+	if err != nil {
+		return CreateHetznerLocationStep(id) // Fallback to static
+	}
+
+	regions, err := provider.GetRegions(ctx)
+	if err != nil {
+		return CreateHetznerLocationStep(id) // Fallback to static
+	}
+
+	if len(regions) == 0 {
+		return CreateHetznerLocationStep(id) // Fallback to static
+	}
+
+	var locationIDs []string
+	var locationDescs []string
+	for _, region := range regions {
+		locationIDs = append(locationIDs, region.ID)
+		locationDescs = append(locationDescs, region.Location)
+	}
+
+	return NewStep(id, "Hetzner Location").
+		Type(StepTypeSelect).
+		DefaultValue(locationIDs[0]).
+		Options(locationIDs...).
+		OptionDescriptions(locationDescs...).
+		Required().
+		Build()
+}
+
+// CreateHetznerServerTypeStepDynamic creates a Hetzner server type step with dynamic API data
+func CreateHetznerServerTypeStepDynamic(id, token, location string) Step {
+	ctx := context.Background()
+	provider, err := providers.GetProvider("hetzner", token)
+	if err != nil {
+		return CreateHetznerServerTypeStep(id) // Fallback to static
+	}
+
+	sizes, err := provider.GetSizes(ctx, location)
+	if err != nil {
+		return CreateHetznerServerTypeStep(id) // Fallback to static
+	}
+
+	if len(sizes) == 0 {
+		return CreateHetznerServerTypeStep(id) // Fallback to static
+	}
+
+	var sizeIDs []string
+	var sizeDescs []string
+	for _, size := range sizes {
+		sizeIDs = append(sizeIDs, size.ID)
+		// Format: "cx11 - 1 vCPU, 2 GB RAM, 20 GB SSD"
+		desc := fmt.Sprintf("%d vCPU, %d GB RAM, %d GB SSD", size.VCPUs, size.Memory/1024, size.Disk)
+		if size.PriceMonthly > 0 {
+			desc = fmt.Sprintf("%s (€%.2f/mo)", desc, size.PriceMonthly)
+		}
+		sizeDescs = append(sizeDescs, desc)
+	}
+
+	defaultValue := "cx11"
+	if len(sizeIDs) > 0 {
+		defaultValue = sizeIDs[0]
+	}
+
+	return NewStep(id, "Server Type").
+		Type(StepTypeSelect).
+		DefaultValue(defaultValue).
+		Options(sizeIDs...).
+		OptionDescriptions(sizeDescs...).
 		Required().
 		Build()
 }
