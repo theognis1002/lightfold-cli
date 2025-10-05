@@ -1,0 +1,22 @@
+name: Lightfold Auto Deploy
+on:
+  push:
+    branches: [ {{BRANCH}} ]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+      - name: Install Lightfold
+        run: |
+          curl -fsSL https://lightfold.sh/install | bash
+          echo "$HOME/.lightfold/bin" >> $GITHUB_PATH
+      - name: Deploy via Lightfold
+        env:
+          PROVIDER_TOKEN: ${{ secrets.PROVIDER_TOKEN }}
+        run: |
+          lightfold deploy --target {{TARGET_NAME}} --no-interactive

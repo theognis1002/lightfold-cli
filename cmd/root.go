@@ -206,6 +206,7 @@ func init() {
 	rootCmd.SetVersionTemplate("lightfold version {{.Version}}\n")
 
 	rootCmd.AddCommand(detectCmd)
+	rootCmd.AddCommand(autoDeployCmd)
 
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Output results as JSON (disables interactive mode)")
 	rootCmd.PersistentFlags().BoolVar(&skipInteractive, "no-interactive", false, "Skip interactive prompts (for CI/automation)")
