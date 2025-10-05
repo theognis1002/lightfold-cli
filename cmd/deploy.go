@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"lightfold/pkg/config"
 	"lightfold/pkg/deploy"
 	"lightfold/pkg/detector"
 	sshpkg "lightfold/pkg/ssh"
@@ -20,7 +19,6 @@ var (
 	envFile          string
 	envVars          []string
 	skipBuild        bool
-	rollbackFlag     bool
 	deployTargetFlag string
 	deployForceFlag  bool
 	deployDryRun     bool
@@ -83,15 +81,6 @@ Examples:
 		}
 
 		projectPath = filepath.Clean(projectPath)
-
-		if rollbackFlag {
-			if !exists {
-				fmt.Println("No deployment configuration found for this target.")
-				os.Exit(1)
-			}
-			handleRollback(target, projectPath)
-			return
-		}
 
 		if deployDryRun {
 			fmt.Println("DRY RUN - Deployment plan:")
@@ -241,41 +230,6 @@ Examples:
 	},
 }
 
-func handleRollback(target config.TargetConfig, projectPath string) {
-	fmt.Println("Rolling back to previous release...")
-
-	if target.Provider == "s3" {
-		fmt.Fprintf(os.Stderr, "Error: Rollback is not supported for S3 deployments\n")
-		os.Exit(1)
-	}
-
-	providerCfg, err := target.GetSSHProviderConfig()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	if providerCfg.GetIP() == "" {
-		fmt.Fprintf(os.Stderr, "Error: No server IP found in configuration\n")
-		os.Exit(1)
-	}
-
-	projectName := util.GetTargetName(projectPath)
-
-	fmt.Printf("Connecting to server at %s...\n", providerCfg.GetIP())
-	sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
-	defer sshExecutor.Disconnect()
-
-	executor := deploy.NewExecutor(sshExecutor, projectName, projectPath, nil)
-
-	if err := executor.RollbackToPreviousRelease(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error during rollback: %v\n", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("✓ Successfully rolled back to previous release")
-}
-
 func init() {
 	rootCmd.AddCommand(deployCmd)
 
@@ -285,5 +239,4 @@ func init() {
 	deployCmd.Flags().StringVar(&envFile, "env-file", "", "Path to .env file with environment variables")
 	deployCmd.Flags().StringArrayVar(&envVars, "env", []string{}, "Environment variables in KEY=VALUE format (can be used multiple times)")
 	deployCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "Skip the build step during deployment")
-	deployCmd.Flags().BoolVar(&rollbackFlag, "rollback", false, "Rollback to the previous release")
 }

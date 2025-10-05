@@ -44,6 +44,46 @@ func loadTargetOrExit(cfg *config.Config, targetName string) config.TargetConfig
 	return target
 }
 
+// resolveTarget resolves a target from three possible inputs:
+// 1. targetFlag (if provided)
+// 2. pathArg (if provided)
+// 3. "." (current directory, if neither provided)
+// Returns the resolved target config and target name, or exits with error if not found.
+func resolveTarget(cfg *config.Config, targetFlag string, pathArg string) (config.TargetConfig, string) {
+	// Determine effective target: --target flag, positional arg, or current dir
+	effectiveTarget := targetFlag
+	if effectiveTarget == "" {
+		if pathArg != "" {
+			effectiveTarget = pathArg
+		} else {
+			effectiveTarget = "."
+		}
+	}
+
+	if target, exists := cfg.GetTarget(effectiveTarget); exists {
+		return target, effectiveTarget
+	}
+
+	projectPath, err := util.ValidateProjectPath(effectiveTarget)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	targetName, target, exists := cfg.FindTargetByPath(projectPath)
+	if !exists {
+		targetName = util.GetTargetName(projectPath)
+		target, exists = cfg.GetTarget(targetName)
+		if !exists {
+			fmt.Fprintf(os.Stderr, "Error: No target found for this project\n")
+			fmt.Fprintf(os.Stderr, "Run 'lightfold create' first\n")
+			os.Exit(1)
+		}
+	}
+
+	return target, targetName
+}
+
 // createTarget creates or returns an existing target configuration.
 // If the target already exists and is created, returns the existing config.
 // Otherwise, runs framework detection and provisioning flow.

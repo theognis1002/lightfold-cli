@@ -28,21 +28,25 @@ Lightfold CLI is a framework detector and deployment tool with composable, idemp
    - Environment variable schemas
 
 4. **CLI Interface** (`cmd/`):
+   - **Unified Command Pattern**: All commands support three invocation methods:
+     1. No arguments → current directory (`lightfold deploy`)
+     2. Path argument → specific project (`lightfold deploy ~/path/to/project`)
+     3. `--target` flag → named target (`lightfold deploy --target myapp`)
    - **Composable Commands**: Independent commands for each deployment step
      - `detect` - Framework detection only (JSON output, standalone use)
      - `create` - Infrastructure creation (BYOS or auto-provision)
      - `configure` - Server configuration with idempotency checks
      - `push` - Release deployment with health checks
      - `deploy` - Orchestrator that chains all steps with smart skipping
-       - `lightfold deploy` - Deploy current directory
-       - `lightfold deploy ~/path/to/project` - Deploy specific path
-       - `lightfold deploy --target myapp` - Deploy named target
-     - `status` - View deployment state and server status
+     - `status` - View deployment state and server status (supports `--json`)
+     - `logs` - Fetch and display application logs (supports `--tail` and `--lines`)
+     - `rollback` - Instant rollback to previous release (with confirmation)
      - `config` - Manage targets and API tokens
      - `keygen` - Generate SSH keypairs
      - `ssh` - Interactive SSH sessions to deployment targets
      - `destroy` - Destroy VM and remove local configuration
-   - Clean JSON output with `--json` flag
+   - Target resolution via `resolveTarget()` helper in `cmd/common.go`
+   - Clean JSON output with `--json` flag (status command)
    - Target-based architecture (named targets, not paths)
    - Dry-run support (`--dry-run`) for preview
    - Force flags to override idempotency
@@ -75,12 +79,14 @@ lightfold/
 │   ├── configure.go      # Server configuration (idempotent)
 │   ├── push.go           # Release deployment
 │   ├── deploy.go         # Orchestrator (chains all steps)
-│   ├── status.go         # Deployment status viewer
+│   ├── status.go         # Deployment status viewer (with health checks)
+│   ├── logs.go           # Application log viewer
+│   ├── rollback.go       # Release rollback
 │   ├── config.go         # Config/token management
 │   ├── keygen.go         # SSH key generation
 │   ├── ssh.go            # Interactive SSH sessions
 │   ├── destroy.go        # VM destruction and cleanup
-│   ├── common.go         # Shared helper functions
+│   ├── common.go         # Shared helpers (resolveTarget, createTarget, configureTarget)
 │   └── ui/               # TUI components
 │       ├── detection/    # Detection results display
 │       ├── sequential/   # Token collection flows
@@ -517,6 +523,20 @@ func frameworkPlan(root string) ([]string, []string, map[string]any, []string) {
 
 When adding new composable commands, follow these patterns:
 
+**0. Resolve Target (Unified Pattern):**
+```go
+// Use resolveTarget() helper for consistent target resolution
+// Supports: current dir, path arg, or --target flag
+var pathArg string
+if len(args) > 0 {
+    pathArg = args[0]
+}
+
+cfg := loadConfigOrExit()
+target, targetName := resolveTarget(cfg, targetFlag, pathArg)
+// Now target and targetName are resolved and ready to use
+```
+
 **1. Check State First (Idempotency):**
 ```go
 // Check local state
@@ -575,13 +595,25 @@ cfg.SaveConfig()
 
 ### Command Composability
 
-Commands should be usable standalone or as part of the orchestrator:
+Commands should be usable standalone or as part of the orchestrator.
 
-**Standalone Usage:**
+**All commands support three invocation patterns:**
+
 ```bash
-lightfold create --target myapp --provider byos --ip 1.2.3.4 --ssh-key ~/.ssh/id_rsa
+# Pattern 1: Current directory (default)
+lightfold configure
+lightfold push
+lightfold status
+
+# Pattern 2: Specific path
+lightfold configure ~/Projects/myapp
+lightfold push ~/Projects/myapp
+lightfold status ~/Projects/myapp
+
+# Pattern 3: Named target
 lightfold configure --target myapp
 lightfold push --target myapp
+lightfold status --target myapp
 ```
 
 **Orchestrated Usage:**
@@ -594,6 +626,23 @@ lightfold deploy ~/Projects/myapp
 
 # Deploy named target
 lightfold deploy --target myapp
+```
+
+**New Management Commands:**
+```bash
+# View logs
+lightfold logs                  # Current directory
+lightfold logs --tail           # Stream in real-time
+lightfold logs --lines 200      # Last 200 lines
+
+# Rollback
+lightfold rollback              # Current directory (with confirmation)
+lightfold rollback --force      # Skip confirmation
+
+# Enhanced status
+lightfold status                # List all targets
+lightfold status .              # Current directory details
+lightfold status --json         # JSON output for automation
 ```
 
 ### Utility Packages (`pkg/util/`)
@@ -640,11 +689,13 @@ Generates cloud-init user data for server provisioning:
 - [ ] Performance with large projects
 
 ### Composable Commands
-- [ ] `create` - BYOS and provision modes
-- [ ] `configure` - Idempotency and force flag
-- [ ] `push` - Git commit tracking, rollback
-- [ ] `deploy` - Step skipping, dry-run, force
-- [ ] `status` - Config, state, server status display
+- [ ] `create` - BYOS and provision modes, 3 invocation patterns
+- [ ] `configure` - Idempotency and force flag, 3 invocation patterns
+- [ ] `push` - Git commit tracking, 3 invocation patterns
+- [ ] `deploy` - Step skipping, dry-run, force, 3 invocation patterns
+- [ ] `status` - Config, state, server status, health checks, uptime, --json
+- [ ] `logs` - Fetch logs, --tail streaming, --lines customization
+- [ ] `rollback` - Previous release rollback with confirmation
 - [ ] `config` - Token storage, target management
 - [ ] `ssh` - Interactive SSH sessions
 - [ ] `destroy` - VM destruction, local cleanup
@@ -700,18 +751,30 @@ This approach provides better test isolation and easier maintenance.
 
 **Command Flow:**
 ```bash
-# Full deployment (orchestrated) - 3 usage patterns
+# Full deployment (orchestrated) - 3 invocation patterns
 lightfold deploy                       # Deploy current directory
 lightfold deploy ~/Projects/myapp      # Deploy specific path
 lightfold deploy --target myapp        # Deploy named target
 
-# Individual steps (composable)
-lightfold create --target myapp --provider byos --ip 1.2.3.4 --ssh-key ~/.ssh/id_rsa
-lightfold configure --target myapp
-lightfold push --target myapp --env-file .env.production
+# Individual steps (composable) - all support 3 patterns
+lightfold create                       # Current directory
+lightfold configure ~/Projects/myapp   # Specific path
+lightfold push --target myapp          # Named target
 
-# Management
-lightfold status --target myapp
+# Management commands - all support 3 patterns
+lightfold status                       # List all targets
+lightfold status .                     # Current directory
+lightfold status --target myapp        # Named target
+lightfold status --json                # JSON output
+
+lightfold logs                         # Current directory logs
+lightfold logs --tail                  # Stream logs in real-time
+lightfold logs --lines 200             # Last 200 lines
+
+lightfold rollback                     # Rollback current directory
+lightfold rollback --force             # Skip confirmation
+
+# Configuration
 lightfold config list
 lightfold config set-token digitalocean
 
@@ -731,13 +794,19 @@ lightfold destroy --target myapp       # Destroy VM and cleanup
 ## Notes & Considerations
 
 - Keep `README.md` straightforward, lean, and no-bs. Only the most important information for the end user.
-- All commands use `--target` flag to reference named targets, not paths
+- **Unified command pattern**: All commands support 3 invocation methods (current dir, path arg, --target flag)
 - State tracking is dual: local JSON files + remote markers on servers
 - Idempotency is critical - commands check state first, then execute, then update state
-- **Code reuse pattern**: Core logic extracted to `cmd/common.go` as `createTarget()` and `configureTarget()`
-  - Cobra commands (`create`, `configure`) are thin wrappers
+- **Code reuse pattern**: Core logic extracted to `cmd/common.go`
+  - `resolveTarget()` - Unified target resolution from 3 input patterns (DRY principle)
+  - `createTarget()` and `configureTarget()` - Reusable deployment logic
+  - Cobra commands are thin wrappers that call these shared functions
   - `deploy` orchestrator calls these reusable functions directly
   - Single source of truth for all deployment logic
+- **New convenience commands**:
+  - `logs` - View application logs via journalctl (supports --tail and --lines)
+  - `rollback` - Standalone rollback command (removed from deploy --rollback)
+  - Enhanced `status` - Now includes app uptime, health checks, commit info, --json support
 - **Provider configuration storage**:
   - BYOS targets MUST store config under `provider: "byos"` key
   - DigitalOcean targets use `provider: "digitalocean"` key

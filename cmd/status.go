@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"lightfold/pkg/config"
 	sshpkg "lightfold/pkg/ssh"
 	"lightfold/pkg/state"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -14,6 +17,7 @@ import (
 
 var (
 	statusTargetFlag string
+	statusJSONFlag   bool
 
 	statusHeaderStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAC6")).Bold(true)
 	statusLabelStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Bold(true)
@@ -23,27 +27,66 @@ var (
 	statusErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
 )
 
+// StatusOutput represents the JSON structure for status output
+type StatusOutput struct {
+	Target          string                 `json:"target"`
+	ProjectPath     string                 `json:"project_path"`
+	Framework       string                 `json:"framework"`
+	Provider        string                 `json:"provider"`
+	Created         bool                   `json:"created"`
+	Configured      bool                   `json:"configured"`
+	LastCommit      string                 `json:"last_commit,omitempty"`
+	LastDeploy      string                 `json:"last_deploy,omitempty"`
+	LastRelease     string                 `json:"last_release,omitempty"`
+	ServerIP        string                 `json:"server_ip,omitempty"`
+	ServerID        string                 `json:"server_id,omitempty"`
+	ServiceStatus   string                 `json:"service_status,omitempty"`
+	ServiceUptime   string                 `json:"service_uptime,omitempty"`
+	CurrentRelease  string                 `json:"current_release,omitempty"`
+	DiskUsage       string                 `json:"disk_usage,omitempty"`
+	ServerUptime    string                 `json:"server_uptime,omitempty"`
+	HealthCheck     *HealthCheckStatus     `json:"health_check,omitempty"`
+}
+
+// HealthCheckStatus represents health check information
+type HealthCheckStatus struct {
+	Status       string `json:"status"`
+	HTTPCode     int    `json:"http_code,omitempty"`
+	ResponseTime int64  `json:"response_time_ms,omitempty"`
+	Error        string `json:"error,omitempty"`
+}
+
 var statusCmd = &cobra.Command{
-	Use:   "status",
+	Use:   "status [PROJECT_PATH]",
 	Short: "Show deployment status for targets",
 	Long: `Display status information for deployment targets.
 
-Without --target flag: Lists all configured targets with their states
-With --target flag: Shows detailed status for a specific target
+Without arguments: Lists all configured targets with their states
+With path/target: Shows detailed status for a specific target
 
 Examples:
   lightfold status                    # List all targets
-  lightfold status --target myapp     # Detailed view`,
-	Args: cobra.NoArgs,
+  lightfold status .                  # Status for current directory
+  lightfold status ~/Projects/myapp   # Status for specific project
+  lightfold status --target myapp     # Status for named target
+  lightfold status --json             # JSON output`,
+	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		cfg := loadConfigOrExit()
 
-		if statusTargetFlag == "" {
+		var pathArg string
+		if len(args) > 0 {
+			pathArg = args[0]
+		}
+
+		// If no flag and no path arg, show all targets
+		if statusTargetFlag == "" && pathArg == "" {
 			showAllTargets(cfg)
 			return
 		}
 
-		showTargetDetail(cfg, statusTargetFlag)
+		_, targetName := resolveTarget(cfg, statusTargetFlag, pathArg)
+		showTargetDetail(cfg, targetName)
 	},
 }
 
@@ -128,6 +171,21 @@ func showTargetDetail(cfg *config.Config, targetName string) {
 		os.Exit(1)
 	}
 
+	// Collect status data
+	statusData := collectStatusData(cfg, targetName, target, targetState)
+
+	// Output in JSON format if flag is set
+	if statusJSONFlag {
+		jsonData, err := json.MarshalIndent(statusData, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error marshaling JSON: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(jsonData))
+		return
+	}
+
+	// Human-readable output
 	fmt.Printf("%s %s\n", statusHeaderStyle.Render("Target:"), statusLabelStyle.Render(targetName))
 	fmt.Printf("%s\n\n", statusMutedStyle.Render("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))
 
@@ -206,6 +264,11 @@ func showTargetDetail(cfg *config.Config, targetName string) {
 				fmt.Printf("  Service:   %s\n", statusMutedStyle.Render("? Unable to check"))
 			}
 
+			// Get service uptime
+			if statusData.ServiceStatus == "active" && statusData.ServiceUptime != "" {
+				fmt.Printf("  Uptime:    %s\n", statusValueStyle.Render(statusData.ServiceUptime))
+			}
+
 			result = sshExecutor.Execute(fmt.Sprintf("readlink -f %s/%s/current 2>/dev/null || echo 'none'", config.RemoteAppBaseDir, appName))
 			if result.ExitCode == 0 {
 				currentRelease := strings.TrimSpace(result.Stdout)
@@ -226,7 +289,21 @@ func showTargetDetail(cfg *config.Config, targetName string) {
 			result = sshExecutor.Execute("uptime -p 2>/dev/null || uptime | awk '{print $3, $4}'")
 			if result.ExitCode == 0 {
 				uptime := strings.TrimSpace(result.Stdout)
-				fmt.Printf("  Uptime:    %s\n", statusValueStyle.Render(uptime))
+				fmt.Printf("  Server:    %s\n", statusValueStyle.Render(uptime))
+			}
+
+			// Display health check status
+			if statusData.HealthCheck != nil {
+				fmt.Printf("\n%s\n", statusHeaderStyle.Render("Health Check:"))
+				if statusData.HealthCheck.Status == "healthy" {
+					fmt.Printf("  Status:    %s\n", statusSuccessStyle.Render(fmt.Sprintf("✓ Healthy (HTTP %d)", statusData.HealthCheck.HTTPCode)))
+					fmt.Printf("  Response:  %s\n", statusValueStyle.Render(fmt.Sprintf("%dms", statusData.HealthCheck.ResponseTime)))
+				} else {
+					fmt.Printf("  Status:    %s\n", statusErrorStyle.Render("✗ Unhealthy"))
+					if statusData.HealthCheck.Error != "" {
+						fmt.Printf("  Error:     %s\n", statusMutedStyle.Render(statusData.HealthCheck.Error))
+					}
+				}
 			}
 		}
 		fmt.Println()
@@ -241,8 +318,151 @@ func showTargetDetail(cfg *config.Config, targetName string) {
 	}
 }
 
+// collectStatusData gathers all status information for a target
+func collectStatusData(cfg *config.Config, targetName string, target config.TargetConfig, targetState *state.TargetState) StatusOutput {
+	statusData := StatusOutput{
+		Target:      targetName,
+		ProjectPath: target.ProjectPath,
+		Framework:   target.Framework,
+		Provider:    target.Provider,
+		Created:     targetState.Created,
+		Configured:  targetState.Configured,
+		LastCommit:  targetState.LastCommit,
+		LastRelease: targetState.LastRelease,
+		ServerID:    targetState.ProvisionedID,
+	}
+
+	if !targetState.LastDeploy.IsZero() {
+		statusData.LastDeploy = targetState.LastDeploy.Format(time.RFC3339)
+	}
+
+	if target.Provider == "s3" {
+		return statusData
+	}
+
+	providerCfg, err := target.GetSSHProviderConfig()
+	if err != nil {
+		return statusData
+	}
+
+	statusData.ServerIP = providerCfg.GetIP()
+
+	if providerCfg.GetIP() == "" {
+		return statusData
+	}
+
+	sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
+	defer sshExecutor.Disconnect()
+
+	appName := strings.ReplaceAll(targetName, "-", "_")
+
+	// Get service status
+	result := sshExecutor.Execute(fmt.Sprintf("systemctl is-active %s 2>/dev/null || echo 'not-found'", appName))
+	if result.ExitCode == 0 {
+		statusData.ServiceStatus = strings.TrimSpace(result.Stdout)
+	}
+
+	// Get service uptime
+	if statusData.ServiceStatus == "active" {
+		result = sshExecutor.Execute(fmt.Sprintf("systemctl show -p ActiveEnterTimestamp %s 2>/dev/null | cut -d= -f2", appName))
+		if result.ExitCode == 0 && result.Stdout != "" {
+			timestampStr := strings.TrimSpace(result.Stdout)
+			if timestampStr != "" && timestampStr != "n/a" {
+				activeTime, err := time.Parse("Mon 2006-01-02 15:04:05 MST", timestampStr)
+				if err == nil {
+					uptime := time.Since(activeTime)
+					statusData.ServiceUptime = formatUptime(uptime)
+				}
+			}
+		}
+	}
+
+	// Get current release
+	result = sshExecutor.Execute(fmt.Sprintf("readlink -f %s/%s/current 2>/dev/null || echo 'none'", config.RemoteAppBaseDir, appName))
+	if result.ExitCode == 0 {
+		currentRelease := strings.TrimSpace(result.Stdout)
+		if currentRelease != "none" && currentRelease != "" {
+			statusData.CurrentRelease = strings.TrimPrefix(currentRelease, fmt.Sprintf("%s/%s/releases/", config.RemoteAppBaseDir, appName))
+		}
+	}
+
+	// Get disk usage
+	result = sshExecutor.Execute("df -h / | tail -1 | awk '{print $5}'")
+	if result.ExitCode == 0 {
+		statusData.DiskUsage = strings.TrimSpace(result.Stdout)
+	}
+
+	// Get server uptime
+	result = sshExecutor.Execute("uptime -p 2>/dev/null || uptime | awk '{print $3, $4}'")
+	if result.ExitCode == 0 {
+		statusData.ServerUptime = strings.TrimSpace(result.Stdout)
+	}
+
+	// Perform health check
+	if statusData.ServiceStatus == "active" {
+		healthCheck := performHealthCheck(sshExecutor)
+		statusData.HealthCheck = &healthCheck
+	}
+
+	return statusData
+}
+
+// performHealthCheck performs an HTTP health check and returns the status
+func performHealthCheck(sshExecutor *sshpkg.Executor) HealthCheckStatus {
+	healthCheck := HealthCheckStatus{
+		Status: "unhealthy",
+	}
+
+	// Measure response time
+	startTime := time.Now()
+	curlCmd := "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8000/"
+	result := sshExecutor.Execute(curlCmd)
+	responseTime := time.Since(startTime).Milliseconds()
+
+	if result.Error != nil {
+		healthCheck.Error = result.Error.Error()
+		return healthCheck
+	}
+
+	if result.ExitCode != 0 {
+		healthCheck.Error = "health check request failed"
+		return healthCheck
+	}
+
+	httpCodeStr := strings.TrimSpace(result.Stdout)
+	httpCode, err := strconv.Atoi(httpCodeStr)
+	if err != nil {
+		healthCheck.Error = "invalid HTTP response code"
+		return healthCheck
+	}
+
+	healthCheck.HTTPCode = httpCode
+	healthCheck.ResponseTime = responseTime
+
+	if httpCode >= 200 && httpCode < 400 {
+		healthCheck.Status = "healthy"
+	}
+
+	return healthCheck
+}
+
+// formatUptime formats a duration into a human-readable uptime string
+func formatUptime(d time.Duration) string {
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	minutes := int(d.Minutes()) % 60
+
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm", days, hours, minutes)
+	} else if hours > 0 {
+		return fmt.Sprintf("%dh %dm", hours, minutes)
+	}
+	return fmt.Sprintf("%dm", minutes)
+}
+
 func init() {
 	rootCmd.AddCommand(statusCmd)
 
 	statusCmd.Flags().StringVar(&statusTargetFlag, "target", "", "Target name (optional - shows all targets if omitted)")
+	statusCmd.Flags().BoolVar(&statusJSONFlag, "json", false, "Output status in JSON format")
 }

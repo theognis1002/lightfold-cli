@@ -52,25 +52,23 @@ For subsequent deployments, just run the same command - it intelligently skips c
 
 ### Primary Command
 
-- **`lightfold deploy [PATH]`** - Full deployment (recommended)
-  - `lightfold deploy` - Deploy current directory
-  - `lightfold deploy ~/Projects/myapp` - Deploy specific project
-  - `lightfold deploy --target <app>` - Deploy named target
+**`lightfold deploy`** - Full deployment (recommended)
 
 ### Advanced Commands
 
 For granular control over deployment steps:
 
-- **`lightfold create --target <app> --provider <provider>`** - Create infrastructure only
-- **`lightfold configure --target <app>`** - Configure server only
-- **`lightfold push --target <app>`** - Deploy code changes only
+- **`lightfold create`** - Create infrastructure only
+- **`lightfold configure`** - Configure server only
+- **`lightfold push`** - Deploy code changes only
 
 ### Management Commands
 
-- **`lightfold status [PATH]`** - View deployment status
-- **`lightfold ssh [PATH]`** - SSH into deployment target
-- **`lightfold deploy [PATH] --rollback`** - Rollback to previous release
-- **`lightfold destroy --target <app>`** - Destroy VM and remove local config (requires confirmation)
+- **`lightfold status`** - View deployment status
+- **`lightfold logs`** - View application logs
+- **`lightfold rollback`** - Rollback to previous release
+- **`lightfold ssh`** - SSH into deployment target
+- **`lightfold destroy`** - Destroy VM and remove local config
 
 ## Configuration
 

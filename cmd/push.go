@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"lightfold/pkg/config"
 	"lightfold/pkg/deploy"
 	"lightfold/pkg/detector"
 	sshpkg "lightfold/pkg/ssh"
@@ -45,46 +44,21 @@ This command:
 - Automatically rolls back on failure
 
 Examples:
-  lightfold push --target myapp
-  lightfold push . --target myapp --env-file .env.production
-  lightfold push --target myapp --dry-run`,
+  lightfold push                         # Push current directory
+  lightfold push ~/Projects/myapp        # Push specific project
+  lightfold push --target myapp          # Push named target
+  lightfold push --dry-run               # Preview deployment`,
 	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		var projectPath string
-		if len(args) == 0 {
-			projectPath = "."
-		} else {
-			projectPath = args[0]
-		}
-
-		var err error
-		projectPath, err = util.ValidateProjectPath(projectPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
-		}
-
 		cfg := loadConfigOrExit()
 
-		var target config.TargetConfig
-		var targetNameResolved string
-
-		if pushTargetFlag != "" {
-			target = loadTargetOrExit(cfg, pushTargetFlag)
-			targetNameResolved = pushTargetFlag
-		} else {
-			var exists bool
-			targetNameResolved, target, exists = cfg.FindTargetByPath(projectPath)
-			if !exists {
-				targetNameResolved = util.GetTargetName(projectPath)
-				target, exists = cfg.GetTarget(targetNameResolved)
-				if !exists {
-					fmt.Fprintf(os.Stderr, "Error: No target found for this project\n")
-					fmt.Fprintf(os.Stderr, "Run 'lightfold create --target %s' first\n", targetNameResolved)
-					os.Exit(1)
-				}
-			}
+		var pathArg string
+		if len(args) > 0 {
+			pathArg = args[0]
 		}
+
+		target, targetNameResolved := resolveTarget(cfg, pushTargetFlag, pathArg)
+		projectPath := target.ProjectPath
 
 		if !state.IsCreated(targetNameResolved) {
 			fmt.Fprintf(os.Stderr, "Error: Target '%s' has not been created\n", targetNameResolved)
