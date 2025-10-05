@@ -642,3 +642,163 @@ django = "^4.2.0"`,
 		})
 	}
 }
+
+// TestDjangoServerTypeDetection tests that Django ASGI and WSGI are correctly detected
+func TestDjangoServerTypeDetection(t *testing.T) {
+	tests := []struct {
+		name              string
+		projectFiles      map[string]string
+		expectedServerType string
+		expectedRunCommand string
+	}{
+		{
+			name: "Django ASGI with asgi.py file",
+			projectFiles: map[string]string{
+				"manage.py": "#!/usr/bin/env python",
+				"asgi.py":   "import os\nfrom django.core.asgi import get_asgi_application",
+				"requirements.txt": "django==4.2.0\nuvicorn==0.24.0",
+			},
+			expectedServerType: "asgi",
+			expectedRunCommand: "uvicorn",
+		},
+		{
+			name: "Django ASGI with config/asgi.py",
+			projectFiles: map[string]string{
+				"manage.py":       "#!/usr/bin/env python",
+				"config/asgi.py":  "import os\nfrom django.core.asgi import get_asgi_application",
+				"requirements.txt": "django==4.2.0\nuvicorn==0.24.0",
+			},
+			expectedServerType: "asgi",
+			expectedRunCommand: "uvicorn",
+		},
+		{
+			name: "Django ASGI detected via ASGI_APPLICATION in settings",
+			projectFiles: map[string]string{
+				"manage.py":  "#!/usr/bin/env python",
+				"settings.py": "ASGI_APPLICATION = 'myproject.asgi.application'",
+				"requirements.txt": "django==4.2.0\nuvicorn==0.24.0",
+			},
+			expectedServerType: "asgi",
+			expectedRunCommand: "uvicorn",
+		},
+		{
+			name: "Django ASGI detected via uvicorn in requirements",
+			projectFiles: map[string]string{
+				"manage.py": "#!/usr/bin/env python",
+				"requirements.txt": "django==4.2.0\nuvicorn==0.24.0",
+			},
+			expectedServerType: "asgi",
+			expectedRunCommand: "uvicorn",
+		},
+		{
+			name: "Django ASGI detected via daphne in requirements",
+			projectFiles: map[string]string{
+				"manage.py": "#!/usr/bin/env python",
+				"requirements.txt": "django==4.2.0\ndaphne==4.0.0",
+			},
+			expectedServerType: "asgi",
+			expectedRunCommand: "uvicorn",
+		},
+		{
+			name: "Django ASGI detected via channels in requirements",
+			projectFiles: map[string]string{
+				"manage.py": "#!/usr/bin/env python",
+				"requirements.txt": "django==4.2.0\nchannels==4.0.0",
+			},
+			expectedServerType: "asgi",
+			expectedRunCommand: "uvicorn",
+		},
+		{
+			name: "Django WSGI with wsgi.py file",
+			projectFiles: map[string]string{
+				"manage.py": "#!/usr/bin/env python",
+				"wsgi.py":   "import os\nfrom django.core.wsgi import get_wsgi_application",
+				"requirements.txt": "django==4.2.0\ngunicorn==21.2.0",
+			},
+			expectedServerType: "wsgi",
+			expectedRunCommand: "gunicorn",
+		},
+		{
+			name: "Django WSGI with config/wsgi.py",
+			projectFiles: map[string]string{
+				"manage.py":       "#!/usr/bin/env python",
+				"config/wsgi.py":  "import os\nfrom django.core.wsgi import get_wsgi_application",
+				"requirements.txt": "django==4.2.0\ngunicorn==21.2.0",
+			},
+			expectedServerType: "wsgi",
+			expectedRunCommand: "gunicorn",
+		},
+		{
+			name: "Django WSGI default (no asgi.py or specific indicators)",
+			projectFiles: map[string]string{
+				"manage.py": "#!/usr/bin/env python",
+				"requirements.txt": "django==4.2.0",
+			},
+			expectedServerType: "wsgi",
+			expectedRunCommand: "gunicorn",
+		},
+		{
+			name: "Django ASGI takes priority over WSGI when both exist",
+			projectFiles: map[string]string{
+				"manage.py": "#!/usr/bin/env python",
+				"asgi.py":   "import os\nfrom django.core.asgi import get_asgi_application",
+				"wsgi.py":   "import os\nfrom django.core.wsgi import get_wsgi_application",
+				"requirements.txt": "django==4.2.0\nuvicorn==0.24.0\ngunicorn==21.2.0",
+			},
+			expectedServerType: "asgi",
+			expectedRunCommand: "uvicorn",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projectPath := createTestProject(t, tt.projectFiles)
+			build, run, health, env, meta := detector.DjangoPlan(projectPath)
+
+			// Verify server_type is in metadata
+			if serverType, ok := meta["server_type"]; !ok {
+				t.Error("Expected server_type in meta but not found")
+			} else if serverType != tt.expectedServerType {
+				t.Errorf("Expected server_type '%s', got '%s'", tt.expectedServerType, serverType)
+			}
+
+			// Verify run command uses the correct server
+			if len(run) == 0 {
+				t.Fatal("Expected at least one run command")
+			}
+
+			foundCorrectServer := false
+			for _, cmd := range run {
+				if strings.Contains(cmd, tt.expectedRunCommand) {
+					foundCorrectServer = true
+					break
+				}
+			}
+			if !foundCorrectServer {
+				t.Errorf("Expected run command to contain '%s', but got: %v", tt.expectedRunCommand, run)
+			}
+
+			// Verify build commands still include Django collectstatic
+			foundCollectStatic := false
+			for _, cmd := range build {
+				if strings.Contains(cmd, "collectstatic") {
+					foundCollectStatic = true
+					break
+				}
+			}
+			if !foundCollectStatic {
+				t.Error("Expected build commands to include collectstatic")
+			}
+
+			// Verify health check is configured
+			if health == nil {
+				t.Error("Expected health check config, got nil")
+			}
+
+			// Verify environment variables are present
+			if len(env) == 0 {
+				t.Error("Expected environment variables, got empty list")
+			}
+		})
+	}
+}
