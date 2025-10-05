@@ -1,0 +1,351 @@
+package detector_test
+
+import (
+	"testing"
+)
+
+// Monorepo Detection Tests
+
+func TestTurborepoDetection(t *testing.T) {
+	tests := []struct {
+		name         string
+		files        map[string]string
+		expectedTool string
+	}{
+		{
+			name: "Turborepo with turbo.json",
+			files: map[string]string{
+				"turbo.json": `{
+  "$schema": "https://turbo.build/schema.json",
+  "pipeline": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "dist/**"]
+    }
+  }
+}`,
+				"package.json": `{
+  "name": "my-monorepo",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "devDependencies": {
+    "turbo": "^1.10.0"
+  }
+}`,
+				"apps/web/package.json": `{"name": "web", "dependencies": {"next": "^13.0.0"}}`,
+			},
+			expectedTool: "turborepo",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projectPath := createTestProject(t, tt.files)
+			detection := captureDetectFramework(t, projectPath)
+
+			if detection.Meta["monorepo_tool"] != tt.expectedTool {
+				t.Errorf("Expected monorepo_tool %s, got %s", tt.expectedTool, detection.Meta["monorepo_tool"])
+			}
+
+			if detection.Meta["monorepo"] != "true" {
+				t.Errorf("Expected monorepo to be 'true', got %s", detection.Meta["monorepo"])
+			}
+		})
+	}
+}
+
+func TestNxDetection(t *testing.T) {
+	tests := []struct {
+		name         string
+		files        map[string]string
+		expectedTool string
+	}{
+		{
+			name: "Nx monorepo with nx.json",
+			files: map[string]string{
+				"nx.json": `{
+  "npmScope": "myorg",
+  "affected": {
+    "defaultBase": "main"
+  },
+  "tasksRunnerOptions": {
+    "default": {
+      "runner": "nx/tasks-runners/default",
+      "options": {
+        "cacheableOperations": ["build", "test", "lint"]
+      }
+    }
+  }
+}`,
+				"package.json": `{
+  "name": "myorg",
+  "devDependencies": {
+    "@nrwl/workspace": "^16.0.0",
+    "nx": "^16.0.0"
+  }
+}`,
+				"apps/frontend/project.json": `{"name": "frontend"}`,
+			},
+			expectedTool: "nx",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projectPath := createTestProject(t, tt.files)
+			detection := captureDetectFramework(t, projectPath)
+
+			if detection.Meta["monorepo_tool"] != tt.expectedTool {
+				t.Errorf("Expected monorepo_tool %s, got %s", tt.expectedTool, detection.Meta["monorepo_tool"])
+			}
+
+			if detection.Meta["monorepo"] != "true" {
+				t.Errorf("Expected monorepo to be 'true', got %s", detection.Meta["monorepo"])
+			}
+		})
+	}
+}
+
+func TestLernaDetection(t *testing.T) {
+	tests := []struct {
+		name         string
+		files        map[string]string
+		expectedTool string
+	}{
+		{
+			name: "Lerna monorepo with lerna.json",
+			files: map[string]string{
+				"lerna.json": `{
+  "version": "independent",
+  "npmClient": "yarn",
+  "packages": [
+    "packages/*"
+  ]
+}`,
+				"package.json": `{
+  "name": "my-lerna-monorepo",
+  "private": true,
+  "devDependencies": {
+    "lerna": "^7.0.0"
+  }
+}`,
+				"packages/utils/package.json": `{"name": "@myorg/utils"}`,
+			},
+			expectedTool: "lerna",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projectPath := createTestProject(t, tt.files)
+			detection := captureDetectFramework(t, projectPath)
+
+			if detection.Meta["monorepo_tool"] != tt.expectedTool {
+				t.Errorf("Expected monorepo_tool %s, got %s", tt.expectedTool, detection.Meta["monorepo_tool"])
+			}
+
+			if detection.Meta["monorepo"] != "true" {
+				t.Errorf("Expected monorepo to be 'true', got %s", detection.Meta["monorepo"])
+			}
+		})
+	}
+}
+
+func TestPnpmWorkspacesDetection(t *testing.T) {
+	tests := []struct {
+		name         string
+		files        map[string]string
+		expectedTool string
+	}{
+		{
+			name: "pnpm workspaces with pnpm-workspace.yaml",
+			files: map[string]string{
+				"pnpm-workspace.yaml": `packages:
+  - 'packages/*'
+  - 'apps/*'`,
+				"package.json": `{
+  "name": "my-pnpm-monorepo",
+  "private": true
+}`,
+				"pnpm-lock.yaml": "lockfileVersion: '6.0'",
+				"packages/shared/package.json": `{"name": "@myorg/shared"}`,
+			},
+			expectedTool: "pnpm-workspaces",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projectPath := createTestProject(t, tt.files)
+			detection := captureDetectFramework(t, projectPath)
+
+			if detection.Meta["monorepo_tool"] != tt.expectedTool {
+				t.Errorf("Expected monorepo_tool %s, got %s", tt.expectedTool, detection.Meta["monorepo_tool"])
+			}
+
+			if detection.Meta["monorepo"] != "true" {
+				t.Errorf("Expected monorepo to be 'true', got %s", detection.Meta["monorepo"])
+			}
+		})
+	}
+}
+
+func TestYarnWorkspacesDetection(t *testing.T) {
+	tests := []struct {
+		name         string
+		files        map[string]string
+		expectedTool string
+	}{
+		{
+			name: "Yarn workspaces with workspaces in package.json",
+			files: map[string]string{
+				"package.json": `{
+  "name": "my-yarn-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ]
+}`,
+				"yarn.lock": "# THIS IS AN AUTOGENERATED FILE",
+				"packages/ui/package.json": `{"name": "@myorg/ui"}`,
+			},
+			expectedTool: "yarn-workspaces",
+		},
+		{
+			name: "Yarn workspaces with workspaces object",
+			files: map[string]string{
+				"package.json": `{
+  "name": "my-yarn-monorepo",
+  "private": true,
+  "workspaces": {
+    "packages": ["packages/*"],
+    "nohoist": ["**/react-native", "**/react-native/**"]
+  }
+}`,
+				"yarn.lock": "# THIS IS AN AUTOGENERATED FILE",
+			},
+			expectedTool: "yarn-workspaces",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projectPath := createTestProject(t, tt.files)
+			detection := captureDetectFramework(t, projectPath)
+
+			if detection.Meta["monorepo_tool"] != tt.expectedTool {
+				t.Errorf("Expected monorepo_tool %s, got %s", tt.expectedTool, detection.Meta["monorepo_tool"])
+			}
+
+			if detection.Meta["monorepo"] != "true" {
+				t.Errorf("Expected monorepo to be 'true', got %s", detection.Meta["monorepo"])
+			}
+		})
+	}
+}
+
+func TestMonorepoPriority(t *testing.T) {
+	tests := []struct {
+		name         string
+		files        map[string]string
+		expectedTool string
+		description  string
+	}{
+		{
+			name: "Turborepo takes priority over pnpm-workspace",
+			files: map[string]string{
+				"turbo.json":          `{"pipeline": {}}`,
+				"pnpm-workspace.yaml": `packages: ['packages/*']`,
+				"package.json":        `{"private": true}`,
+			},
+			expectedTool: "turborepo",
+			description:  "turbo.json should take priority",
+		},
+		{
+			name: "Nx takes priority over Lerna",
+			files: map[string]string{
+				"nx.json":    `{"npmScope": "myorg"}`,
+				"lerna.json": `{"version": "independent"}`,
+				"package.json": `{"private": true}`,
+			},
+			expectedTool: "nx",
+			description:  "nx.json should take priority over lerna.json",
+		},
+		{
+			name: "Lerna takes priority over pnpm-workspace",
+			files: map[string]string{
+				"lerna.json":          `{"version": "independent"}`,
+				"pnpm-workspace.yaml": `packages: ['packages/*']`,
+				"package.json":        `{"private": true}`,
+			},
+			expectedTool: "lerna",
+			description:  "lerna.json should take priority",
+		},
+		{
+			name: "pnpm-workspace takes priority over yarn workspaces",
+			files: map[string]string{
+				"pnpm-workspace.yaml": `packages: ['packages/*']`,
+				"package.json":        `{"private": true, "workspaces": ["packages/*"]}`,
+			},
+			expectedTool: "pnpm-workspaces",
+			description:  "pnpm-workspace.yaml should take priority",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projectPath := createTestProject(t, tt.files)
+			detection := captureDetectFramework(t, projectPath)
+
+			if detection.Meta["monorepo_tool"] != tt.expectedTool {
+				t.Errorf("%s: Expected monorepo_tool %s, got %s", tt.description, tt.expectedTool, detection.Meta["monorepo_tool"])
+			}
+		})
+	}
+}
+
+func TestNonMonorepoProject(t *testing.T) {
+	tests := []struct {
+		name  string
+		files map[string]string
+	}{
+		{
+			name: "Regular Next.js project",
+			files: map[string]string{
+				"next.config.js": "module.exports = {}",
+				"package.json":   `{"dependencies": {"next": "^13.0.0"}}`,
+				"pages/index.js": "export default function Home() {}",
+			},
+		},
+		{
+			name: "Regular Express.js project",
+			files: map[string]string{
+				"package.json": `{"dependencies": {"express": "^4.0.0"}}`,
+				"server.js":    "const express = require('express');",
+			},
+		},
+		{
+			name: "Regular Python project",
+			files: map[string]string{
+				"main.py":          "from fastapi import FastAPI\napp = FastAPI()",
+				"requirements.txt": "fastapi==0.104.0",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			projectPath := createTestProject(t, tt.files)
+			detection := captureDetectFramework(t, projectPath)
+
+			if _, exists := detection.Meta["monorepo_tool"]; exists {
+				t.Errorf("Expected no monorepo_tool, but got %s", detection.Meta["monorepo_tool"])
+			}
+
+			if _, exists := detection.Meta["monorepo"]; exists {
+				t.Errorf("Expected no monorepo flag, but got %s", detection.Meta["monorepo"])
+			}
+		})
+	}
+}

@@ -745,10 +745,10 @@ namespace LegacyApp
 				}
 			}
 
-			// Verify run command
+			// Verify run command uses shell expansion to find dll
 			if len(detection.RunPlan) > 0 {
-				if detection.RunPlan[0] != "dotnet out/*.dll" {
-					t.Errorf("Expected 'dotnet out/*.dll', got %s", detection.RunPlan[0])
+				if detection.RunPlan[0] != "dotnet $(ls out/*.dll | head -n 1)" {
+					t.Errorf("Expected 'dotnet $(ls out/*.dll | head -n 1)', got %s", detection.RunPlan[0])
 				}
 			}
 		})

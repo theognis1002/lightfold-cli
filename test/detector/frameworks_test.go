@@ -395,8 +395,8 @@ export default {
 </template>`,
 				"layouts/default.vue": `<template><div><slot /></div></template>`,
 			},
-			expectedFramework: "Vue.js",
-			expectedSignals:   []string{"Vue CLI or Nuxt", ".vue files"},
+			expectedFramework: "Nuxt.js",
+			expectedSignals:   []string{"nuxt.config", "package.json has nuxt"},
 		},
 		{
 			name: "Vue CLI project",
@@ -880,14 +880,13 @@ func TestGoComprehensive(t *testing.T) {
 		expectedSignals []string
 	}{
 		{
-			name: "Go web service with Gin",
+			name: "Go microservice with standard library",
 			files: map[string]string{
 				"go.mod": `module github.com/user/myapp
 
 go 1.21
 
 require (
-	github.com/gin-gonic/gin v1.9.1
 	github.com/joho/godotenv v1.4.0
 )`,
 				"main.go": `package main
@@ -897,7 +896,6 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
 )
 
@@ -906,9 +904,9 @@ func main() {
 		log.Println("No .env file found")
 	}
 
-	r := gin.Default()
-	r.GET("/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
 	})
 
 	port := os.Getenv("PORT")
@@ -917,7 +915,7 @@ func main() {
 	}
 
 	log.Printf("Server starting on port %s", port)
-	r.Run(":" + port)
+	http.ListenAndServe(":"+port, nil)
 }`,
 				"cmd/server/main.go": `package main
 
@@ -1079,13 +1077,13 @@ func GetUser(w http.ResponseWriter, r *http.Request) {
 			if len(detection.BuildPlan) > 0 {
 				found := false
 				for _, cmd := range detection.BuildPlan {
-					if cmd == "go build -o app ./..." {
+					if cmd == "go build -o app ." {
 						found = true
 						break
 					}
 				}
 				if !found {
-					t.Error("Expected 'go build -o app ./...' command not found in build plan")
+					t.Error("Expected 'go build -o app .' command not found in build plan")
 				}
 			}
 		})

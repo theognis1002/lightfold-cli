@@ -40,7 +40,6 @@ func DetectFramework(root string) Detection {
 
 	var cands []candidate
 
-	// Django
 	{
 		score := 0.0
 		signals := []string{}
@@ -71,7 +70,6 @@ func DetectFramework(root string) Detection {
 		}
 	}
 
-	// Next.js
 	{
 		score := 0.0
 		signals := []string{}
@@ -105,7 +103,64 @@ func DetectFramework(root string) Detection {
 		}
 	}
 
-	// Astro
+	{
+		score := 0.0
+		signals := []string{}
+		if has("remix.config.js") || has("remix.config.ts") {
+			score += 3
+			signals = append(signals, "remix.config")
+		}
+		if has("package.json") {
+			pj := strings.ToLower(read("package.json"))
+			if strings.Contains(pj, `"@remix-run/react"`) {
+				score += 2.5
+				signals = append(signals, "package.json has @remix-run/react")
+			}
+		}
+		if dirExists(root, "app/routes") {
+			score += 1
+			signals = append(signals, "app/routes/ directory")
+		}
+		if score > 0 {
+			cands = append(cands, candidate{
+				name:     "Remix",
+				score:    score,
+				language: "JavaScript/TypeScript",
+				signals:  signals,
+				plan:     remixPlan,
+			})
+		}
+	}
+
+	{
+		score := 0.0
+		signals := []string{}
+		if has("nuxt.config.js") || has("nuxt.config.ts") {
+			score += 3
+			signals = append(signals, "nuxt.config")
+		}
+		if has("package.json") {
+			pj := strings.ToLower(read("package.json"))
+			if strings.Contains(pj, `"nuxt"`) {
+				score += 2.5
+				signals = append(signals, "package.json has nuxt")
+			}
+		}
+		if dirExists(root, "pages") || has("app.vue") {
+			score += 1
+			signals = append(signals, "pages/ directory or app.vue")
+		}
+		if score > 0 {
+			cands = append(cands, candidate{
+				name:     "Nuxt.js",
+				score:    score,
+				language: "JavaScript/TypeScript",
+				signals:  signals,
+				plan:     nuxtPlan,
+			})
+		}
+	}
+
 	{
 		score := 0.0
 		signals := []string{}
@@ -139,7 +194,6 @@ func DetectFramework(root string) Detection {
 		}
 	}
 
-	// Gatsby
 	{
 		score := 0.0
 		signals := []string{}
@@ -173,7 +227,6 @@ func DetectFramework(root string) Detection {
 		}
 	}
 
-	// Svelte/SvelteKit
 	{
 		score := 0.0
 		signals := []string{}
@@ -206,7 +259,6 @@ func DetectFramework(root string) Detection {
 		}
 	}
 
-	// Vue.js
 	{
 		score := 0.0
 		signals := []string{}
@@ -239,7 +291,6 @@ func DetectFramework(root string) Detection {
 		}
 	}
 
-	// Angular
 	{
 		score := 0.0
 		signals := []string{}
@@ -269,7 +320,6 @@ func DetectFramework(root string) Detection {
 		}
 	}
 
-	// Laravel
 	{
 		score := 0.0
 		signals := []string{}
@@ -296,7 +346,39 @@ func DetectFramework(root string) Detection {
 		}
 	}
 
-	// Rails
+	{
+		score := 0.0
+		signals := []string{}
+		if has("symfony.lock") {
+			score += 3
+			signals = append(signals, "symfony.lock")
+		}
+		if has("bin/console") {
+			score += 2.5
+			signals = append(signals, "bin/console")
+		}
+		if has("composer.json") {
+			composerContent := strings.ToLower(read("composer.json"))
+			if strings.Contains(composerContent, "symfony") {
+				score += 2
+				signals = append(signals, "symfony in composer.json")
+			}
+		}
+		if has("config/bundles.php") {
+			score += 1
+			signals = append(signals, "config/bundles.php")
+		}
+		if score > 0 {
+			cands = append(cands, candidate{
+				name:     "Symfony",
+				score:    score,
+				language: "PHP",
+				signals:  signals,
+				plan:     symfonyPlan,
+			})
+		}
+	}
+
 	{
 		score := 0.0
 		signals := []string{}
@@ -323,7 +405,111 @@ func DetectFramework(root string) Detection {
 		}
 	}
 
-	// Go HTTP service
+	{
+		score := 0.0
+		signals := []string{}
+		if has("go.mod") {
+			score += 2
+			signals = append(signals, "go.mod")
+			goMod := strings.ToLower(read("go.mod"))
+			if strings.Contains(goMod, "github.com/gin-gonic/gin") {
+				score += 2
+				signals = append(signals, "github.com/gin-gonic/gin in go.mod")
+			}
+		}
+		if containsExt(allFiles, ".go") {
+			for _, file := range allFiles {
+				if strings.HasSuffix(file, ".go") {
+					content := strings.ToLower(read(file))
+					if strings.Contains(content, "github.com/gin-gonic/gin") {
+						score += 2
+						signals = append(signals, "Gin import in .go files")
+						break
+					}
+				}
+			}
+		}
+		if score >= 4 {
+			cands = append(cands, candidate{
+				name:     "Gin",
+				score:    score,
+				language: "Go",
+				signals:  signals,
+				plan:     ginPlan,
+			})
+		}
+	}
+
+	{
+		score := 0.0
+		signals := []string{}
+		if has("go.mod") {
+			score += 2
+			signals = append(signals, "go.mod")
+			goMod := strings.ToLower(read("go.mod"))
+			if strings.Contains(goMod, "github.com/labstack/echo") {
+				score += 2
+				signals = append(signals, "github.com/labstack/echo in go.mod")
+			}
+		}
+		if containsExt(allFiles, ".go") {
+			for _, file := range allFiles {
+				if strings.HasSuffix(file, ".go") {
+					content := strings.ToLower(read(file))
+					if strings.Contains(content, "github.com/labstack/echo") {
+						score += 2
+						signals = append(signals, "Echo import in .go files")
+						break
+					}
+				}
+			}
+		}
+		if score >= 4 {
+			cands = append(cands, candidate{
+				name:     "Echo",
+				score:    score,
+				language: "Go",
+				signals:  signals,
+				plan:     echoPlan,
+			})
+		}
+	}
+
+	{
+		score := 0.0
+		signals := []string{}
+		if has("go.mod") {
+			score += 2
+			signals = append(signals, "go.mod")
+			goMod := strings.ToLower(read("go.mod"))
+			if strings.Contains(goMod, "github.com/gofiber/fiber") {
+				score += 2
+				signals = append(signals, "github.com/gofiber/fiber in go.mod")
+			}
+		}
+		if containsExt(allFiles, ".go") {
+			for _, file := range allFiles {
+				if strings.HasSuffix(file, ".go") {
+					content := strings.ToLower(read(file))
+					if strings.Contains(content, "github.com/gofiber/fiber") {
+						score += 2
+						signals = append(signals, "Fiber import in .go files")
+						break
+					}
+				}
+			}
+		}
+		if score >= 4 {
+			cands = append(cands, candidate{
+				name:     "Fiber",
+				score:    score,
+				language: "Go",
+				signals:  signals,
+				plan:     fiberPlan,
+			})
+		}
+	}
+
 	{
 		score := 0.0
 		signals := []string{}
@@ -346,7 +532,6 @@ func DetectFramework(root string) Detection {
 		}
 	}
 
-	// Flask
 	{
 		score := 0.0
 		signals := []string{}
@@ -376,7 +561,31 @@ func DetectFramework(root string) Detection {
 		}
 	}
 
-	// Express.js
+	{
+		score := 0.0
+		signals := []string{}
+		if has("package.json") {
+			pj := strings.ToLower(read("package.json"))
+			if strings.Contains(pj, `"fastify"`) {
+				score += 2.5
+				signals = append(signals, "package.json has fastify")
+			}
+		}
+		if has("server.js") || has("app.js") {
+			score += 1
+			signals = append(signals, "server.js or app.js")
+		}
+		if score > 0 {
+			cands = append(cands, candidate{
+				name:     "Fastify",
+				score:    score,
+				language: "JavaScript/TypeScript",
+				signals:  signals,
+				plan:     fastifyPlan,
+			})
+		}
+	}
+
 	{
 		score := 0.0
 		signals := []string{}
@@ -406,7 +615,6 @@ func DetectFramework(root string) Detection {
 		}
 	}
 
-	// FastAPI
 	{
 		score := 0.0
 		signals := []string{}
@@ -435,7 +643,6 @@ func DetectFramework(root string) Detection {
 		}
 	}
 
-	// Spring Boot
 	{
 		score := 0.0
 		signals := []string{}
@@ -468,7 +675,6 @@ func DetectFramework(root string) Detection {
 		}
 	}
 
-	// ASP.NET Core
 	{
 		score := 0.0
 		signals := []string{}
@@ -495,7 +701,6 @@ func DetectFramework(root string) Detection {
 		}
 	}
 
-	// Phoenix (Elixir)
 	{
 		score := 0.0
 		signals := []string{}
@@ -523,7 +728,6 @@ func DetectFramework(root string) Detection {
 		}
 	}
 
-	// NestJS
 	{
 		score := 0.0
 		signals := []string{}
@@ -553,7 +757,307 @@ func DetectFramework(root string) Detection {
 		}
 	}
 
-	// Generic Docker
+	{
+		score := 0.0
+		signals := []string{}
+		if has("remix.config.js") || has("remix.config.ts") {
+			score += 3
+			signals = append(signals, "remix.config")
+		}
+		if has("package.json") {
+			pj := strings.ToLower(read("package.json"))
+			if strings.Contains(pj, `"@remix-run/react"`) {
+				score += 2.5
+				signals = append(signals, "package.json has @remix-run/react")
+			}
+		}
+		if dirExists(root, "app/routes") {
+			score += 1
+			signals = append(signals, "app/routes/ directory")
+		}
+		if score > 0 {
+			cands = append(cands, candidate{
+				name:     "Remix",
+				score:    score,
+				language: "JavaScript/TypeScript",
+				signals:  signals,
+				plan:     remixPlan,
+			})
+		}
+	}
+
+	{
+		score := 0.0
+		signals := []string{}
+		if has("nuxt.config.js") || has("nuxt.config.ts") {
+			score += 3
+			signals = append(signals, "nuxt.config")
+		}
+		if has("package.json") {
+			pj := strings.ToLower(read("package.json"))
+			if strings.Contains(pj, `"nuxt"`) {
+				score += 2.5
+				signals = append(signals, "package.json has nuxt")
+			}
+		}
+		if dirExists(root, "pages") || has("app.vue") {
+			score += 1
+			signals = append(signals, "pages/ directory or app.vue")
+		}
+		if score > 0 {
+			cands = append(cands, candidate{
+				name:     "Nuxt.js",
+				score:    score,
+				language: "JavaScript/TypeScript",
+				signals:  signals,
+				plan:     nuxtPlan,
+			})
+		}
+	}
+
+	{
+		score := 0.0
+		signals := []string{}
+		if has("symfony.lock") {
+			score += 3
+			signals = append(signals, "symfony.lock")
+		}
+		if has("bin/console") {
+			score += 2.5
+			signals = append(signals, "bin/console")
+		}
+		if has("composer.json") {
+			content := strings.ToLower(read("composer.json"))
+			if strings.Contains(content, "symfony") {
+				score += 2
+				signals = append(signals, "symfony in composer.json")
+			}
+		}
+		if has("config/bundles.php") {
+			score += 1
+			signals = append(signals, "config/bundles.php")
+		}
+		if score > 0 {
+			cands = append(cands, candidate{
+				name:     "Symfony",
+				score:    score,
+				language: "PHP",
+				signals:  signals,
+				plan:     symfonyPlan,
+			})
+		}
+	}
+
+	{
+		score := 0.0
+		signals := []string{}
+		if has("package.json") {
+			pj := strings.ToLower(read("package.json"))
+			if strings.Contains(pj, `"fastify"`) {
+				score += 2.5
+				signals = append(signals, "package.json has fastify")
+			}
+		}
+		if has("server.js") || has("app.js") {
+			score += 1
+			signals = append(signals, "server.js or app.js")
+		}
+		if score > 0 {
+			cands = append(cands, candidate{
+				name:     "Fastify",
+				score:    score,
+				language: "JavaScript/TypeScript",
+				signals:  signals,
+				plan:     fastifyPlan,
+			})
+		}
+	}
+
+	if c := detectGoFramework(root, allFiles, has, read, "Gin", "github.com/gin-gonic/gin", ginPlan); c.score > 0 {
+		cands = append(cands, c)
+	}
+
+	if c := detectGoFramework(root, allFiles, has, read, "Echo", "github.com/labstack/echo", echoPlan); c.score > 0 {
+		cands = append(cands, c)
+	}
+
+	if c := detectGoFramework(root, allFiles, has, read, "Fiber", "github.com/gofiber/fiber", fiberPlan); c.score > 0 {
+		cands = append(cands, c)
+	}
+
+	{
+		score := 0.0
+		signals := []string{}
+		hasContentDir := dirExists(root, "content")
+		hasHugoConfig := has("hugo.toml") || has("hugo.yaml") || has("hugo.json")
+		hasGenericConfig := has("config.toml") || has("config.yaml")
+
+		if hasHugoConfig {
+			score += 3
+			signals = append(signals, "hugo config file")
+		}
+		if hasGenericConfig && !hasHugoConfig && hasContentDir {
+			score += 3
+			signals = append(signals, "hugo config file")
+		}
+		if hasContentDir {
+			score += 2
+			signals = append(signals, "content/ directory")
+		}
+		if dirExists(root, "themes") {
+			score += 1
+			signals = append(signals, "themes/ directory")
+		}
+		if score >= 3 {
+			cands = append(cands, candidate{
+				name:     "Hugo",
+				score:    score,
+				language: "Go",
+				signals:  signals,
+				plan:     hugoPlan,
+			})
+		}
+	}
+
+	{
+		score := 0.0
+		signals := []string{}
+		if has(".eleventy.js") || has("eleventy.config.js") {
+			score += 3
+			signals = append(signals, "eleventy config")
+		}
+		if has("package.json") {
+			pj := strings.ToLower(read("package.json"))
+			if strings.Contains(pj, `"@11ty/eleventy"`) {
+				score += 2.5
+				signals = append(signals, "package.json has @11ty/eleventy")
+			}
+		}
+		if score > 0 {
+			cands = append(cands, candidate{
+				name:     "Eleventy",
+				score:    score,
+				language: "JavaScript/TypeScript",
+				signals:  signals,
+				plan:     eleventyPlan,
+			})
+		}
+	}
+
+	{
+		score := 0.0
+		signals := []string{}
+		if has("_config.yml") {
+			score += 3
+			signals = append(signals, "_config.yml")
+		}
+		if has("Gemfile") {
+			gemfile := strings.ToLower(read("Gemfile"))
+			if strings.Contains(gemfile, "jekyll") {
+				score += 2.5
+				signals = append(signals, "jekyll in Gemfile")
+			}
+		}
+		if dirExists(root, "_posts") || dirExists(root, "_site") {
+			score += 1
+			signals = append(signals, "_posts/ or _site/ directory")
+		}
+		if score > 0 {
+			cands = append(cands, candidate{
+				name:     "Jekyll",
+				score:    score,
+				language: "Ruby",
+				signals:  signals,
+				plan:     jekyllPlan,
+			})
+		}
+	}
+
+	{
+		score := 0.0
+		signals := []string{}
+		if has("docusaurus.config.js") || has("docusaurus.config.ts") {
+			score += 3
+			signals = append(signals, "docusaurus config")
+		}
+		if has("package.json") {
+			pj := strings.ToLower(read("package.json"))
+			if strings.Contains(pj, `"@docusaurus/core"`) {
+				score += 2.5
+				signals = append(signals, "package.json has @docusaurus/core")
+			}
+		}
+		if dirExists(root, "docs") || dirExists(root, "blog") {
+			score += 1
+			signals = append(signals, "docs/ or blog/ directory")
+		}
+		if score > 0 {
+			cands = append(cands, candidate{
+				name:     "Docusaurus",
+				score:    score,
+				language: "JavaScript/TypeScript",
+				signals:  signals,
+				plan:     docusaurusPlan,
+			})
+		}
+	}
+
+	// Actix-web (Rust)
+	{
+		score := 0.0
+		signals := []string{}
+		if has("Cargo.toml") {
+			score += 2.5
+			signals = append(signals, "Cargo.toml")
+			content := strings.ToLower(read("Cargo.toml"))
+			if strings.Contains(content, "actix-web") {
+				score += 2.5
+				signals = append(signals, "actix-web in Cargo.toml")
+			}
+		}
+		if containsExt(allFiles, ".rs") {
+			score += 2
+			signals = append(signals, ".rs files")
+		}
+		if score >= 4 {
+			cands = append(cands, candidate{
+				name:     "Actix-web",
+				score:    score,
+				language: "Rust",
+				signals:  signals,
+				plan:     actixPlan,
+			})
+		}
+	}
+
+	// Axum (Rust)
+	{
+		score := 0.0
+		signals := []string{}
+		if has("Cargo.toml") {
+			score += 2.5
+			signals = append(signals, "Cargo.toml")
+			content := strings.ToLower(read("Cargo.toml"))
+			if strings.Contains(content, "axum") && strings.Contains(content, "tokio") {
+				score += 2.5
+				signals = append(signals, "axum and tokio in Cargo.toml")
+			}
+		}
+		if containsExt(allFiles, ".rs") {
+			score += 2
+			signals = append(signals, ".rs files")
+		}
+		if score >= 4 {
+			cands = append(cands, candidate{
+				name:     "Axum",
+				score:    score,
+				language: "Rust",
+				signals:  signals,
+				plan:     axumPlan,
+			})
+		}
+	}
+
 	{
 		score := 0.0
 		signals := []string{}
@@ -574,6 +1078,17 @@ func DetectFramework(root string) Detection {
 
 	if len(cands) == 0 {
 		lang := dominantLanguage(extCounts)
+		meta := map[string]string{"note": "Fell back to generic. Provide custom commands."}
+
+		if runtimeVersion := detectRuntimeVersion(root, lang); runtimeVersion != "" {
+			meta["runtime_version"] = runtimeVersion
+		}
+
+		monorepoMeta := detectMonorepo(root)
+		for k, v := range monorepoMeta {
+			meta[k] = v
+		}
+
 		out := Detection{
 			Framework:   "Unknown",
 			Language:    lang,
@@ -583,7 +1098,7 @@ func DetectFramework(root string) Detection {
 			RunPlan:     []string{"# Please provide run command"},
 			Healthcheck: map[string]any{"path": "/", "expect": 200, "timeout_seconds": 30},
 			EnvSchema:   []string{},
-			Meta:        map[string]string{"note": "Fell back to generic. Provide custom commands."},
+			Meta:        meta,
 		}
 		return out
 	}
@@ -591,6 +1106,15 @@ func DetectFramework(root string) Detection {
 	best := pickBest(cands)
 
 	build, run, health, env, meta := best.plan(root)
+
+	if runtimeVersion := detectRuntimeVersion(root, best.language); runtimeVersion != "" {
+		meta["runtime_version"] = runtimeVersion
+	}
+
+	monorepoMeta := detectMonorepo(root)
+	for k, v := range monorepoMeta {
+		meta[k] = v
+	}
 
 	out := Detection{
 		Framework:   best.name,
@@ -723,6 +1247,8 @@ func mapExt(ext string) string {
 		return "Ruby"
 	case ".go":
 		return "Go"
+	case ".rs":
+		return "Rust"
 	case ".java":
 		return "Java"
 	case ".cs":
@@ -736,4 +1262,105 @@ func mapExt(ext string) string {
 	default:
 		return "Other"
 	}
+}
+
+func detectGoFramework(_ string, allFiles []string, has func(string) bool, read func(string) string, frameworkName string, importPath string, planFunc func(string) ([]string, []string, map[string]any, []string, map[string]string)) candidate {
+	score := 0.0
+	signals := []string{}
+
+	if has("go.mod") {
+		content := strings.ToLower(read("go.mod"))
+		if strings.Contains(content, importPath) {
+			score += 2
+			signals = append(signals, fmt.Sprintf("%s in go.mod", importPath))
+		}
+	}
+
+	if containsExt(allFiles, ".go") {
+		for _, f := range allFiles {
+			if strings.HasSuffix(f, ".go") {
+				content := strings.ToLower(read(f))
+				if strings.Contains(content, fmt.Sprintf(`"%s"`, importPath)) {
+					score += 2
+					signals = append(signals, fmt.Sprintf("%s import in .go files", frameworkName))
+					break
+				}
+			}
+		}
+	}
+
+	return candidate{
+		name:     frameworkName,
+		score:    score,
+		language: "Go",
+		signals:  signals,
+		plan:     planFunc,
+	}
+}
+
+// detectRuntimeVersion detects runtime version from version files
+func detectRuntimeVersion(root string, language string) string {
+	readFile := func(rel string) string {
+		b, _ := os.ReadFile(filepath.Join(root, rel))
+		return string(b)
+	}
+
+	switch language {
+	case "JavaScript/TypeScript":
+		if fileExists(root, ".nvmrc") {
+			return strings.TrimSpace(readFile(".nvmrc"))
+		}
+		if fileExists(root, ".node-version") {
+			return strings.TrimSpace(readFile(".node-version"))
+		}
+	case "Python":
+		if fileExists(root, ".python-version") {
+			return strings.TrimSpace(readFile(".python-version"))
+		}
+		if fileExists(root, "runtime.txt") {
+			content := strings.TrimSpace(readFile("runtime.txt"))
+			// Parse "python-3.11.0" format
+			return strings.TrimPrefix(content, "python-")
+		}
+	case "Ruby":
+		if fileExists(root, ".ruby-version") {
+			return strings.TrimSpace(readFile(".ruby-version"))
+		}
+	case "Go":
+		if fileExists(root, ".go-version") {
+			return strings.TrimSpace(readFile(".go-version"))
+		}
+	}
+	return ""
+}
+
+// detectMonorepo detects monorepo tools and configuration
+func detectMonorepo(root string) map[string]string {
+	result := map[string]string{}
+
+	readFile := func(rel string) string {
+		b, _ := os.ReadFile(filepath.Join(root, rel))
+		return string(b)
+	}
+
+	if fileExists(root, "turbo.json") {
+		result["monorepo_tool"] = "turborepo"
+	} else if fileExists(root, "nx.json") {
+		result["monorepo_tool"] = "nx"
+	} else if fileExists(root, "lerna.json") {
+		result["monorepo_tool"] = "lerna"
+	} else if fileExists(root, "pnpm-workspace.yaml") {
+		result["monorepo_tool"] = "pnpm-workspaces"
+	} else if fileExists(root, "package.json") {
+		content := readFile("package.json")
+		if strings.Contains(content, `"workspaces"`) {
+			result["monorepo_tool"] = "yarn-workspaces"
+		}
+	}
+
+	if result["monorepo_tool"] != "" {
+		result["monorepo"] = "true"
+	}
+
+	return result
 }

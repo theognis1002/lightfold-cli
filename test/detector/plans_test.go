@@ -187,7 +187,7 @@ func TestBuildPlans(t *testing.T) {
 				"go.mod":  "module test",
 				"main.go": "package main",
 			},
-			expectedCommands: []string{"go build -o app ./..."},
+			expectedCommands: []string{"go build -o app ."},
 			expectedPM:      "",
 		},
 	}
@@ -411,6 +411,24 @@ func TestPackageManagerPriority(t *testing.T) {
 			expected: "bun",
 		},
 		{
+			name: "yarn-berry over pnpm",
+			files: map[string]string{
+				".yarnrc.yml":    "nodeLinker: node-modules",
+				"pnpm-lock.yaml": "lockfileVersion: 6.0",
+				"package.json":   "{}",
+			},
+			expected: "yarn-berry",
+		},
+		{
+			name: "yarn-berry over yarn",
+			files: map[string]string{
+				".yarnrc.yml": "nodeLinker: node-modules",
+				"yarn.lock":   "# yarn lockfile v1",
+				"package.json": "{}",
+			},
+			expected: "yarn-berry",
+		},
+		{
 			name: "pnpm over yarn",
 			files: map[string]string{
 				"pnpm-lock.yaml": "lockfileVersion: 6.0",
@@ -428,12 +446,20 @@ func TestPackageManagerPriority(t *testing.T) {
 			expected: "yarn",
 		},
 		{
-			name: "uv over poetry",
+			name: "uv over pdm",
 			files: map[string]string{
-				"uv.lock":     "version = 1",
-				"poetry.lock": "[[package]]",
+				"uv.lock":  "version = 1",
+				"pdm.lock": "# PDM lock",
 			},
 			expected: "uv",
+		},
+		{
+			name: "pdm over poetry",
+			files: map[string]string{
+				"pdm.lock":    "# PDM lock",
+				"poetry.lock": "[[package]]",
+			},
+			expected: "pdm",
 		},
 		{
 			name: "poetry over pipenv",
