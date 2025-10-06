@@ -18,7 +18,8 @@ Framework detector and deployment tool for web applications with composable, ide
 ### Homebrew (macOS/Linux)
 
 ```bash
-brew install theognis1002/lightfold/lightfold
+brew tap theognis1002/lightfold
+brew install lightfold
 ```
 
 ### Manual Installation
