@@ -230,7 +230,6 @@ See [AGENTS.md](AGENTS.md) for architecture details and [docs/RELEASING.md](docs
 
 
 ## TODO
-[ ] `sync` command for syncing state with current VM provider
-[ ] separate `configure` command from `push` - right now we build/deploy app in `configure`
-[ ] review previous releases cleanup + consolidate where possible
-[ ] add 100% unit test coverage in `detector/` + expand detector scenarios
+- [ ] `sync` command for syncing state with current VM provider
+- [ ] separate `configure` command from `push` - right now we build/deploy app in `configure`
+- [ ] add 100% unit test coverage in `detector/` + expand detector scenarios

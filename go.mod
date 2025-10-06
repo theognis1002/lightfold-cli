@@ -9,6 +9,7 @@ require (
 	github.com/digitalocean/godo v1.165.1
 	github.com/hetznercloud/hcloud-go/v2 v2.25.1
 	github.com/spf13/cobra v1.10.1
+	github.com/vultr/govultr/v3 v3.24.0
 	golang.org/x/crypto v0.42.0
 	golang.org/x/oauth2 v0.30.0
 	golang.org/x/term v0.35.0
@@ -41,7 +42,6 @@ require (
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
-	github.com/vultr/govultr/v3 v3.24.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/net v0.43.0 // indirect
