@@ -3,15 +3,12 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"lightfold/cmd/ui/detection"
-	"lightfold/cmd/ui/spinner"
-	"lightfold/pkg/config"
 	"lightfold/pkg/detector"
 	"lightfold/pkg/util"
 	"os"
 	"path/filepath"
+	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
@@ -22,9 +19,7 @@ var (
 	jsonOutput      bool
 	skipInteractive bool
 
-	logoStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAC6")).Bold(true)
-	tipMsgStyle    = lipgloss.NewStyle().PaddingLeft(1).Foreground(lipgloss.Color("190")).Italic(true)
-	endingMsgStyle = lipgloss.NewStyle().PaddingLeft(1).Foreground(lipgloss.Color("170")).Bold(true)
+	logoStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAC6")).Bold(true)
 )
 
 const Logo = `
@@ -87,112 +82,82 @@ func runRootCommand(cmd *cobra.Command, args []string) {
 
 	fmt.Printf("%s\n", logoStyle.Render(Logo))
 
-	spinnerProgram := tea.NewProgram(spinner.InitialModel("Detecting framework..."))
+	detectionResult := detector.DetectFramework(projectPath)
 
-	var detectionResult detector.Detection
-
-	// Start spinner in background
-	go func() {
-		if _, err := spinnerProgram.Run(); err != nil {
-			// Suppress the "program was killed" error message since it's expected
-			if err.Error() != "program was killed" {
-				fmt.Fprintf(os.Stderr, "Error running spinner: %v\n", err)
-			}
-		}
-	}()
-
-	// Run detection
-	detectionResult = detector.DetectFramework(projectPath)
-
-	// Stop spinner
-	spinnerProgram.Quit()
-
-	wantsDeploy, buildCmds, runCmds, err := detection.ShowDetectionResults(detectionResult)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error showing detection results: %v\n", err)
-		os.Exit(1)
-	}
-
-	if !wantsDeploy {
-		fmt.Println("\nSkipping deployment configuration.")
-		return
-	}
-
-	targetName := util.GetTargetName(projectPath)
-
-	// Save custom build/run commands if provided
-	hasCustomCommands := false
-	if len(buildCmds) > 0 || len(runCmds) > 0 {
-		// Check if commands differ from detection defaults
-		if !slicesEqual(buildCmds, detectionResult.BuildPlan) || !slicesEqual(runCmds, detectionResult.RunPlan) {
-			hasCustomCommands = true
-			cfg, err := config.LoadConfig()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
-			} else {
-				// Create or update target with custom commands
-				target, exists := cfg.GetTarget(targetName)
-				if !exists {
-					target = config.TargetConfig{
-						ProjectPath: projectPath,
-						Framework:   detectionResult.Framework,
-					}
-				}
-
-				// Initialize deployment options if needed
-				if target.Deploy == nil {
-					target.Deploy = &config.DeploymentOptions{}
-				}
-
-				target.Deploy.BuildCommands = buildCmds
-				target.Deploy.RunCommands = runCmds
-
-				cfg.SetTarget(targetName, target)
-				if err := cfg.SaveConfig(); err != nil {
-					fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
-				} else {
-					fmt.Printf("\n%s Custom build/run commands saved to target '%s'\n",
-						lipgloss.NewStyle().Foreground(lipgloss.Color("82")).Render("✓"), targetName)
-				}
-			}
-		}
-	}
-
-	// Show next steps
-	fmt.Println("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println("Next Steps - Deploy your application:")
-	fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-	fmt.Println()
-	if hasCustomCommands {
-		fmt.Printf("   Your custom build/run commands have been saved.\n")
-		fmt.Printf("   To modify them later: lightfold config edit-deployment --target %s\n\n", targetName)
-	}
-	fmt.Printf("1. Create infrastructure:\n")
-	fmt.Printf("   BYOS:       lightfold create --target %s --provider byos --ip YOUR_IP --ssh-key ~/.ssh/id_rsa\n", targetName)
-	fmt.Printf("   Provision:  lightfold create --target %s --provider do --region nyc1 --size s-1vcpu-1gb\n", targetName)
-	fmt.Println()
-	fmt.Printf("2. Configure server:\n")
-	fmt.Printf("   lightfold configure --target %s\n", targetName)
-	fmt.Println()
-	fmt.Printf("3. Deploy code:\n")
-	fmt.Printf("   lightfold push --target %s\n", targetName)
-	fmt.Println()
-	fmt.Printf("Or use the orchestrator to run all steps:\n")
-	fmt.Printf("   lightfold deploy --target %s\n", targetName)
-	fmt.Println()
+	showDetectionResults(detectionResult)
 }
 
-// slicesEqual compares two string slices for equality
-func slicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
+// showDetectionResults displays detection results in a clean, non-interactive format
+func showDetectionResults(detection detector.Detection) {
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
+	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	signalStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#40BDA3"))
+	successCheckStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+
+	// Get target name from current directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "."
 	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+	targetName := util.GetTargetName(cwd)
+
+	// Framework info box
+	frameworkBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#01FAC6")).
+		Padding(1, 2).
+		Width(60)
+
+	var content strings.Builder
+	content.WriteString(labelStyle.Render("Target: "))
+	content.WriteString(valueStyle.Render(targetName))
+	content.WriteString("\n")
+
+	content.WriteString(labelStyle.Render("Framework: "))
+	content.WriteString(valueStyle.Render(detection.Framework))
+	content.WriteString("\n")
+
+	content.WriteString(labelStyle.Render("Language:  "))
+	content.WriteString(valueStyle.Render(detection.Language))
+	content.WriteString("\n\n")
+
+	// Detection signals
+	if len(detection.Signals) > 0 {
+		content.WriteString(labelStyle.Render("Detection signals:"))
+		content.WriteString("\n")
+		for _, signal := range detection.Signals {
+			content.WriteString(successCheckStyle.Render("  ✓ "))
+			content.WriteString(signalStyle.Render(signal))
+			content.WriteString("\n")
 		}
+		content.WriteString("\n")
 	}
-	return true
+
+	// Build Plan
+	content.WriteString(labelStyle.Render("Build Commands:"))
+	content.WriteString("\n")
+	for i, cmd := range detection.BuildPlan {
+		content.WriteString("  " + successCheckStyle.Render(fmt.Sprintf("%d.", i+1)) + " " + valueStyle.Render(cmd) + "\n")
+	}
+	content.WriteString("\n")
+
+	// Run Plan
+	content.WriteString(labelStyle.Render("Run Commands:"))
+	content.WriteString("\n")
+	for i, cmd := range detection.RunPlan {
+		content.WriteString("  " + successCheckStyle.Render(fmt.Sprintf("%d.", i+1)) + " " + valueStyle.Render(cmd) + "\n")
+	}
+
+	fmt.Printf("%s\n\n", frameworkBox.Render(content.String()))
+
+	// Next step suggestion
+	deployStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAC6"))
+	normalStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	fmt.Printf("%s%s%s\n",
+		normalStyle.Render("Run "),
+		deployStyle.Render("'lightfold deploy'"),
+		normalStyle.Render(" to deploy your app to a server"),
+	)
 }
 
 func isTerminal() bool {

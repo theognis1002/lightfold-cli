@@ -24,9 +24,7 @@ var (
 	deployDryRun      bool
 	deployBuilderFlag string
 
-	deployHeaderStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAC6")).Bold(true)
 	deployStepHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Bold(true)
-	deployStepStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
 	deploySuccessStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
 	deployMutedStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	deployValueStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
