@@ -43,7 +43,6 @@ archives:
       {{- if .Arm }}v{{ .Arm }}{{ end }}
     builds:
       - lightfold
-    rlcp: true
     files:
       - README.md
       - LICENSE*
@@ -82,13 +81,11 @@ changelog:
     - title: 'Other Changes'
       order: 999
 
-homebrews:
+brews:
   - name: lightfold
     repository:
       owner: theognis1002
       name: homebrew-lightfold
-      # GoReleaser will create this repo automatically on first release
-      # Or you can create it manually before running the release
     homepage: https://github.com/theognis1002/lightfold-cli
     description: "Framework detector and deployment tool for web applications"
     license: MIT
