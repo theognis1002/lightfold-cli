@@ -46,9 +46,10 @@ archives:
     files:
       - README.md
       - LICENSE*
-    formats:
-      - tar.gz
-      - zip
+    format_overrides:
+      - goos: windows
+        format: zip
+    format: tar.gz
 
 checksum:
   name_template: 'checksums.txt'
@@ -83,6 +84,8 @@ changelog:
 
 brews:
   - name: lightfold
+    ids:
+      - lightfold-archive
     repository:
       owner: theognis1002
       name: homebrew-lightfold
