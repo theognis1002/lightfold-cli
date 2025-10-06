@@ -7,9 +7,7 @@ import (
 	"lightfold/pkg/state"
 	"lightfold/pkg/util"
 	"os"
-	"os/signal"
 	"path/filepath"
-	"syscall"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
@@ -255,16 +253,8 @@ func connectInteractiveSSH(host, username, keyPath string) error {
 	session.Stderr = os.Stderr
 	session.Stdin = os.Stdin
 
-	sigwinch := make(chan os.Signal, 1)
-	signal.Notify(sigwinch, syscall.SIGWINCH)
-	go func() {
-		for range sigwinch {
-			w, h, err := term.GetSize(fd)
-			if err == nil {
-				session.WindowChange(h, w)
-			}
-		}
-	}()
+	// Setup terminal window resize handling (platform-specific)
+	setupWindowChangeHandler(session, fd)
 
 	if err := session.Shell(); err != nil {
 		return fmt.Errorf("failed to start shell: %w", err)
