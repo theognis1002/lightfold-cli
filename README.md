@@ -6,6 +6,7 @@ Framework detector and deployment tool for web applications with composable, ide
 
 - **Framework Detection**: Detects 16+ frameworks (Next.js, Astro, Django, FastAPI, Express.js, tRPC, NestJS, Laravel, Rails, etc.)
 - **Package Manager Detection**: npm, yarn, pnpm, bun, pip, poetry, uv, pipenv
+- **Pluggable Builders**: Native (traditional), Nixpacks (auto-detected), or Dockerfile (reserved)
 - **Composable Commands**: Run deployment steps independently or orchestrated together
 - **Idempotent Operations**: Safe to rerun commands - skips already-completed steps
 - **Multi-Provider Support**: DigitalOcean, Vultr, Hetzner Cloud, S3, BYOS (Bring Your Own Server)
@@ -42,9 +43,10 @@ On first run, you'll be prompted to:
 
 Then Lightfold automatically:
 1. Detects your framework
-2. Provisions infrastructure
-3. Configures the server
-4. Deploys your code
+2. Selects optimal builder (Dockerfile → Nixpacks → Native)
+3. Provisions infrastructure
+4. Configures the server
+5. Deploys your code
 
 For subsequent deployments, just run the same command - it intelligently skips completed steps and only redeploys code changes.
 
@@ -83,6 +85,7 @@ Config stored in `~/.lightfold/config.json`:
       "project_path": "/path/to/project",
       "framework": "Next.js",
       "provider": "digitalocean",
+      "builder": "nixpacks",
       "provider_config": {
         "digitalocean": {
           "ip": "192.168.1.100",
@@ -124,13 +127,15 @@ State per target in `~/.lightfold/state/<target>.json`:
   "last_commit": "abc123...",
   "last_deploy": "2025-10-03T10:30:00Z",
   "last_release": "20251003103000",
-  "provisioned_id": "123456789"
+  "provisioned_id": "123456789",
+  "builder": "nixpacks"
 }
 ```
 
 
 ## Detection
 
+### Framework Detection
 Uses scoring system based on:
 1. Framework config files (highest priority)
 2. Package manager lockfiles and dependencies
@@ -139,6 +144,14 @@ Uses scoring system based on:
 ### Package Manager Priority
 - **JavaScript/TypeScript**: bun → pnpm → yarn → npm
 - **Python**: uv → poetry → pipenv → pip
+
+### Builder Selection
+Auto-selection priority:
+1. **Dockerfile exists** → use `dockerfile` builder
+2. **Node/Python + nixpacks available** → use `nixpacks` builder
+3. **Fallback** → use `native` builder
+
+Override with `--builder` flag.
 
 ## Supported Frameworks
 

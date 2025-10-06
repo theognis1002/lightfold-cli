@@ -27,6 +27,15 @@ Lightfold CLI is a framework detector and deployment tool with composable, idemp
    - Health check endpoints
    - Environment variable schemas
 
+3.5. **Builder System** (`pkg/builders/`):
+   - Pluggable build strategies with registry pattern
+   - **Native Builder**: Traditional approach using framework detection + nginx
+   - **Nixpacks Builder**: Railway's Nixpacks for auto-detected builds
+   - **Dockerfile Builder**: Reserved for future Docker-based builds
+   - Auto-selection priority: Dockerfile exists → `dockerfile`, Node/Python + nixpacks available → `nixpacks`, else → `native`
+   - Builder choice persisted in config and state for retry resilience
+   - Interface: `Name()`, `IsAvailable()`, `Build()`, `NeedsNginx()`
+
 4. **CLI Interface** (`cmd/`):
    - **Unified Command Pattern**: All commands support three invocation methods:
      1. No arguments → current directory (`lightfold deploy`)
@@ -37,7 +46,7 @@ Lightfold CLI is a framework detector and deployment tool with composable, idemp
      - `create` - Infrastructure creation (BYOS or auto-provision)
      - `configure` - Server configuration with idempotency checks
      - `push` - Release deployment with health checks
-     - `deploy` - Orchestrator that chains all steps with smart skipping
+     - `deploy` - Orchestrator that chains all steps with smart skipping (supports `--builder` flag)
      - `status` - View deployment state and server status (supports `--json`)
      - `logs` - Fetch and display application logs (supports `--tail` and `--lines`)
      - `rollback` - Instant rollback to previous release (with confirmation)
@@ -46,22 +55,24 @@ Lightfold CLI is a framework detector and deployment tool with composable, idemp
      - `ssh` - Interactive SSH sessions to deployment targets
      - `destroy` - Destroy VM and remove local configuration
    - Target resolution via `resolveTarget()` helper in `cmd/common.go`
+   - Builder resolution via `resolveBuilder()` helper with 3-layer priority (flag > config > auto-detect)
    - Clean JSON output with `--json` flag (status command)
    - Target-based architecture (named targets, not paths)
    - Dry-run support (`--dry-run`) for preview
    - Force flags to override idempotency
+   - Builder selection with `--builder` flag (native, nixpacks, dockerfile)
 
 5. **State Tracking** (`pkg/state/`):
    - Local state files per target: `~/.lightfold/state/<target>.json`
    - Remote state markers on servers: `/etc/lightfold/{created,configured}`
    - Git commit tracking to skip unchanged deployments
-   - Tracks: last commit, last deploy time, last release ID, provision ID
+   - Tracks: last commit, last deploy time, last release ID, provision ID, builder
    - Enables idempotent operations and intelligent step skipping
 
 6. **Configuration Management** (`pkg/config/`):
    - **Target-Based Config**: Named deployment targets (not path-based)
    - Structure: `~/.lightfold/config.json` with `targets` map
-   - Each target stores: project path, framework, provider, provider config
+   - Each target stores: project path, framework, provider, builder, provider config
    - Secure API token storage in `~/.lightfold/tokens.json` (0600 permissions)
    - Provider-agnostic config interface with `ProviderConfig` methods
    - Support for BYOS and provisioned configurations per target
@@ -98,6 +109,12 @@ lightfold/
 │   │   ├── detector.go   # Core detection logic
 │   │   ├── plans.go      # Build/run plans
 │   │   └── exports.go    # Test helpers
+│   ├── builders/         # Build system registry
+│   │   ├── builder.go    # Builder interface
+│   │   ├── registry.go   # Builder factory + auto-selection
+│   │   ├── native/       # Native builder implementation
+│   │   ├── nixpacks/     # Nixpacks builder implementation
+│   │   └── dockerfile/   # Dockerfile builder (stub)
 │   ├── config/           # Configuration management
 │   │   ├── config.go     # Target-based config + tokens
 │   │   └── deployment.go # Deployment options processing
@@ -274,6 +291,7 @@ Lightfold uses a composable architecture where each deployment step is an indepe
       "project_path": "/path/to/project",
       "framework": "Next.js",
       "provider": "digitalocean",
+      "builder": "nixpacks",
       "provider_config": {
         "digitalocean": {
           "ip": "192.168.1.100",
@@ -302,7 +320,8 @@ Lightfold uses a composable architecture where each deployment step is an indepe
   "last_commit": "abc123...",
   "last_deploy": "2025-10-03T10:30:00Z",
   "last_release": "20251003103000",
-  "provisioned_id": "123456789"
+  "provisioned_id": "123456789",
+  "builder": "nixpacks"
 }
 ```
 
@@ -753,10 +772,11 @@ This approach provides better test isolation and easier maintenance.
 
 **Command Flow:**
 ```bash
-# Full deployment (orchestrated) - 3 invocation patterns
-lightfold deploy                       # Deploy current directory
-lightfold deploy ~/Projects/myapp      # Deploy specific path
-lightfold deploy --target myapp        # Deploy named target
+# Full deployment (orchestrated) - 3 invocation patterns + builder flag
+lightfold deploy                       # Deploy current directory (auto-detects builder)
+lightfold deploy ~/Projects/myapp      # Deploy specific path (auto-detects builder)
+lightfold deploy --target myapp        # Deploy named target (auto-detects builder)
+lightfold deploy --builder nixpacks    # Force nixpacks builder
 
 # Individual steps (composable) - all support 3 patterns
 lightfold create                       # Current directory
