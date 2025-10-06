@@ -5,7 +5,7 @@ import (
 )
 
 // ActixPlan returns the build and run plan for Actix
-func ActixPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
+func ActixPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{
 		"cargo build --release",
 	}
@@ -19,7 +19,7 @@ func ActixPlan(root string) ([]string, []string, map[string]any, []string, map[s
 }
 
 // AxumPlan returns the build and run plan for Axum
-func AxumPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
+func AxumPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{
 		"cargo build --release",
 	}

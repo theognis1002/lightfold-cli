@@ -5,7 +5,7 @@ import (
 )
 
 // LaravelPlan returns the build and run plan for Laravel
-func LaravelPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
+func LaravelPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{
 		"composer install --no-dev --optimize-autoloader",
 		"php artisan migrate --force",
@@ -21,7 +21,7 @@ func LaravelPlan(root string) ([]string, []string, map[string]any, []string, map
 }
 
 // SymfonyPlan returns the build and run plan for Symfony
-func SymfonyPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
+func SymfonyPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{
 		"composer install --no-dev --optimize-autoloader",
 		"php bin/console cache:clear --env=prod",

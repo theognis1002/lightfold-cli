@@ -5,7 +5,7 @@ import (
 )
 
 // PhoenixPlan returns the build and run plan for Phoenix
-func PhoenixPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
+func PhoenixPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{
 		"mix deps.get",
 		"mix compile",

@@ -1,18 +1,20 @@
 package detectors
 
+// FSReader provides filesystem operations for detection
+// This is a forward declaration that will be satisfied by detector.FSReader
+type FSReader interface {
+	Has(path string) bool
+	Read(path string) string
+	DirExists(path string) bool
+	ContainsExt(files []string, ext string) bool
+	ScanTree() ([]string, map[string]int, error)
+}
+
 // Candidate represents a framework detection candidate
 type Candidate struct {
 	Name     string
 	Score    float64
 	Language string
 	Signals  []string
-	Plan     func(root string) (build []string, run []string, health map[string]any, env []string, meta map[string]string)
-}
-
-// HelperFuncs contains helper functions for detection
-type HelperFuncs struct {
-	Has         func(string) bool
-	Read        func(string) string
-	DirExists   func(string, string) bool
-	ContainsExt func([]string, string) bool
+	Plan     any // Plan function that takes an FSReader and returns build, run, health, env, meta
 }

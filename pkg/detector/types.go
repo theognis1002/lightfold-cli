@@ -1,5 +1,7 @@
 package detector
 
+import "lightfold/pkg/detector/detectors"
+
 // Detection represents the result of framework detection
 type Detection struct {
 	Framework   string            `json:"framework"`
@@ -13,11 +15,5 @@ type Detection struct {
 	Meta        map[string]string `json:"meta,omitempty"`
 }
 
-// candidate represents a framework candidate during detection
-type candidate struct {
-	name     string
-	score    float64
-	language string
-	signals  []string
-	plan     func(root string) (build []string, run []string, health map[string]any, env []string, meta map[string]string)
-}
+// Candidate is an alias for detectors.Candidate
+type Candidate = detectors.Candidate

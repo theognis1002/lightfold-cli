@@ -6,6 +6,36 @@ import (
 	"testing"
 )
 
+// mockFSReader implements FSReader for testing
+type mockFSReader struct {
+	root string
+}
+
+func newMockFSReader(root string) *mockFSReader {
+	return &mockFSReader{root: root}
+}
+
+func (m *mockFSReader) Has(path string) bool {
+	fullPath := filepath.Join(m.root, path)
+	_, err := os.Stat(fullPath)
+	return err == nil
+}
+
+func (m *mockFSReader) Read(path string) string {
+	fullPath := filepath.Join(m.root, path)
+	data, err := os.ReadFile(fullPath)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func (m *mockFSReader) DirExists(path string) bool {
+	fullPath := filepath.Join(m.root, path)
+	fi, err := os.Stat(fullPath)
+	return err == nil && fi.IsDir()
+}
+
 func TestParseNextConfig(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -70,7 +100,8 @@ func TestParseNextConfig(t *testing.T) {
 				os.Mkdir(filepath.Join(tmpDir, "pages"), 0755)
 			}
 
-			config := ParseNextConfig(tmpDir)
+			fs := newMockFSReader(tmpDir)
+		config := ParseNextConfig(fs)
 
 			if config.OutputMode != tt.expectedOutput {
 				t.Errorf("OutputMode = %v, want %v", config.OutputMode, tt.expectedOutput)
@@ -131,7 +162,8 @@ func TestParsePackageJSON(t *testing.T) {
 			tmpDir := t.TempDir()
 			os.WriteFile(filepath.Join(tmpDir, "package.json"), []byte(tt.packageJSON), 0644)
 
-			pkg := ParsePackageJSON(tmpDir)
+			fs := newMockFSReader(tmpDir)
+		pkg := ParsePackageJSON(fs)
 
 			// Check scripts
 			for k, v := range tt.expectedScripts {
@@ -395,7 +427,8 @@ func TestDetectMonorepoType(t *testing.T) {
 				os.WriteFile(filepath.Join(tmpDir, file), []byte(content), 0644)
 			}
 
-			result := DetectMonorepoType(tmpDir)
+			fs := newMockFSReader(tmpDir)
+		result := DetectMonorepoType(fs)
 			if result != tt.expected {
 				t.Errorf("DetectMonorepoType() = %v, want %v", result, tt.expected)
 			}

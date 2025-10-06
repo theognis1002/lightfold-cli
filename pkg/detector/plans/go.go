@@ -5,7 +5,7 @@ import (
 )
 
 // GinPlan returns the build and run plan for Gin
-func GinPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
+func GinPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{
 		"go build -o app .",
 	}
@@ -19,7 +19,7 @@ func GinPlan(root string) ([]string, []string, map[string]any, []string, map[str
 }
 
 // EchoPlan returns the build and run plan for Echo
-func EchoPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
+func EchoPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{
 		"go build -o app .",
 	}
@@ -33,7 +33,7 @@ func EchoPlan(root string) ([]string, []string, map[string]any, []string, map[st
 }
 
 // FiberPlan returns the build and run plan for Fiber
-func FiberPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
+func FiberPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{
 		"go build -o app .",
 	}
@@ -47,7 +47,7 @@ func FiberPlan(root string) ([]string, []string, map[string]any, []string, map[s
 }
 
 // GoPlan returns the build and run plan for generic Go applications
-func GoPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
+func GoPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{
 		"go build -o app .",
 	}
@@ -61,7 +61,7 @@ func GoPlan(root string) ([]string, []string, map[string]any, []string, map[stri
 }
 
 // HugoPlan returns the build and run plan for Hugo
-func HugoPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
+func HugoPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{
 		"hugo --minify",
 	}

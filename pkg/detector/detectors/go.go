@@ -8,32 +8,32 @@ import (
 )
 
 // DetectGo detects Go frameworks
-func DetectGo(root string, allFiles []string, helpers HelperFuncs) []Candidate {
+func DetectGo(fs FSReader, allFiles []string) []Candidate {
 	var candidates []Candidate
 	hasSpecificFramework := false
 
-	if c := detectGoFramework(allFiles, helpers, "Gin", "github.com/gin-gonic/gin", plans.GinPlan); c.Score >= 4 {
+	if c := detectGoFramework(fs, allFiles, "Gin", "github.com/gin-gonic/gin", plans.GinPlan); c.Score >= 4 {
 		candidates = append(candidates, c)
 		hasSpecificFramework = true
 	}
 
-	if c := detectGoFramework(allFiles, helpers, "Echo", "github.com/labstack/echo", plans.EchoPlan); c.Score >= 4 {
+	if c := detectGoFramework(fs, allFiles, "Echo", "github.com/labstack/echo", plans.EchoPlan); c.Score >= 4 {
 		candidates = append(candidates, c)
 		hasSpecificFramework = true
 	}
 
-	if c := detectGoFramework(allFiles, helpers, "Fiber", "github.com/gofiber/fiber", plans.FiberPlan); c.Score >= 4 {
+	if c := detectGoFramework(fs, allFiles, "Fiber", "github.com/gofiber/fiber", plans.FiberPlan); c.Score >= 4 {
 		candidates = append(candidates, c)
 		hasSpecificFramework = true
 	}
 
-	if c := detectHugo(root, helpers); c.Score >= 3 {
+	if c := detectHugo(fs); c.Score >= 3 {
 		candidates = append(candidates, c)
 		hasSpecificFramework = true
 	}
 
 	if !hasSpecificFramework {
-		if c := detectGenericGo(root, allFiles, helpers); c.Score > 0 {
+		if c := detectGenericGo(fs, allFiles); c.Score > 0 {
 			candidates = append(candidates, c)
 		}
 	}
@@ -41,91 +41,51 @@ func DetectGo(root string, allFiles []string, helpers HelperFuncs) []Candidate {
 	return candidates
 }
 
-func detectGoFramework(allFiles []string, h HelperFuncs, frameworkName string, importPath string, planFunc func(string) ([]string, []string, map[string]any, []string, map[string]string)) Candidate {
-	score := 0.0
-	signals := []string{}
+func detectGoFramework(fs FSReader, allFiles []string, frameworkName string, importPath string, planFunc any) Candidate {
+	builder := NewDetectionBuilder(frameworkName, "Go", fs).
+		CheckContent("go.mod", importPath, ScoreLockfile, fmt.Sprintf("%s in go.mod", importPath))
 
-	if h.Has("go.mod") {
-		content := strings.ToLower(h.Read("go.mod"))
-		if strings.Contains(content, importPath) {
-			score += 2
-			signals = append(signals, fmt.Sprintf("%s in go.mod", importPath))
-		}
-	}
-
-	if h.ContainsExt(allFiles, ".go") {
+	if fs.ContainsExt(allFiles, ".go") {
 		for _, f := range allFiles {
 			if strings.HasSuffix(f, ".go") {
-				content := strings.ToLower(h.Read(f))
+				content := strings.ToLower(fs.Read(f))
 				if strings.Contains(content, `"`+importPath) {
-					score += 2
-					signals = append(signals, fmt.Sprintf("%s import in .go files", frameworkName))
+					builder.score += ScoreLockfile
+					builder.signals = append(builder.signals, fmt.Sprintf("%s import in .go files", frameworkName))
 					break
 				}
 			}
 		}
 	}
 
-	return Candidate{
-		Name:     frameworkName,
-		Score:    score,
-		Language: "Go",
-		Signals:  signals,
-		Plan:     planFunc,
-	}
+	return builder.Build(planFunc)
 }
 
-func detectHugo(root string, h HelperFuncs) Candidate {
-	score := 0.0
-	signals := []string{}
-	hasContentDir := h.DirExists(root, "content")
-	hasHugoConfig := h.Has("hugo.toml") || h.Has("hugo.yaml") || h.Has("hugo.json")
-	hasGenericConfig := h.Has("config.toml") || h.Has("config.yaml")
+func detectHugo(fs FSReader) Candidate {
+	hasContentDir := fs.DirExists("content")
+	hasHugoConfig := fs.Has("hugo.toml") || fs.Has("hugo.yaml") || fs.Has("hugo.json")
+	hasGenericConfig := fs.Has("config.toml") || fs.Has("config.yaml")
+
+	builder := NewDetectionBuilder("Hugo", "Go", fs)
 
 	if hasHugoConfig {
-		score += 3
-		signals = append(signals, "hugo config file")
+		builder.score += ScoreConfigFile
+		builder.signals = append(builder.signals, "hugo config file")
 	}
 	if hasGenericConfig && !hasHugoConfig && hasContentDir {
-		score += 3
-		signals = append(signals, "hugo config file")
-	}
-	if hasContentDir {
-		score += 2
-		signals = append(signals, "content/ directory")
-	}
-	if h.DirExists(root, "themes") {
-		score += 1
-		signals = append(signals, "themes/ directory")
+		builder.score += ScoreConfigFile
+		builder.signals = append(builder.signals, "hugo config file")
 	}
 
-	return Candidate{
-		Name:     "Hugo",
-		Score:    score,
-		Language: "Go",
-		Signals:  signals,
-		Plan:     plans.HugoPlan,
-	}
+	return builder.
+		CheckDir("content", ScoreLockfile, "content/ directory").
+		CheckDir("themes", ScoreStructure, "themes/ directory").
+		Build(plans.HugoPlan)
 }
 
-func detectGenericGo(root string, allFiles []string, h HelperFuncs) Candidate {
-	score := 0.0
-	signals := []string{}
-
-	if h.Has("go.mod") {
-		score += 2.5
-		signals = append(signals, "go.mod")
-	}
-	if h.Has("main.go") || h.ContainsExt(allFiles, ".go") {
-		score += 2
-		signals = append(signals, "main.go/.go files")
-	}
-
-	return Candidate{
-		Name:     "Go",
-		Score:    score,
-		Language: "Go",
-		Signals:  signals,
-		Plan:     plans.GoPlan,
-	}
+func detectGenericGo(fs FSReader, allFiles []string) Candidate {
+	return NewDetectionBuilder("Go", "Go", fs).
+		CheckFile("go.mod", ScoreDependency, "go.mod").
+		CheckCondition(fs.Has("main.go") || fs.ContainsExt(allFiles, ".go"), ScoreLockfile, "main.go/.go files").
+		Build(plans.GoPlan)
 }

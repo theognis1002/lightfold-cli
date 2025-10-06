@@ -7,499 +7,214 @@ import (
 )
 
 // DetectJavaScript detects JavaScript/TypeScript frameworks
-func DetectJavaScript(root string, allFiles []string, helpers HelperFuncs) []Candidate {
+func DetectJavaScript(fs FSReader, allFiles []string) []Candidate {
 	var candidates []Candidate
 
-	if c := detectNextJS(root, helpers); c.Score > 0 {
+	if c := detectNextJS(fs); c.Score > 0 {
 		candidates = append(candidates, c)
 	}
 
-	if c := detectRemix(root, helpers); c.Score > 0 {
+	if c := detectRemix(fs); c.Score > 0 {
 		candidates = append(candidates, c)
 	}
 
-	if c := detectNuxt(root, helpers); c.Score > 0 {
+	if c := detectNuxt(fs); c.Score > 0 {
 		candidates = append(candidates, c)
 	}
 
-	if c := detectAstro(root, helpers); c.Score > 0 {
+	if c := detectAstro(fs); c.Score > 0 {
 		candidates = append(candidates, c)
 	}
 
-	if c := detectGatsby(root, helpers); c.Score > 0 {
+	if c := detectGatsby(fs); c.Score > 0 {
 		candidates = append(candidates, c)
 	}
 
-	if c := detectSvelte(root, helpers); c.Score > 0 {
+	if c := detectSvelte(fs); c.Score > 0 {
 		candidates = append(candidates, c)
 	}
 
-	if c := detectVue(root, allFiles, helpers); c.Score > 0 {
+	if c := detectVue(fs, allFiles); c.Score > 0 {
 		candidates = append(candidates, c)
 	}
 
-	if c := detectAngular(root, helpers); c.Score > 0 {
+	if c := detectAngular(fs); c.Score > 0 {
 		candidates = append(candidates, c)
 	}
 
-	if c := detectNestJS(root, helpers); c.Score > 0 {
+	if c := detectNestJS(fs); c.Score > 0 {
 		candidates = append(candidates, c)
 	}
 
-	if c := detectTRPC(root, helpers); c.Score > 0 {
+	if c := detectTRPC(fs); c.Score > 0 {
 		candidates = append(candidates, c)
 	}
 
-	if c := detectEleventy(root, helpers); c.Score > 0 {
+	if c := detectEleventy(fs); c.Score > 0 {
 		candidates = append(candidates, c)
 	}
 
-	if c := detectDocusaurus(root, helpers); c.Score > 0 {
+	if c := detectDocusaurus(fs); c.Score > 0 {
 		candidates = append(candidates, c)
 	}
 
-	if c := detectFastify(root, helpers); c.Score > 0 {
+	if c := detectFastify(fs); c.Score > 0 {
 		candidates = append(candidates, c)
 	}
 
-	if c := detectExpress(root, helpers); c.Score > 0 {
+	if c := detectExpress(fs); c.Score > 0 {
 		candidates = append(candidates, c)
 	}
 
 	return candidates
 }
 
-func detectNextJS(root string, h HelperFuncs) Candidate {
-	score := 0.0
-	signals := []string{}
-
-	if h.Has("next.config.js") || h.Has("next.config.ts") {
-		score += 2.5
-		signals = append(signals, "next.config")
-	}
-	if h.Has("package.json") {
-		pj := strings.ToLower(h.Read("package.json"))
-		if strings.Contains(pj, `"next"`) {
-			score += 2.5
-			signals = append(signals, "package.json has next")
-		}
-		if strings.Contains(pj, `"scripts"`) && (strings.Contains(pj, `"next build"`) || strings.Contains(pj, `"next dev"`)) {
-			score += 1
-			signals = append(signals, "package.json scripts for next")
-		}
-	}
-	if h.DirExists(root, "pages") || h.DirExists(root, "app") {
-		score += 0.5
-		signals = append(signals, "pages/ or app/ folder")
-	}
-
-	return Candidate{
-		Name:     "Next.js",
-		Score:    score,
-		Language: "JavaScript/TypeScript",
-		Signals:  signals,
-		Plan:     plans.NextPlan,
-	}
+func detectNextJS(fs FSReader) Candidate {
+	return NewDetectionBuilder("Next.js", "JavaScript/TypeScript", fs).
+		CheckAnyFile([]string{"next.config.js", "next.config.ts"}, ScoreBuildTool, "next.config").
+		CheckDependency("package.json", `"next"`, ScoreDependency, "package.json has next").
+		CheckContent("package.json", `"next build"`, ScoreScriptPattern, "package.json scripts for next").
+		CheckAnyDir([]string{"pages", "app"}, ScoreMinorIndicator, "pages/ or app/ folder").
+		Build(plans.NextPlan)
 }
 
-func detectRemix(root string, h HelperFuncs) Candidate {
-	score := 0.0
-	signals := []string{}
-
-	if h.Has("remix.config.js") || h.Has("remix.config.ts") {
-		score += 3
-		signals = append(signals, "remix.config")
-	}
-	if h.Has("package.json") {
-		pj := strings.ToLower(h.Read("package.json"))
-		if strings.Contains(pj, `"@remix-run/react"`) {
-			score += 2.5
-			signals = append(signals, "package.json has @remix-run/react")
-		}
-	}
-	if h.DirExists(root, "app/routes") {
-		score += 1
-		signals = append(signals, "app/routes/ directory")
-	}
-
-	return Candidate{
-		Name:     "Remix",
-		Score:    score,
-		Language: "JavaScript/TypeScript",
-		Signals:  signals,
-		Plan:     plans.RemixPlan,
-	}
+func detectRemix(fs FSReader) Candidate {
+	return NewDetectionBuilder("Remix", "JavaScript/TypeScript", fs).
+		CheckAnyFile([]string{"remix.config.js", "remix.config.ts"}, ScoreConfigFile, "remix.config").
+		CheckDependency("package.json", `"@remix-run/react"`, ScoreDependency, "package.json has @remix-run/react").
+		CheckDir("app/routes", ScoreStructure, "app/routes/ directory").
+		Build(plans.RemixPlan)
 }
 
-func detectNuxt(root string, h HelperFuncs) Candidate {
-	score := 0.0
-	signals := []string{}
-
-	if h.Has("nuxt.config.js") || h.Has("nuxt.config.ts") {
-		score += 3
-		signals = append(signals, "nuxt.config")
-	}
-	if h.Has("package.json") {
-		pj := strings.ToLower(h.Read("package.json"))
-		if strings.Contains(pj, `"nuxt"`) {
-			score += 2.5
-			signals = append(signals, "package.json has nuxt")
-		}
-	}
-	if h.DirExists(root, "pages") || h.Has("app.vue") {
-		score += 1
-		signals = append(signals, "pages/ directory or app.vue")
-	}
-
-	return Candidate{
-		Name:     "Nuxt.js",
-		Score:    score,
-		Language: "JavaScript/TypeScript",
-		Signals:  signals,
-		Plan:     plans.NuxtPlan,
-	}
+func detectNuxt(fs FSReader) Candidate {
+	return NewDetectionBuilder("Nuxt.js", "JavaScript/TypeScript", fs).
+		CheckAnyFile([]string{"nuxt.config.js", "nuxt.config.ts"}, ScoreConfigFile, "nuxt.config").
+		CheckDependency("package.json", `"nuxt"`, ScoreDependency, "package.json has nuxt").
+		CheckCondition(fs.DirExists("pages") || fs.Has("app.vue"), ScoreStructure, "pages/ directory or app.vue").
+		Build(plans.NuxtPlan)
 }
 
-func detectAstro(root string, h HelperFuncs) Candidate {
-	score := 0.0
-	signals := []string{}
-
-	if h.Has("astro.config.mjs") || h.Has("astro.config.js") || h.Has("astro.config.ts") {
-		score += 3
-		signals = append(signals, "astro.config")
-	}
-	if h.Has("package.json") {
-		pj := strings.ToLower(h.Read("package.json"))
-		if strings.Contains(pj, `"astro"`) {
-			score += 2.5
-			signals = append(signals, "package.json has astro")
-		}
-		if strings.Contains(pj, `"scripts"`) && (strings.Contains(pj, `"astro build"`) || strings.Contains(pj, `"astro dev"`)) {
-			score += 1
-			signals = append(signals, "package.json scripts for astro")
-		}
-	}
-	if h.DirExists(root, "src") && h.DirExists(root, "public") {
-		score += 0.5
-		signals = append(signals, "src/ and public/ folders")
-	}
-
-	return Candidate{
-		Name:     "Astro",
-		Score:    score,
-		Language: "JavaScript/TypeScript",
-		Signals:  signals,
-		Plan:     plans.AstroPlan,
-	}
+func detectAstro(fs FSReader) Candidate {
+	return NewDetectionBuilder("Astro", "JavaScript/TypeScript", fs).
+		CheckAnyFile([]string{"astro.config.mjs", "astro.config.js", "astro.config.ts"}, ScoreConfigFile, "astro.config").
+		CheckDependency("package.json", `"astro"`, ScoreDependency, "package.json has astro").
+		CheckContent("package.json", `"astro build"`, ScoreScriptPattern, "package.json scripts for astro").
+		CheckCondition(fs.DirExists("src") && fs.DirExists("public"), ScoreMinorIndicator, "src/ and public/ folders").
+		Build(plans.AstroPlan)
 }
 
-func detectGatsby(root string, h HelperFuncs) Candidate {
-	score := 0.0
-	signals := []string{}
-
-	if h.Has("gatsby-config.js") || h.Has("gatsby-config.ts") {
-		score += 3
-		signals = append(signals, "gatsby-config")
-	}
-	if h.Has("package.json") {
-		pj := strings.ToLower(h.Read("package.json"))
-		if strings.Contains(pj, `"gatsby"`) {
-			score += 2.5
-			signals = append(signals, "package.json has gatsby")
-		}
-		if strings.Contains(pj, `"gatsby build"`) || strings.Contains(pj, `"gatsby develop"`) {
-			score += 1
-			signals = append(signals, "package.json scripts for gatsby")
-		}
-	}
-	if h.DirExists(root, "src/pages") {
-		score += 1
-		signals = append(signals, "src/pages/ folder")
-	}
-
-	return Candidate{
-		Name:     "Gatsby",
-		Score:    score,
-		Language: "JavaScript/TypeScript",
-		Signals:  signals,
-		Plan:     plans.GatsbyPlan,
-	}
+func detectGatsby(fs FSReader) Candidate {
+	return NewDetectionBuilder("Gatsby", "JavaScript/TypeScript", fs).
+		CheckAnyFile([]string{"gatsby-config.js", "gatsby-config.ts"}, ScoreConfigFile, "gatsby-config").
+		CheckDependency("package.json", `"gatsby"`, ScoreDependency, "package.json has gatsby").
+		CheckContent("package.json", `"gatsby build"`, ScoreScriptPattern, "package.json scripts for gatsby").
+		CheckDir("src/pages", ScoreStructure, "src/pages/ folder").
+		Build(plans.GatsbyPlan)
 }
 
-func detectSvelte(root string, h HelperFuncs) Candidate {
-	score := 0.0
-	signals := []string{}
+func detectSvelte(fs FSReader) Candidate {
+	builder := NewDetectionBuilder("Svelte", "JavaScript/TypeScript", fs).
+		CheckAnyFile([]string{"svelte.config.js", "svelte.config.ts"}, ScoreConfigFile, "svelte.config")
 
-	if h.Has("svelte.config.js") || h.Has("svelte.config.ts") {
-		score += 3
-		signals = append(signals, "svelte.config")
-	}
-	if h.Has("package.json") {
-		pj := strings.ToLower(h.Read("package.json"))
+	if fs.Has("package.json") {
+		pj := strings.ToLower(fs.Read("package.json"))
 		if strings.Contains(pj, `"@sveltejs/kit"`) {
-			score += 3
-			signals = append(signals, "package.json has @sveltejs/kit")
+			builder.score += ScoreConfigFile
+			builder.signals = append(builder.signals, "package.json has @sveltejs/kit")
 		} else if strings.Contains(pj, `"svelte"`) {
-			score += 2.5
-			signals = append(signals, "package.json has svelte")
+			builder.score += ScoreDependency
+			builder.signals = append(builder.signals, "package.json has svelte")
 		}
 	}
-	if h.DirExists(root, "src/routes") {
-		score += 1
-		signals = append(signals, "src/routes/ folder (SvelteKit)")
-	}
 
-	return Candidate{
-		Name:     "Svelte",
-		Score:    score,
-		Language: "JavaScript/TypeScript",
-		Signals:  signals,
-		Plan:     plans.SveltePlan,
-	}
+	return builder.
+		CheckDir("src/routes", ScoreStructure, "src/routes/ folder (SvelteKit)").
+		Build(plans.SveltePlan)
 }
 
-func detectVue(root string, allFiles []string, h HelperFuncs) Candidate {
-	score := 0.0
-	signals := []string{}
+func detectVue(fs FSReader, allFiles []string) Candidate {
+	builder := NewDetectionBuilder("Vue.js", "JavaScript/TypeScript", fs).
+		CheckAnyFile([]string{"vue.config.js", "vite.config.js", "vite.config.ts"}, ScoreLockfile, "vue/vite config")
 
-	if h.Has("vue.config.js") || h.Has("vite.config.js") || h.Has("vite.config.ts") {
-		score += 2
-		signals = append(signals, "vue/vite config")
-	}
-	if h.Has("package.json") {
-		pj := strings.ToLower(h.Read("package.json"))
+	if fs.Has("package.json") {
+		pj := strings.ToLower(fs.Read("package.json"))
 		if strings.Contains(pj, `"@vue/cli"`) || strings.Contains(pj, `"nuxt"`) {
-			score += 3
-			signals = append(signals, "Vue CLI or Nuxt")
+			builder.score += ScoreConfigFile
+			builder.signals = append(builder.signals, "Vue CLI or Nuxt")
 		} else if strings.Contains(pj, `"vue"`) {
-			score += 2.5
-			signals = append(signals, "package.json has vue")
+			builder.score += ScoreDependency
+			builder.signals = append(builder.signals, "package.json has vue")
 		}
 	}
-	if h.ContainsExt(allFiles, ".vue") {
-		score += 2
-		signals = append(signals, ".vue files")
-	}
 
-	return Candidate{
-		Name:     "Vue.js",
-		Score:    score,
-		Language: "JavaScript/TypeScript",
-		Signals:  signals,
-		Plan:     plans.VuePlan,
-	}
+	return builder.
+		CheckExtension(allFiles, ".vue", ScoreFilePattern, ".vue files").
+		Build(plans.VuePlan)
 }
 
-func detectAngular(root string, h HelperFuncs) Candidate {
-	score := 0.0
-	signals := []string{}
-
-	if h.Has("angular.json") {
-		score += 3
-		signals = append(signals, "angular.json")
-	}
-	if h.Has("package.json") {
-		pj := strings.ToLower(h.Read("package.json"))
-		if strings.Contains(pj, `"@angular/core"`) {
-			score += 3
-			signals = append(signals, "package.json has @angular/core")
-		}
-	}
-	if h.Has("tsconfig.json") && (h.DirExists(root, "src/app") || h.Has("src/main.ts")) {
-		score += 1
-		signals = append(signals, "TypeScript config with Angular structure")
-	}
-
-	return Candidate{
-		Name:     "Angular",
-		Score:    score,
-		Language: "TypeScript",
-		Signals:  signals,
-		Plan:     plans.AngularPlan,
-	}
+func detectAngular(fs FSReader) Candidate {
+	return NewDetectionBuilder("Angular", "TypeScript", fs).
+		CheckFile("angular.json", ScoreConfigFile, "angular.json").
+		CheckDependency("package.json", `"@angular/core"`, ScoreConfigFile, "package.json has @angular/core").
+		CheckCondition(fs.Has("tsconfig.json") && (fs.DirExists("src/app") || fs.Has("src/main.ts")),
+			ScoreStructure, "TypeScript config with Angular structure").
+		Build(plans.AngularPlan)
 }
 
-func detectNestJS(root string, h HelperFuncs) Candidate {
-	score := 0.0
-	signals := []string{}
-
-	if h.Has("nest-cli.json") {
-		score += 3
-		signals = append(signals, "nest-cli.json")
-	}
-	if h.Has("package.json") {
-		pj := strings.ToLower(h.Read("package.json"))
-		if strings.Contains(pj, `"@nestjs/core"`) {
-			score += 3
-			signals = append(signals, "package.json has @nestjs/core")
-		}
-	}
-	if h.Has("src/main.ts") && h.Has("src/app.module.ts") {
-		score += 1
-		signals = append(signals, "NestJS app structure")
-	}
-
-	return Candidate{
-		Name:     "NestJS",
-		Score:    score,
-		Language: "TypeScript",
-		Signals:  signals,
-		Plan:     plans.NestJSPlan,
-	}
+func detectNestJS(fs FSReader) Candidate {
+	return NewDetectionBuilder("NestJS", "TypeScript", fs).
+		CheckFile("nest-cli.json", ScoreConfigFile, "nest-cli.json").
+		CheckDependency("package.json", `"@nestjs/core"`, ScoreConfigFile, "package.json has @nestjs/core").
+		CheckCondition(fs.Has("src/main.ts") && fs.Has("src/app.module.ts"), ScoreStructure, "NestJS app structure").
+		Build(plans.NestJSPlan)
 }
 
-func detectTRPC(root string, h HelperFuncs) Candidate {
-	score := 0.0
-	signals := []string{}
+func detectTRPC(fs FSReader) Candidate {
+	builder := NewDetectionBuilder("tRPC", "TypeScript", fs).
+		CheckDependency("package.json", `"@trpc/server"`, ScoreConfigFile, "package.json has @trpc/server").
+		CheckDependency("package.json", `"@trpc/client"`, ScoreLockfile, "package.json has @trpc/client").
+		CheckDependency("package.json", `"zod"`, ScoreStructure, "zod validation").
+		CheckDependency("package.json", `"@trpc/server/adapters/standalone"`, ScoreMinorIndicator, "standalone adapter")
 
-	if h.Has("package.json") {
-		pj := strings.ToLower(h.Read("package.json"))
-		if strings.Contains(pj, `"@trpc/server"`) {
-			score += 3
-			signals = append(signals, "package.json has @trpc/server")
-		}
-		if strings.Contains(pj, `"@trpc/client"`) {
-			score += 2
-			signals = append(signals, "package.json has @trpc/client")
-		}
-		if strings.Contains(pj, `"zod"`) {
-			score += 1
-			signals = append(signals, "zod validation")
-		}
-		if strings.Contains(pj, `"@trpc/server/adapters/standalone"`) {
-			score += 0.5
-			signals = append(signals, "standalone adapter")
-		}
+	if fs.DirExists("server/routers") || fs.DirExists("src/server/routers") {
+		builder.score += ScoreBuildTool
+		builder.signals = append(builder.signals, "tRPC router directory")
+	} else if fs.Has("server/trpc.ts") || fs.Has("src/server/trpc.ts") || fs.Has("server/router.ts") || fs.Has("src/server/router.ts") {
+		builder.score += ScoreBuildTool
+		builder.signals = append(builder.signals, "tRPC router files")
 	}
 
-	// Check for typical tRPC router structure
-	if h.DirExists(root, "server/routers") || h.DirExists(root, "src/server/routers") {
-		score += 2.5
-		signals = append(signals, "tRPC router directory")
-	} else if h.Has("server/trpc.ts") || h.Has("src/server/trpc.ts") || h.Has("server/router.ts") || h.Has("src/server/router.ts") {
-		score += 2.5
-		signals = append(signals, "tRPC router files")
-	}
-
-	// TypeScript configuration (common for tRPC projects)
-	if h.Has("tsconfig.json") {
-		score += 0.5
-		signals = append(signals, "TypeScript config")
-	}
-
-	return Candidate{
-		Name:     "tRPC",
-		Score:    score,
-		Language: "TypeScript",
-		Signals:  signals,
-		Plan:     plans.TRPCPlan,
-	}
+	return builder.
+		CheckFile("tsconfig.json", ScoreMinorIndicator, "TypeScript config").
+		Build(plans.TRPCPlan)
 }
 
-func detectEleventy(root string, h HelperFuncs) Candidate {
-	score := 0.0
-	signals := []string{}
-
-	if h.Has(".eleventy.js") || h.Has("eleventy.config.js") {
-		score += 3
-		signals = append(signals, "eleventy config")
-	}
-	if h.Has("package.json") {
-		pj := strings.ToLower(h.Read("package.json"))
-		if strings.Contains(pj, `"@11ty/eleventy"`) {
-			score += 2.5
-			signals = append(signals, "package.json has @11ty/eleventy")
-		}
-	}
-
-	return Candidate{
-		Name:     "Eleventy",
-		Score:    score,
-		Language: "JavaScript/TypeScript",
-		Signals:  signals,
-		Plan:     plans.EleventyPlan,
-	}
+func detectEleventy(fs FSReader) Candidate {
+	return NewDetectionBuilder("Eleventy", "JavaScript/TypeScript", fs).
+		CheckAnyFile([]string{".eleventy.js", "eleventy.config.js"}, ScoreConfigFile, "eleventy config").
+		CheckDependency("package.json", `"@11ty/eleventy"`, ScoreDependency, "package.json has @11ty/eleventy").
+		Build(plans.EleventyPlan)
 }
 
-func detectDocusaurus(root string, h HelperFuncs) Candidate {
-	score := 0.0
-	signals := []string{}
-
-	if h.Has("docusaurus.config.js") || h.Has("docusaurus.config.ts") {
-		score += 3
-		signals = append(signals, "docusaurus config")
-	}
-	if h.Has("package.json") {
-		pj := strings.ToLower(h.Read("package.json"))
-		if strings.Contains(pj, `"@docusaurus/core"`) {
-			score += 2.5
-			signals = append(signals, "package.json has @docusaurus/core")
-		}
-	}
-	if h.DirExists(root, "docs") || h.DirExists(root, "blog") {
-		score += 1
-		signals = append(signals, "docs/ or blog/ directory")
-	}
-
-	return Candidate{
-		Name:     "Docusaurus",
-		Score:    score,
-		Language: "JavaScript/TypeScript",
-		Signals:  signals,
-		Plan:     plans.DocusaurusPlan,
-	}
+func detectDocusaurus(fs FSReader) Candidate {
+	return NewDetectionBuilder("Docusaurus", "JavaScript/TypeScript", fs).
+		CheckAnyFile([]string{"docusaurus.config.js", "docusaurus.config.ts"}, ScoreConfigFile, "docusaurus config").
+		CheckDependency("package.json", `"@docusaurus/core"`, ScoreDependency, "package.json has @docusaurus/core").
+		CheckAnyDir([]string{"docs", "blog"}, ScoreStructure, "docs/ or blog/ directory").
+		Build(plans.DocusaurusPlan)
 }
 
-func detectFastify(root string, h HelperFuncs) Candidate {
-	score := 0.0
-	signals := []string{}
-
-	if h.Has("package.json") {
-		pj := strings.ToLower(h.Read("package.json"))
-		if strings.Contains(pj, `"fastify"`) {
-			score += 2.5
-			signals = append(signals, "package.json has fastify")
-		}
-	}
-	if h.Has("server.js") || h.Has("app.js") {
-		score += 1
-		signals = append(signals, "server.js or app.js")
-	}
-
-	return Candidate{
-		Name:     "Fastify",
-		Score:    score,
-		Language: "JavaScript/TypeScript",
-		Signals:  signals,
-		Plan:     plans.FastifyPlan,
-	}
+func detectFastify(fs FSReader) Candidate {
+	return NewDetectionBuilder("Fastify", "JavaScript/TypeScript", fs).
+		CheckDependency("package.json", `"fastify"`, ScoreDependency, "package.json has fastify").
+		CheckAnyFile([]string{"server.js", "app.js"}, ScoreStructure, "server.js or app.js").
+		Build(plans.FastifyPlan)
 }
 
-func detectExpress(root string, h HelperFuncs) Candidate {
-	score := 0.0
-	signals := []string{}
-
-	if h.Has("package.json") {
-		pj := strings.ToLower(h.Read("package.json"))
-		if strings.Contains(pj, `"express"`) {
-			score += 2.5
-			signals = append(signals, "package.json has express")
-		}
-		if strings.Contains(pj, `"start"`) && strings.Contains(pj, "node") {
-			score += 1
-			signals = append(signals, "node start script")
-		}
-	}
-	if h.Has("server.js") || h.Has("app.js") || h.Has("index.js") {
-		score += 2
-		signals = append(signals, "Express server file")
-	}
-
-	return Candidate{
-		Name:     "Express.js",
-		Score:    score,
-		Language: "JavaScript/TypeScript",
-		Signals:  signals,
-		Plan:     plans.ExpressPlan,
-	}
+func detectExpress(fs FSReader) Candidate {
+	return NewDetectionBuilder("Express.js", "JavaScript/TypeScript", fs).
+		CheckDependency("package.json", `"express"`, ScoreDependency, "package.json has express").
+		CheckContent("package.json", `"start"`, ScoreStructure, "node start script").
+		CheckAnyFile([]string{"server.js", "app.js", "index.js"}, ScoreLockfile, "Express server file").
+		Build(plans.ExpressPlan)
 }

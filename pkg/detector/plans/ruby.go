@@ -5,7 +5,7 @@ import (
 )
 
 // RailsPlan returns the build and run plan for Rails
-func RailsPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
+func RailsPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{
 		"bundle install --deployment --without development test",
 		"bundle exec rails db:migrate",
@@ -21,7 +21,7 @@ func RailsPlan(root string) ([]string, []string, map[string]any, []string, map[s
 }
 
 // JekyllPlan returns the build and run plan for Jekyll
-func JekyllPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
+func JekyllPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{
 		"bundle install",
 		"bundle exec jekyll build",

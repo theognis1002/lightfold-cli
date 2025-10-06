@@ -6,9 +6,9 @@ import (
 )
 
 // DjangoPlan returns the build and run plan for Django
-func DjangoPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	pm := packagemanagers.DetectPython(root)
-	serverType := packagemanagers.DetectDjangoServerType(root)
+func DjangoPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
+	pm := packagemanagers.DetectPython(fs)
+	serverType := packagemanagers.DetectDjangoServerType(fs)
 
 	build := []string{
 		packagemanagers.GetPythonInstallCommand(pm),
@@ -34,8 +34,8 @@ func DjangoPlan(root string) ([]string, []string, map[string]any, []string, map[
 }
 
 // FlaskPlan returns the build and run plan for Flask
-func FlaskPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	pm := packagemanagers.DetectPython(root)
+func FlaskPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
+	pm := packagemanagers.DetectPython(fs)
 	build := []string{
 		packagemanagers.GetPythonInstallCommand(pm),
 	}
@@ -49,8 +49,8 @@ func FlaskPlan(root string) ([]string, []string, map[string]any, []string, map[s
 }
 
 // FastAPIPlan returns the build and run plan for FastAPI
-func FastAPIPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	pm := packagemanagers.DetectPython(root)
+func FastAPIPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
+	pm := packagemanagers.DetectPython(fs)
 	build := []string{
 		packagemanagers.GetPythonInstallCommand(pm),
 	}

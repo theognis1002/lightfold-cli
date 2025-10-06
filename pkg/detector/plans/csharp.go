@@ -5,7 +5,7 @@ import (
 )
 
 // AspNetPlan returns the build and run plan for ASP.NET
-func AspNetPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
+func AspNetPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
 	build := []string{
 		"dotnet restore",
 		"dotnet publish -c Release -o out",

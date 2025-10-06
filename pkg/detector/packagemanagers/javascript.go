@@ -1,25 +1,22 @@
 package packagemanagers
 
-import (
-	"os"
-	"path/filepath"
-)
+// FSReader provides filesystem operations for package manager detection
+type FSReader interface {
+	Has(path string) bool
+	Read(path string) string
+	DirExists(path string) bool
+}
 
 // DetectJS detects the JavaScript package manager used in a project
-func DetectJS(root string) string {
-	fileExists := func(rel string) bool {
-		_, err := os.Stat(filepath.Join(root, rel))
-		return err == nil
-	}
-
+func DetectJS(fs FSReader) string {
 	switch {
-	case fileExists("bun.lockb") || fileExists("bun.lock"):
+	case fs.Has("bun.lockb") || fs.Has("bun.lock"):
 		return "bun"
-	case fileExists(".yarnrc.yml"):
+	case fs.Has(".yarnrc.yml"):
 		return "yarn-berry"
-	case fileExists("pnpm-lock.yaml"):
+	case fs.Has("pnpm-lock.yaml"):
 		return "pnpm"
-	case fileExists("yarn.lock"):
+	case fs.Has("yarn.lock"):
 		return "yarn"
 	default:
 		return "npm"
@@ -89,10 +86,6 @@ func GetRunCommand(pm string, script string) string {
 }
 
 // DetectDenoRuntime checks if the project uses Deno runtime
-func DetectDenoRuntime(root string) bool {
-	fileExists := func(rel string) bool {
-		_, err := os.Stat(filepath.Join(root, rel))
-		return err == nil
-	}
-	return fileExists("deno.json") || fileExists("deno.jsonc")
+func DetectDenoRuntime(fs FSReader) bool {
+	return fs.Has("deno.json") || fs.Has("deno.jsonc")
 }

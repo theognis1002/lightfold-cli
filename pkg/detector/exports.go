@@ -3,53 +3,46 @@ package detector
 import (
 	"lightfold/pkg/detector/packagemanagers"
 	"lightfold/pkg/detector/plans"
+	"os"
 )
 
-// Export internal functions for testing
-
-// DetectPackageManager detects JavaScript package manager
 func DetectPackageManager(root string) string {
-	return packagemanagers.DetectJS(root)
+	reader := NewFSReader(os.DirFS(root))
+	return packagemanagers.DetectJS(reader)
 }
 
-// DetectPythonPackageManager detects Python package manager
 func DetectPythonPackageManager(root string) string {
-	return packagemanagers.DetectPython(root)
+	reader := NewFSReader(os.DirFS(root))
+	return packagemanagers.DetectPython(reader)
 }
 
-// GetJSInstallCommand gets JS install command for package manager
 func GetJSInstallCommand(pm string) string {
 	return packagemanagers.GetJSInstallCommand(pm)
 }
 
-// GetJSBuildCommand gets JS build command for package manager
 func GetJSBuildCommand(pm string) string {
 	return packagemanagers.GetJSBuildCommand(pm)
 }
 
-// GetJSStartCommand gets JS start command for package manager
 func GetJSStartCommand(pm string) string {
 	return packagemanagers.GetJSStartCommand(pm)
 }
 
-// GetPythonInstallCommand gets Python install command for package manager
 func GetPythonInstallCommand(pm string) string {
 	return packagemanagers.GetPythonInstallCommand(pm)
 }
 
-// Plan functions for testing
-
-// NextPlan exports NextPlan for testing
 func NextPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	return plans.NextPlan(root)
+	reader := NewFSReader(os.DirFS(root))
+	return plans.NextPlan(reader)
 }
 
-// DjangoPlan exports DjangoPlan for testing
 func DjangoPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	return plans.DjangoPlan(root)
+	reader := NewFSReader(os.DirFS(root))
+	return plans.DjangoPlan(reader)
 }
 
-// GoPlan exports GoPlan for testing
 func GoPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	return plans.GoPlan(root)
+	reader := NewFSReader(os.DirFS(root))
+	return plans.GoPlan(reader)
 }

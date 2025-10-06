@@ -2,10 +2,15 @@ package helpers
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 )
+
+// FSReader provides filesystem operations for helper functions
+type FSReader interface {
+	Has(path string) bool
+	Read(path string) string
+	DirExists(path string) bool
+}
 
 // NextConfig represents parsed Next.js configuration
 type NextConfig struct {
@@ -29,31 +34,27 @@ type FrameworkAdapter struct {
 }
 
 // ParseNextConfig parses Next.js configuration files
-func ParseNextConfig(root string) NextConfig {
+func ParseNextConfig(fs FSReader) NextConfig {
 	config := NextConfig{
 		OutputMode:  "default",
-		Router:      "", // empty means no router detected
+		Router:      "",
 		BuildOutput: ".next/",
 	}
 
-	// Detect router type
-	if dirExists(root, "app") {
+	if dirExists(fs, "app") {
 		config.Router = "app"
-	} else if dirExists(root, "pages") {
+	} else if dirExists(fs, "pages") {
 		config.Router = "pages"
 	}
 
-	// Parse config files for output mode
 	for _, configFile := range []string{"next.config.js", "next.config.ts", "next.config.mjs"} {
-		if content := readFile(root, configFile); content != "" {
-			// Check for standalone output
+		if content := readFile(fs, configFile); content != "" {
 			if strings.Contains(content, "output: 'standalone'") ||
 				strings.Contains(content, `output: "standalone"`) ||
 				strings.Contains(content, "output:'standalone'") {
 				config.OutputMode = "standalone"
 				config.BuildOutput = ".next/standalone/"
 			}
-			// Check for static export
 			if strings.Contains(content, "output: 'export'") ||
 				strings.Contains(content, `output: "export"`) ||
 				strings.Contains(content, "output:'export'") {
@@ -67,18 +68,14 @@ func ParseNextConfig(root string) NextConfig {
 	return config
 }
 
-// ParsePackageJSON parses package.json and returns structured data
-func ParsePackageJSON(root string) PackageJSON {
-	var pkg PackageJSON
-
-	content := readFile(root, "package.json")
+func ParsePackageJSON(fs FSReader) PackageJSON {
+	content := readFile(fs, "package.json")
 	if content == "" {
-		return pkg
+		return PackageJSON{}
 	}
 
-	// Try to unmarshal JSON
+	var pkg PackageJSON
 	if err := json.Unmarshal([]byte(content), &pkg); err != nil {
-		// If JSON parsing fails, initialize empty maps
 		pkg.Scripts = make(map[string]string)
 		pkg.Dependencies = make(map[string]string)
 		pkg.DevDeps = make(map[string]string)
@@ -87,7 +84,6 @@ func ParsePackageJSON(root string) PackageJSON {
 	return pkg
 }
 
-// DetectFrameworkAdapter detects the deployment adapter for various frameworks
 func DetectFrameworkAdapter(pkg PackageJSON, framework string) FrameworkAdapter {
 	adapter := FrameworkAdapter{
 		Type:    "unknown",
@@ -98,7 +94,6 @@ func DetectFrameworkAdapter(pkg PackageJSON, framework string) FrameworkAdapter 
 
 	switch framework {
 	case "remix":
-		// Check for Remix adapters
 		for dep := range allDeps {
 			switch {
 			case strings.Contains(dep, "@remix-run/cloudflare"):
@@ -115,14 +110,12 @@ func DetectFrameworkAdapter(pkg PackageJSON, framework string) FrameworkAdapter 
 				adapter.RunMode = "server"
 			}
 		}
-		// Default to node if no specific adapter found but @remix-run/react exists
 		if adapter.Type == "unknown" && allDeps["@remix-run/react"] != "" {
 			adapter.Type = "node"
 			adapter.RunMode = "server"
 		}
 
 	case "svelte", "sveltekit":
-		// Check for SvelteKit adapters
 		for dep := range allDeps {
 			switch {
 			case strings.Contains(dep, "@sveltejs/adapter-static"):
@@ -147,14 +140,12 @@ func DetectFrameworkAdapter(pkg PackageJSON, framework string) FrameworkAdapter 
 				adapter.RunMode = "server"
 			}
 		}
-		// Default to node for SvelteKit
 		if adapter.Type == "unknown" && allDeps["@sveltejs/kit"] != "" {
 			adapter.Type = "node"
 			adapter.RunMode = "server"
 		}
 
 	case "astro":
-		// Check for Astro adapters
 		for dep := range allDeps {
 			switch {
 			case strings.Contains(dep, "@astrojs/node"):
@@ -175,7 +166,6 @@ func DetectFrameworkAdapter(pkg PackageJSON, framework string) FrameworkAdapter 
 				adapter.RunMode = "server"
 			}
 		}
-		// Default to static for Astro (SSG is default)
 		if adapter.Type == "unknown" {
 			adapter.Type = "static"
 			adapter.RunMode = "static"
@@ -185,9 +175,7 @@ func DetectFrameworkAdapter(pkg PackageJSON, framework string) FrameworkAdapter 
 	return adapter
 }
 
-// GetProductionStartScript finds the best production start script from package.json
 func GetProductionStartScript(pkg PackageJSON) string {
-	// Priority order for production scripts
 	priorities := []string{
 		"start:prod",
 		"start:production",
@@ -202,12 +190,10 @@ func GetProductionStartScript(pkg PackageJSON) string {
 		}
 	}
 
-	return "start" // fallback
+	return "start"
 }
 
-// GetProductionBuildScript finds the build script from package.json
 func GetProductionBuildScript(pkg PackageJSON) string {
-	// Check for build scripts
 	priorities := []string{
 		"build:prod",
 		"build:production",
@@ -220,45 +206,36 @@ func GetProductionBuildScript(pkg PackageJSON) string {
 		}
 	}
 
-	return "build" // fallback
+	return "build"
 }
 
-// DetectMonorepoType detects the monorepo tool being used
-func DetectMonorepoType(root string) string {
+func DetectMonorepoType(fs FSReader) string {
 	switch {
-	case fileExists(root, "turbo.json"):
+	case fileExists(fs, "turbo.json"):
 		return "turborepo"
-	case fileExists(root, "nx.json"):
+	case fileExists(fs, "nx.json"):
 		return "nx"
-	case fileExists(root, "lerna.json"):
+	case fileExists(fs, "lerna.json"):
 		return "lerna"
-	case hasWorkspacesInPackageJSON(root):
+	case hasWorkspacesInPackageJSON(fs):
 		return "npm-workspaces"
-	case fileExists(root, "pnpm-workspace.yaml"):
+	case fileExists(fs, "pnpm-workspace.yaml"):
 		return "pnpm-workspaces"
 	default:
 		return "none"
 	}
 }
 
-// Helper functions
-
-func fileExists(root, rel string) bool {
-	_, err := os.Stat(filepath.Join(root, rel))
-	return err == nil
+func fileExists(fs FSReader, rel string) bool {
+	return fs.Has(rel)
 }
 
-func dirExists(root, rel string) bool {
-	info, err := os.Stat(filepath.Join(root, rel))
-	return err == nil && info.IsDir()
+func dirExists(fs FSReader, rel string) bool {
+	return fs.DirExists(rel)
 }
 
-func readFile(root, rel string) string {
-	b, err := os.ReadFile(filepath.Join(root, rel))
-	if err != nil {
-		return ""
-	}
-	return string(b)
+func readFile(fs FSReader, rel string) string {
+	return fs.Read(rel)
 }
 
 func mergeDeps(deps ...map[string]string) map[string]string {
@@ -271,8 +248,8 @@ func mergeDeps(deps ...map[string]string) map[string]string {
 	return merged
 }
 
-func hasWorkspacesInPackageJSON(root string) bool {
-	content := readFile(root, "package.json")
+func hasWorkspacesInPackageJSON(fs FSReader) bool {
+	content := readFile(fs, "package.json")
 	if content == "" {
 		return false
 	}

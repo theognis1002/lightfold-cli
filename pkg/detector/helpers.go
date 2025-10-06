@@ -1,66 +1,8 @@
 package detector
 
 import (
-	"io/fs"
-	"os"
-	"path/filepath"
 	"strings"
-
-	"lightfold/pkg/detector/detectors"
 )
-
-// scanTree walks the directory tree and returns all files and extension counts
-func scanTree(root string) ([]string, map[string]int, error) {
-	var files []string
-	extCounts := map[string]int{}
-	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		rel, _ := filepath.Rel(root, p)
-		base := filepath.Base(p)
-		if d.IsDir() && (base == ".git" || base == "node_modules" || base == ".venv" || base == "venv" || base == "dist" || base == "build") {
-			return filepath.SkipDir
-		}
-		if !d.IsDir() {
-			files = append(files, rel)
-			ext := strings.ToLower(filepath.Ext(p))
-			if ext != "" {
-				extCounts[ext]++
-			}
-		}
-		return nil
-	})
-	return files, extCounts, err
-}
-
-// containsExt checks if the file list contains files with the given extension
-func containsExt(files []string, ext string) bool {
-	for _, f := range files {
-		if strings.HasSuffix(strings.ToLower(f), ext) {
-			return true
-		}
-	}
-	return false
-}
-
-// fileExists checks if a file exists at the given path
-func fileExists(root, rel string) bool {
-	_, err := os.Stat(filepath.Join(root, rel))
-	return err == nil
-}
-
-// dirExists checks if a directory exists at the given path
-func dirExists(root, rel string) bool {
-	fi, err := os.Stat(filepath.Join(root, rel))
-	return err == nil && fi.IsDir()
-}
-
-// readFile reads a file and returns its content as a string
-func readFile(root, rel string) string {
-	b, _ := os.ReadFile(filepath.Join(root, rel))
-	return string(b)
-}
 
 // dominantLanguage determines the dominant language from extension counts
 func dominantLanguage(extCounts map[string]int) string {
@@ -122,7 +64,7 @@ func clamp(x, lo, hi float64) float64 {
 }
 
 // pickBest selects the best candidate from the list
-func pickBest(cands []detectors.Candidate) detectors.Candidate {
+func pickBest(cands []Candidate) Candidate {
 	best := cands[0]
 	for _, c := range cands[1:] {
 		if c.Score > best.Score {
@@ -139,50 +81,50 @@ func pickBest(cands []detectors.Candidate) detectors.Candidate {
 }
 
 // detectRuntimeVersion detects runtime version from version files
-func detectRuntimeVersion(root string, language string) string {
+func detectRuntimeVersion(fs *FSReader, language string) string {
 	switch language {
 	case "JavaScript/TypeScript":
-		if fileExists(root, ".nvmrc") {
-			return strings.TrimSpace(readFile(root, ".nvmrc"))
+		if fs.Has(".nvmrc") {
+			return strings.TrimSpace(fs.Read(".nvmrc"))
 		}
-		if fileExists(root, ".node-version") {
-			return strings.TrimSpace(readFile(root, ".node-version"))
+		if fs.Has(".node-version") {
+			return strings.TrimSpace(fs.Read(".node-version"))
 		}
 	case "Python":
-		if fileExists(root, ".python-version") {
-			return strings.TrimSpace(readFile(root, ".python-version"))
+		if fs.Has(".python-version") {
+			return strings.TrimSpace(fs.Read(".python-version"))
 		}
-		if fileExists(root, "runtime.txt") {
-			content := strings.TrimSpace(readFile(root, "runtime.txt"))
+		if fs.Has("runtime.txt") {
+			content := strings.TrimSpace(fs.Read("runtime.txt"))
 			// Parse "python-3.11.0" format
 			return strings.TrimPrefix(content, "python-")
 		}
 	case "Ruby":
-		if fileExists(root, ".ruby-version") {
-			return strings.TrimSpace(readFile(root, ".ruby-version"))
+		if fs.Has(".ruby-version") {
+			return strings.TrimSpace(fs.Read(".ruby-version"))
 		}
 	case "Go":
-		if fileExists(root, ".go-version") {
-			return strings.TrimSpace(readFile(root, ".go-version"))
+		if fs.Has(".go-version") {
+			return strings.TrimSpace(fs.Read(".go-version"))
 		}
 	}
 	return ""
 }
 
 // detectMonorepo detects monorepo tools and configuration
-func detectMonorepo(root string) map[string]string {
+func detectMonorepo(fs *FSReader) map[string]string {
 	result := map[string]string{}
 
-	if fileExists(root, "turbo.json") {
+	if fs.Has("turbo.json") {
 		result["monorepo_tool"] = "turborepo"
-	} else if fileExists(root, "nx.json") {
+	} else if fs.Has("nx.json") {
 		result["monorepo_tool"] = "nx"
-	} else if fileExists(root, "lerna.json") {
+	} else if fs.Has("lerna.json") {
 		result["monorepo_tool"] = "lerna"
-	} else if fileExists(root, "pnpm-workspace.yaml") {
+	} else if fs.Has("pnpm-workspace.yaml") {
 		result["monorepo_tool"] = "pnpm-workspaces"
-	} else if fileExists(root, "package.json") {
-		content := readFile(root, "package.json")
+	} else if fs.Has("package.json") {
+		content := fs.Read("package.json")
 		if strings.Contains(content, `"workspaces"`) {
 			result["monorepo_tool"] = "yarn-workspaces"
 		}

@@ -5,12 +5,12 @@ import (
 )
 
 // SpringBootPlan returns the build and run plan for Spring Boot
-func SpringBootPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
+func SpringBootPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
 	var build []string
 	var run []string
 	var buildTool string
 	var buildOutput string
-	if fileExists(root, "pom.xml") {
+	if fs.Has("pom.xml") {
 		build = []string{
 			"./mvnw clean package -DskipTests",
 		}

@@ -7,10 +7,10 @@ import (
 )
 
 // NextPlan returns the build and run plan for Next.js
-func NextPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	pm := packagemanagers.DetectJS(root)
-	nextConfig := helpers.ParseNextConfig(root)
-	pkg := helpers.ParsePackageJSON(root)
+func NextPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
+	pm := packagemanagers.DetectJS(fs)
+	nextConfig := helpers.ParseNextConfig(fs)
+	pkg := helpers.ParsePackageJSON(fs)
 
 	build := []string{
 		packagemanagers.GetJSInstallCommand(pm),
@@ -36,24 +36,21 @@ func NextPlan(root string) ([]string, []string, map[string]any, []string, map[st
 		"output_mode":     nextConfig.OutputMode,
 	}
 
-	// Only set router if detected
 	if nextConfig.Router != "" {
 		meta["router"] = nextConfig.Router
 	}
 
-	// Set build_output - for backwards compatibility with tests, use .next/ for standalone
 	if nextConfig.OutputMode == "standalone" {
 		meta["build_output"] = ".next/"
 	} else {
 		meta["build_output"] = nextConfig.BuildOutput
 	}
 
-	// Backwards compatibility: set "export" metadata for static exports
 	if nextConfig.OutputMode == "export" {
 		meta["export"] = "static"
 	}
 
-	if monorepoType := helpers.DetectMonorepoType(root); monorepoType != "none" {
+	if monorepoType := helpers.DetectMonorepoType(fs); monorepoType != "none" {
 		meta["monorepo"] = monorepoType
 	}
 
@@ -61,9 +58,9 @@ func NextPlan(root string) ([]string, []string, map[string]any, []string, map[st
 }
 
 // RemixPlan returns the build and run plan for Remix
-func RemixPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	pm := packagemanagers.DetectJS(root)
-	pkg := helpers.ParsePackageJSON(root)
+func RemixPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
+	pm := packagemanagers.DetectJS(fs)
+	pkg := helpers.ParsePackageJSON(fs)
 	adapter := helpers.DetectFrameworkAdapter(pkg, "remix")
 
 	build := []string{
@@ -94,7 +91,7 @@ func RemixPlan(root string) ([]string, []string, map[string]any, []string, map[s
 		"adapter":         adapter.Type,
 	}
 
-	if monorepoType := helpers.DetectMonorepoType(root); monorepoType != "none" {
+	if monorepoType := helpers.DetectMonorepoType(fs); monorepoType != "none" {
 		meta["monorepo"] = monorepoType
 	}
 
@@ -102,8 +99,8 @@ func RemixPlan(root string) ([]string, []string, map[string]any, []string, map[s
 }
 
 // NuxtPlan returns the build and run plan for Nuxt.js
-func NuxtPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	pm := packagemanagers.DetectJS(root)
+func NuxtPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
+	pm := packagemanagers.DetectJS(fs)
 	build := []string{
 		packagemanagers.GetJSInstallCommand(pm),
 		packagemanagers.GetJSBuildCommand(pm),
@@ -118,9 +115,9 @@ func NuxtPlan(root string) ([]string, []string, map[string]any, []string, map[st
 }
 
 // AstroPlan returns the build and run plan for Astro
-func AstroPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	pm := packagemanagers.DetectJS(root)
-	pkg := helpers.ParsePackageJSON(root)
+func AstroPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
+	pm := packagemanagers.DetectJS(fs)
+	pkg := helpers.ParsePackageJSON(fs)
 	adapter := helpers.DetectFrameworkAdapter(pkg, "astro")
 
 	build := []string{
@@ -152,7 +149,7 @@ func AstroPlan(root string) ([]string, []string, map[string]any, []string, map[s
 		"run_mode":        adapter.RunMode,
 	}
 
-	if monorepoType := helpers.DetectMonorepoType(root); monorepoType != "none" {
+	if monorepoType := helpers.DetectMonorepoType(fs); monorepoType != "none" {
 		meta["monorepo"] = monorepoType
 	}
 
@@ -160,8 +157,8 @@ func AstroPlan(root string) ([]string, []string, map[string]any, []string, map[s
 }
 
 // GatsbyPlan returns the build and run plan for Gatsby
-func GatsbyPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	pm := packagemanagers.DetectJS(root)
+func GatsbyPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
+	pm := packagemanagers.DetectJS(fs)
 	build := []string{
 		packagemanagers.GetJSInstallCommand(pm),
 		packagemanagers.GetJSBuildCommand(pm),
@@ -176,9 +173,9 @@ func GatsbyPlan(root string) ([]string, []string, map[string]any, []string, map[
 }
 
 // SveltePlan returns the build and run plan for Svelte/SvelteKit
-func SveltePlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	pm := packagemanagers.DetectJS(root)
-	pkg := helpers.ParsePackageJSON(root)
+func SveltePlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
+	pm := packagemanagers.DetectJS(fs)
+	pkg := helpers.ParsePackageJSON(fs)
 	adapter := helpers.DetectFrameworkAdapter(pkg, "sveltekit")
 
 	build := []string{
@@ -210,7 +207,7 @@ func SveltePlan(root string) ([]string, []string, map[string]any, []string, map[
 		"run_mode":        adapter.RunMode,
 	}
 
-	if monorepoType := helpers.DetectMonorepoType(root); monorepoType != "none" {
+	if monorepoType := helpers.DetectMonorepoType(fs); monorepoType != "none" {
 		meta["monorepo"] = monorepoType
 	}
 
@@ -218,9 +215,9 @@ func SveltePlan(root string) ([]string, []string, map[string]any, []string, map[
 }
 
 // VuePlan returns the build and run plan for Vue.js
-func VuePlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	pm := packagemanagers.DetectJS(root)
-	pkg := helpers.ParsePackageJSON(root)
+func VuePlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
+	pm := packagemanagers.DetectJS(fs)
+	pkg := helpers.ParsePackageJSON(fs)
 
 	build := []string{
 		packagemanagers.GetJSInstallCommand(pm),
@@ -247,14 +244,13 @@ func VuePlan(root string) ([]string, []string, map[string]any, []string, map[str
 		}
 	}
 
-	if monorepoType := helpers.DetectMonorepoType(root); monorepoType != "none" {
+	if monorepoType := helpers.DetectMonorepoType(fs); monorepoType != "none" {
 		meta["monorepo"] = monorepoType
 	}
 
 	return build, run, health, env, meta
 }
 
-// mergeDeps merges dependencies and devDependencies
 func mergeDeps(deps ...map[string]string) map[string]string {
 	merged := make(map[string]string)
 	for _, d := range deps {
@@ -266,8 +262,8 @@ func mergeDeps(deps ...map[string]string) map[string]string {
 }
 
 // AngularPlan returns the build and run plan for Angular
-func AngularPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	pm := packagemanagers.DetectJS(root)
+func AngularPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
+	pm := packagemanagers.DetectJS(fs)
 	build := []string{
 		packagemanagers.GetJSInstallCommand(pm),
 		packagemanagers.GetJSBuildCommand(pm),
@@ -282,8 +278,8 @@ func AngularPlan(root string) ([]string, []string, map[string]any, []string, map
 }
 
 // NestJSPlan returns the build and run plan for NestJS
-func NestJSPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	pm := packagemanagers.DetectJS(root)
+func NestJSPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
+	pm := packagemanagers.DetectJS(fs)
 	build := []string{
 		packagemanagers.GetJSInstallCommand(pm),
 		packagemanagers.GetJSBuildCommand(pm),
@@ -299,23 +295,21 @@ func NestJSPlan(root string) ([]string, []string, map[string]any, []string, map[
 }
 
 // TRPCPlan returns the build and run plan for tRPC
-func TRPCPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	pm := packagemanagers.DetectJS(root)
-	pkg := helpers.ParsePackageJSON(root)
+func TRPCPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
+	pm := packagemanagers.DetectJS(fs)
+	pkg := helpers.ParsePackageJSON(fs)
 
 	build := []string{
 		packagemanagers.GetJSInstallCommand(pm),
 		packagemanagers.GetJSBuildCommand(pm),
 	}
 
-	// Determine adapter type from dependencies
 	adapter := "standalone"
 	allDeps := mergeDeps(pkg.Dependencies, pkg.DevDeps)
 
 	if allDeps["@trpc/next"] != "" || allDeps["next"] != "" {
 		adapter = "nextjs"
 	} else if allDeps["@trpc/server"] != "" {
-		// Check for Express or Fastify adapters
 		if allDeps["express"] != "" {
 			adapter = "express"
 		} else if allDeps["fastify"] != "" {
@@ -323,23 +317,18 @@ func TRPCPlan(root string) ([]string, []string, map[string]any, []string, map[st
 		}
 	}
 
-	// Determine run command based on adapter
 	var run []string
 	startScript := helpers.GetProductionStartScript(pkg)
 
 	switch adapter {
 	case "nextjs":
-		// Next.js handles tRPC, use Next.js commands
 		run = []string{packagemanagers.GetRunCommand(pm, startScript)}
 	case "express", "fastify":
-		// Use standard start script for these adapters
 		run = []string{packagemanagers.GetRunCommand(pm, startScript)}
 	default:
-		// Standalone tRPC server
 		if startScript != "" && startScript != "start" {
 			run = []string{packagemanagers.GetRunCommand(pm, startScript)}
 		} else {
-			// Fallback to common tRPC build output
 			run = []string{"node dist/server.js", "node dist/index.js"}
 		}
 	}
@@ -353,7 +342,7 @@ func TRPCPlan(root string) ([]string, []string, map[string]any, []string, map[st
 		"build_output":    "dist/",
 	}
 
-	if monorepoType := helpers.DetectMonorepoType(root); monorepoType != "none" {
+	if monorepoType := helpers.DetectMonorepoType(fs); monorepoType != "none" {
 		meta["monorepo"] = monorepoType
 	}
 
@@ -361,8 +350,8 @@ func TRPCPlan(root string) ([]string, []string, map[string]any, []string, map[st
 }
 
 // EleventyPlan returns the build and run plan for Eleventy
-func EleventyPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	pm := packagemanagers.DetectJS(root)
+func EleventyPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
+	pm := packagemanagers.DetectJS(fs)
 	build := []string{
 		packagemanagers.GetJSInstallCommand(pm),
 		packagemanagers.GetRunCommand(pm, "build"),
@@ -377,8 +366,8 @@ func EleventyPlan(root string) ([]string, []string, map[string]any, []string, ma
 }
 
 // DocusaurusPlan returns the build and run plan for Docusaurus
-func DocusaurusPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	pm := packagemanagers.DetectJS(root)
+func DocusaurusPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
+	pm := packagemanagers.DetectJS(fs)
 	build := []string{
 		packagemanagers.GetJSInstallCommand(pm),
 		packagemanagers.GetJSBuildCommand(pm),
@@ -393,8 +382,8 @@ func DocusaurusPlan(root string) ([]string, []string, map[string]any, []string, 
 }
 
 // FastifyPlan returns the build and run plan for Fastify
-func FastifyPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	if packagemanagers.DetectDenoRuntime(root) {
+func FastifyPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
+	if packagemanagers.DetectDenoRuntime(fs) {
 		build := []string{
 			"deno cache main.ts",
 		}
@@ -407,7 +396,7 @@ func FastifyPlan(root string) ([]string, []string, map[string]any, []string, map
 		return build, run, health, env, meta
 	}
 
-	pm := packagemanagers.DetectJS(root)
+	pm := packagemanagers.DetectJS(fs)
 	build := []string{
 		packagemanagers.GetJSInstallCommand(pm),
 	}
@@ -421,8 +410,8 @@ func FastifyPlan(root string) ([]string, []string, map[string]any, []string, map
 }
 
 // ExpressPlan returns the build and run plan for Express.js
-func ExpressPlan(root string) ([]string, []string, map[string]any, []string, map[string]string) {
-	if packagemanagers.DetectDenoRuntime(root) {
+func ExpressPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[string]string) {
+	if packagemanagers.DetectDenoRuntime(fs) {
 		build := []string{
 			"deno cache main.ts",
 		}
@@ -435,7 +424,7 @@ func ExpressPlan(root string) ([]string, []string, map[string]any, []string, map
 		return build, run, health, env, meta
 	}
 
-	pm := packagemanagers.DetectJS(root)
+	pm := packagemanagers.DetectJS(fs)
 	build := []string{
 		packagemanagers.GetJSInstallCommand(pm),
 	}
