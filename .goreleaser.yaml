@@ -89,6 +89,7 @@ brews:
     repository:
       owner: theognis1002
       name: homebrew-lightfold
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/theognis1002/lightfold-cli
     description: "Framework detector and deployment tool for web applications"
     license: MIT
