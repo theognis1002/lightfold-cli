@@ -91,7 +91,7 @@ func (m progressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case stepUpdateMsg:
 		if msg.step.Progress == -1 {
-			fmt.Println(msg.step.Description)
+			// Ignore verbose command output (Progress == -1)
 			return m, nil
 		}
 

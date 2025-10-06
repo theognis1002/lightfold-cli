@@ -91,8 +91,8 @@ const (
 
 // Default Values
 const (
-	// DefaultKeepReleases is the default number of releases to keep
-	DefaultKeepReleases = 5
+	// DefaultKeepReleases is the default number of releases to keep (current + 1 previous)
+	DefaultKeepReleases = 2
 
 	// DefaultSSHPort is the default SSH port
 	DefaultSSHPort = "22"

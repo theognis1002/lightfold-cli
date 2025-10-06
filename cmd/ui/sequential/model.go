@@ -28,17 +28,18 @@ const (
 )
 
 type Step struct {
-	ID          string
-	Title       string
-	Description string
-	Type        StepType
-	Value       string
-	Placeholder string
-	Required    bool
-	Validate    func(string) error
-	Options     []string
-	OptionDescs []string // Descriptions for each option (for StepTypeSelect)
-	Cursor      int      // Current cursor position for StepTypeSelect
+	ID           string
+	Title        string
+	Description  string
+	Type         StepType
+	Value        string
+	Placeholder  string
+	Required     bool
+	Validate     func(string) error
+	Options      []string
+	OptionLabels []string // Display labels for each option (for StepTypeSelect)
+	OptionDescs  []string // Descriptions for each option (for StepTypeSelect)
+	Cursor       int      // Current cursor position for StepTypeSelect
 }
 
 type FlowModel struct {
@@ -494,7 +495,12 @@ func (m FlowModel) renderSelectInput(step Step) string {
 
 	// Render visible items
 	for i := start; i < end; i++ {
-		option := step.Options[i]
+		// Use label if available, otherwise fall back to option value
+		label := step.Options[i]
+		if step.OptionLabels != nil && i < len(step.OptionLabels) && step.OptionLabels[i] != "" {
+			label = step.OptionLabels[i]
+		}
+
 		cursor := "  "
 		titleColor := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 
@@ -503,15 +509,12 @@ func (m FlowModel) renderSelectInput(step Step) string {
 			titleColor = lipgloss.NewStyle().Foreground(lipgloss.Color("170")).Bold(true)
 		}
 
-		// Render on single line: option + description
+		// Render label + optional description
 		if step.OptionDescs != nil && i < len(step.OptionDescs) && step.OptionDescs[i] != "" {
 			descColor := lipgloss.NewStyle().Foreground(lipgloss.Color("243"))
-			if i == step.Cursor {
-				descColor = lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
-			}
-			s += fmt.Sprintf("%s %s %s\n", cursor, titleColor.Render(option), descColor.Render("- "+step.OptionDescs[i]))
+			s += fmt.Sprintf("%s %s %s\n", cursor, titleColor.Render(label), descColor.Render("- "+step.OptionDescs[i]))
 		} else {
-			s += fmt.Sprintf("%s %s\n", cursor, titleColor.Render(option))
+			s += fmt.Sprintf("%s %s\n", cursor, titleColor.Render(label))
 		}
 	}
 
@@ -579,12 +582,18 @@ func (m FlowModel) renderCompleted() string {
 				}
 			}
 
-			// For select types, show the selected option
+			// For select types, show the label instead of value
 			if step.Type == StepTypeSelect && value != "" {
-				// Add description if available
 				for optIdx, opt := range step.Options {
-					if opt == value && step.OptionDescs != nil && optIdx < len(step.OptionDescs) {
-						value = value + " - " + step.OptionDescs[optIdx]
+					if opt == value {
+						// Use label if available
+						if step.OptionLabels != nil && optIdx < len(step.OptionLabels) && step.OptionLabels[optIdx] != "" {
+							value = step.OptionLabels[optIdx]
+						}
+						// Add description if available
+						if step.OptionDescs != nil && optIdx < len(step.OptionDescs) && step.OptionDescs[optIdx] != "" {
+							value = value + " - " + step.OptionDescs[optIdx]
+						}
 						break
 					}
 				}

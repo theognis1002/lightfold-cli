@@ -61,6 +61,11 @@ func (b *StepBuilder) Options(options ...string) *StepBuilder {
 	return b
 }
 
+func (b *StepBuilder) OptionLabels(labels ...string) *StepBuilder {
+	b.step.OptionLabels = labels
+	return b
+}
+
 func (b *StepBuilder) OptionDescriptions(descs ...string) *StepBuilder {
 	b.step.OptionDescs = descs
 	return b

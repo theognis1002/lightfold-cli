@@ -95,6 +95,7 @@ type TargetConfig struct {
 	ProjectPath    string                     `json:"project_path"`
 	Framework      string                     `json:"framework"`
 	Provider       string                     `json:"provider"`
+	Builder        string                     `json:"builder,omitempty"`
 	ProviderConfig map[string]json.RawMessage `json:"provider_config"`
 	Deploy         *DeploymentOptions         `json:"deploy,omitempty"`
 }

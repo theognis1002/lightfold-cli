@@ -3,6 +3,10 @@ package deploy
 import (
 	"context"
 	"fmt"
+	"lightfold/pkg/builders"
+	_ "lightfold/pkg/builders/dockerfile"
+	_ "lightfold/pkg/builders/native"
+	_ "lightfold/pkg/builders/nixpacks"
 	"lightfold/pkg/config"
 	"lightfold/pkg/detector"
 	"lightfold/pkg/providers"
@@ -10,6 +14,7 @@ import (
 	_ "lightfold/pkg/providers/digitalocean" // Register DigitalOcean provider
 	_ "lightfold/pkg/providers/hetzner"      // Register Hetzner provider
 	sshpkg "lightfold/pkg/ssh"
+	"lightfold/pkg/state"
 	"lightfold/pkg/util"
 	"os"
 	"strings"
@@ -449,16 +454,50 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		envVars = o.config.Deploy.EnvVars
 	}
 
+	builderName := o.config.Builder
+	if builderName == "" {
+		builderName = "native"
+	}
+
+	builder, err := builders.GetBuilder(builderName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get builder %s: %w", builderName, err)
+	}
+
+	var buildResult *builders.BuildResult
 	skipBuild := o.config.Deploy != nil && o.config.Deploy.SkipBuild
 	if !skipBuild {
 		o.notifyProgress(DeploymentStep{
 			Name:        "build_release",
-			Description: "Building app...",
+			Description: fmt.Sprintf("Building with %s...", builder.Name()),
 			Progress:    60,
 		})
 
-		if err := executor.BuildReleaseWithEnv(releasePath, envVars); err != nil {
-			return nil, fmt.Errorf("failed to build release: %w", err)
+		var err error
+		buildResult, err = builder.Build(ctx, &builders.BuildOptions{
+			ProjectPath: o.projectPath,
+			Detection:   &detection,
+			ReleasePath: releasePath,
+			EnvVars:     envVars,
+			SSHExecutor: sshExecutor,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("build failed: %w", err)
+		}
+
+		if !buildResult.Success {
+			return nil, fmt.Errorf("build failed")
+		}
+
+		if buildResult.StartCommand != "" {
+			executor.SetStartCommand(buildResult.StartCommand)
+		} else if len(detection.RunPlan) > 0 {
+			// Fallback to detector's RunPlan if nixpacks didn't provide a start command
+			executor.SetStartCommand(detection.RunPlan[0])
+		}
+
+		if err := state.UpdateBuilder(o.targetName, builder.Name()); err != nil {
+			fmt.Printf("Warning: failed to update builder in state: %v\n", err)
 		}
 	}
 
@@ -486,22 +525,30 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		return nil, fmt.Errorf("failed to enable service: %w", err)
 	}
 
-	o.notifyProgress(DeploymentStep{
-		Name:        "configure_nginx",
-		Description: "Configuring nginx reverse proxy...",
-		Progress:    75,
-	})
+	if builder.NeedsNginx() {
+		o.notifyProgress(DeploymentStep{
+			Name:        "configure_nginx",
+			Description: "Configuring nginx reverse proxy...",
+			Progress:    75,
+		})
 
-	if err := executor.GenerateNginxConfig(); err != nil {
-		return nil, fmt.Errorf("failed to generate nginx config: %w", err)
-	}
+		if err := executor.GenerateNginxConfig(); err != nil {
+			return nil, fmt.Errorf("failed to generate nginx config: %w", err)
+		}
 
-	if err := executor.TestNginxConfig(); err != nil {
-		return nil, fmt.Errorf("nginx config test failed: %w", err)
-	}
+		if err := executor.TestNginxConfig(); err != nil {
+			return nil, fmt.Errorf("nginx config test failed: %w", err)
+		}
 
-	if err := executor.ReloadNginx(); err != nil {
-		return nil, fmt.Errorf("failed to reload nginx: %w", err)
+		if err := executor.ReloadNginx(); err != nil {
+			return nil, fmt.Errorf("failed to reload nginx: %w", err)
+		}
+	} else {
+		o.notifyProgress(DeploymentStep{
+			Name:        "skip_nginx",
+			Description: fmt.Sprintf("Skipping nginx (handled by %s)...", builder.Name()),
+			Progress:    75,
+		})
 	}
 
 	o.notifyProgress(DeploymentStep{

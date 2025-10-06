@@ -16,12 +16,13 @@ import (
 )
 
 var (
-	envFile          string
-	envVars          []string
-	skipBuild        bool
-	deployTargetFlag string
-	deployForceFlag  bool
-	deployDryRun     bool
+	envFile           string
+	envVars           []string
+	skipBuild         bool
+	deployTargetFlag  string
+	deployForceFlag   bool
+	deployDryRun      bool
+	deployBuilderFlag string
 
 	deployHeaderStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAC6")).Bold(true)
 	deployStepHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Bold(true)
@@ -117,11 +118,28 @@ Examples:
 			}
 		}
 
+		builderName := resolveBuilder(target, projectPath, &detection, deployBuilderFlag)
+		fmt.Printf("  %s %s\n", deployMutedStyle.Render("Builder:"), deployMutedStyle.Render(builderName))
+
+		if target.Builder != builderName {
+			target.Builder = builderName
+		}
+
 		fmt.Printf("\n%s\n", deployStepHeaderStyle.Render("Step 2/4: Create infra"))
 		var err error
 		target, err = createTarget(targetName, projectPath, cfg)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error creating infrastructure: %v\n", err)
+			os.Exit(1)
+		}
+
+		target.Builder = builderName
+		if err := cfg.SetTarget(targetName, target); err != nil {
+			fmt.Fprintf(os.Stderr, "Error saving builder config: %v\n", err)
+			os.Exit(1)
+		}
+		if err := cfg.SaveConfig(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -236,6 +254,7 @@ func init() {
 	deployCmd.Flags().StringVar(&deployTargetFlag, "target", "", "Target name (defaults to current directory)")
 	deployCmd.Flags().BoolVar(&deployForceFlag, "force", false, "Force rerun all steps")
 	deployCmd.Flags().BoolVar(&deployDryRun, "dry-run", false, "Show deployment plan without executing")
+	deployCmd.Flags().StringVar(&deployBuilderFlag, "builder", "", "Builder to use: native, nixpacks, or dockerfile (auto-detected if not specified)")
 	deployCmd.Flags().StringVar(&envFile, "env-file", "", "Path to .env file with environment variables")
 	deployCmd.Flags().StringArrayVar(&envVars, "env", []string{}, "Environment variables in KEY=VALUE format (can be used multiple times)")
 	deployCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "Skip the build step during deployment")

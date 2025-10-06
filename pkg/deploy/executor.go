@@ -33,6 +33,7 @@ type Executor struct {
 	detection      *detector.Detection
 	deployOptions  *config.DeploymentOptions
 	outputCallback OutputCallback
+	startCommand   string
 }
 
 // NewExecutor creates a new deployment executor
@@ -59,6 +60,10 @@ func NewExecutorWithOptions(sshExecutor *sshpkg.Executor, appName, projectPath s
 // SetOutputCallback sets the callback for streaming command output
 func (e *Executor) SetOutputCallback(callback OutputCallback) {
 	e.outputCallback = callback
+}
+
+func (e *Executor) SetStartCommand(cmd string) {
+	e.startCommand = cmd
 }
 
 // sendOutput sends output to the callback if set, showing only last N lines
@@ -266,6 +271,10 @@ func (e *Executor) InstallBasePackages() error {
 			if result.Error != nil || result.ExitCode != 0 {
 				return formatSSHError("failed to install Python", result)
 			}
+
+			// Create python symlink for compatibility (nixpacks uses 'python' not 'python3')
+			e.ssh.ExecuteSudo("ln -sf /usr/bin/python3 /usr/bin/python")
+			e.ssh.ExecuteSudo("ln -sf /usr/bin/pip3 /usr/bin/pip")
 
 			if pm, ok := e.detection.Meta["package_manager"]; ok && pm != "pip" {
 				switch pm {
@@ -893,6 +902,10 @@ func adjustPackageManagerPath(runCommand, packageManager string) string {
 }
 
 func (e *Executor) getExecStartCommand() string {
+	if e.startCommand != "" {
+		return e.startCommand
+	}
+
 	runPlan := e.getRunPlan()
 	if len(runPlan) > 0 {
 		runCommand := runPlan[0]

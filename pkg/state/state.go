@@ -16,7 +16,8 @@ type TargetState struct {
 	Created       bool      `json:"created"`
 	Configured    bool      `json:"configured"`
 	LastRelease   string    `json:"last_release,omitempty"`
-	ProvisionedID string    `json:"provisioned_id,omitempty"` // Droplet/Server ID if provisioned
+	ProvisionedID string    `json:"provisioned_id,omitempty"`
+	Builder       string    `json:"builder,omitempty"`
 }
 
 // GetStatePath returns the path to the state directory
@@ -157,6 +158,20 @@ func GetProvisionedID(targetName string) string {
 		return ""
 	}
 	return state.ProvisionedID
+}
+
+func UpdateBuilder(targetName, builder string) error {
+	state, err := LoadState(targetName)
+	if err != nil {
+		return err
+	}
+
+	state.Builder = builder
+	return SaveState(targetName, state)
+}
+
+func GetTargetState(targetName string) (*TargetState, error) {
+	return LoadState(targetName)
 }
 
 // DeleteState removes the state file for a specific target

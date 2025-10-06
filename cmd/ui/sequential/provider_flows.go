@@ -9,7 +9,6 @@ import (
 
 func CreateProviderSelectionStep(id string) Step {
 	return NewStep(id, "Select Cloud Provider").
-		Description("Choose how you want to deploy your application").
 		Type(StepTypeSelect).
 		Options(
 			"digitalocean",
@@ -17,11 +16,17 @@ func CreateProviderSelectionStep(id string) Step {
 			"hetzner",
 			"byos",
 		).
+		OptionLabels(
+			"DigitalOcean",
+			"Vultr",
+			"Hetzner",
+			"BYOS",
+		).
 		OptionDescriptions(
-			"Auto-provision servers on DigitalOcean",
-			"Auto-provision servers on Vultr",
-			"Auto-provision servers on Hetzner Cloud",
-			"Use an existing server with SSH access",
+			"",
+			"",
+			"",
+			"Bring your own server",
 		).
 		Required().
 		Build()

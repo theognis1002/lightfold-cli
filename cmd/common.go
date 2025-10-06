@@ -4,6 +4,10 @@ import (
 	"context"
 	"fmt"
 	"lightfold/cmd/ui/sequential"
+	"lightfold/pkg/builders"
+	_ "lightfold/pkg/builders/dockerfile"
+	_ "lightfold/pkg/builders/native"
+	_ "lightfold/pkg/builders/nixpacks"
 	"lightfold/pkg/config"
 	"lightfold/pkg/deploy"
 	"lightfold/pkg/detector"
@@ -747,4 +751,26 @@ var recoverIPFromVultr = func(target *config.TargetConfig, targetName, instanceI
 	}
 
 	return nil
+}
+
+// resolveBuilder determines which builder to use based on 3-layer priority:
+// 1. CLI flag (highest priority)
+// 2. Existing config (if target exists and builder is set)
+// 3. Auto-select (first time or builder no longer available)
+func resolveBuilder(target config.TargetConfig, projectPath string, detection *detector.Detection, flagValue string) string {
+	if flagValue != "" {
+		return flagValue
+	}
+
+	if target.Builder != "" {
+		if builder, err := builders.GetBuilder(target.Builder); err == nil && builder.IsAvailable() {
+			return target.Builder
+		}
+	}
+
+	builderName, err := builders.AutoSelectBuilder(projectPath, detection)
+	if err != nil {
+		return "native"
+	}
+	return builderName
 }

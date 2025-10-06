@@ -72,6 +72,9 @@ var configListCmd = &cobra.Command{
 				fmt.Printf("    Project:   %s\n", configValueStyle.Render(target.ProjectPath))
 				fmt.Printf("    Framework: %s\n", configValueStyle.Render(target.Framework))
 				fmt.Printf("    Provider:  %s\n", configValueStyle.Render(target.Provider))
+				if target.Builder != "" {
+					fmt.Printf("    Builder:   %s\n", configValueStyle.Render(target.Builder))
+				}
 
 				switch target.Provider {
 				case "digitalocean":
