@@ -15,28 +15,43 @@ Framework detector and deployment tool for web applications with composable, ide
 
 ## Installation
 
+### Homebrew (macOS/Linux)
+
 ```bash
+brew install theognis1002/lightfold/lightfold
+```
+
+### Manual Installation
+
+**Download Pre-built Binary:**
+Visit the [releases page](https://github.com/theognis1002/lightfold-cli/releases) and download the binary for your platform.
+
+**Build from Source:**
+```bash
+git clone https://github.com/theognis1002/lightfold-cli.git
+cd lightfold-cli
 make build
-# or
-go build -o lightfold ./cmd/lightfold
+sudo make install
 ```
 
 ## Quick Start
 
-Deploy your application in one command from your project directory:
+1. **Install Lightfold:**
+   ```bash
+   brew install theognis1002/lightfold/lightfold
+   ```
 
-```bash
-cd ~/Projects/myapp
-lightfold deploy
-```
+2. **Navigate to your project:**
+   ```bash
+   cd ~/Projects/myapp
+   ```
 
-Or deploy from anywhere:
+3. **Deploy:**
+   ```bash
+   lightfold deploy
+   ```
 
-```bash
-lightfold deploy ~/Projects/myapp
-```
-
-On first run, you'll be prompted to:
+That's it! On first run, you'll be prompted to:
 - Select a cloud provider (DigitalOcean, Vultr, Hetzner Cloud, BYOS, etc.)
 - Provide credentials (API tokens, SSH keys)
 - Choose region and server size
@@ -175,12 +190,34 @@ Override with `--builder` flag.
 
 ## Development
 
+### Building Locally
+
 ```bash
 make build && ./lightfold .
 make test
 ```
 
-See [AGENTS.md](AGENTS.md) for architecture details.
+### Creating a Release
+
+1. **Tag a new version:**
+   ```bash
+   git tag -a v0.1.0 -m "Release v0.1.0"
+   git push origin v0.1.0
+   ```
+
+2. **GitHub Actions will automatically:**
+   - Build binaries for all platforms
+   - Create a GitHub Release
+   - Update the Homebrew tap formula
+   - Generate checksums and changelog
+
+3. **Users can then install via:**
+   ```bash
+   brew update
+   brew install theognis1002/lightfold/lightfold
+   ```
+
+See [AGENTS.md](AGENTS.md) for architecture details and [docs/RELEASING.md](docs/RELEASING.md) for release instructions.
 
 ## Key Design Principles
 

@@ -839,4 +839,33 @@ lightfold destroy --target myapp       # Destroy VM and cleanup
 - Cloud-init templates (`pkg/providers/cloudinit/`) handle server bootstrapping during provisioning
 - Utility packages (`pkg/util/`) provide shared helpers for env parsing and project validation
 
+## Release & Distribution
+
+Lightfold uses **GoReleaser** for automated releases and distribution:
+
+- **Configuration**: `.goreleaser.yaml`
+- **CI/CD**: `.github/workflows/release.yml` (triggered on version tags)
+- **Distribution**:
+  - GitHub Releases (binaries for Linux, macOS, Windows)
+  - Homebrew tap: `theognis1002/homebrew-lightfold`
+
+**Creating a Release:**
+```bash
+git tag -a v0.1.0 -m "Release v0.1.0"
+git push origin v0.1.0
+```
+
+**What happens automatically:**
+1. GitHub Actions builds cross-platform binaries
+2. Creates GitHub Release with downloadable assets
+3. Updates Homebrew formula in tap repository
+4. Generates checksums and changelog
+
+**User Installation:**
+```bash
+brew install theognis1002/lightfold/lightfold
+```
+
+See [docs/RELEASING.md](docs/RELEASING.md) for detailed release process and troubleshooting.
+
 This context should help you understand the codebase structure, patterns, and development practices for contributing effectively to Lightfold CLI.
