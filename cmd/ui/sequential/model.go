@@ -291,8 +291,8 @@ func (m FlowModel) handleTextInput(key string) (FlowModel, tea.Cmd) {
 	currentStep := m.getCurrentStep()
 
 	if key != "backspace" && key != "enter" && key != "left" && key != "right" &&
-	   key != "up" && key != "down" && key != "tab" && key != "esc" &&
-	   key != "ctrl+c" && key != "ctrl+v" {
+		key != "up" && key != "down" && key != "tab" && key != "esc" &&
+		key != "ctrl+c" && key != "ctrl+v" {
 		if len(key) == 1 {
 			currentStep.Value += key
 		} else if len(key) > 1 {
@@ -323,8 +323,8 @@ func (m FlowModel) handleSSHKeyInput(key string) (FlowModel, tea.Cmd) {
 	}
 
 	if key != "backspace" && key != "enter" && key != "left" && key != "right" &&
-	   key != "up" && key != "down" && key != "tab" && key != "esc" &&
-	   key != "ctrl+c" && key != "ctrl+v" {
+		key != "up" && key != "down" && key != "tab" && key != "esc" &&
+		key != "ctrl+c" && key != "ctrl+v" {
 		if len(key) == 1 {
 			currentStep.Value += key
 		} else if len(key) > 1 {

@@ -84,10 +84,10 @@ func TestPackageManagerDetection(t *testing.T) {
 
 func TestJSCommandGeneration(t *testing.T) {
 	tests := []struct {
-		pm               string
-		expectedInstall  string
-		expectedBuild    string
-		expectedStart    string
+		pm              string
+		expectedInstall string
+		expectedBuild   string
+		expectedStart   string
 	}{
 		{"bun", "bun install", "bun run build", "bun run start"},
 		{"pnpm", "pnpm install", "pnpm run build", "pnpm start"},
@@ -134,11 +134,11 @@ func TestPythonCommandGeneration(t *testing.T) {
 
 func TestBuildPlans(t *testing.T) {
 	tests := []struct {
-		name            string
-		planFunc        func(string) ([]string, []string, map[string]any, []string, map[string]string)
-		projectFiles    map[string]string
+		name             string
+		planFunc         func(string) ([]string, []string, map[string]any, []string, map[string]string)
+		projectFiles     map[string]string
 		expectedCommands []string
-		expectedPM      string
+		expectedPM       string
 	}{
 		{
 			name:     "Next.js with pnpm",
@@ -148,7 +148,7 @@ func TestBuildPlans(t *testing.T) {
 				"package.json":   "{}",
 			},
 			expectedCommands: []string{"pnpm install", "pnpm run build"},
-			expectedPM:      "pnpm",
+			expectedPM:       "pnpm",
 		},
 		{
 			name:     "Next.js with bun (bun.lockb)",
@@ -158,7 +158,7 @@ func TestBuildPlans(t *testing.T) {
 				"package.json": "{}",
 			},
 			expectedCommands: []string{"bun install", "bun run build"},
-			expectedPM:      "bun",
+			expectedPM:       "bun",
 		},
 		{
 			name:     "Next.js with bun (bun.lock)",
@@ -168,17 +168,17 @@ func TestBuildPlans(t *testing.T) {
 				"package.json": "{}",
 			},
 			expectedCommands: []string{"bun install", "bun run build"},
-			expectedPM:      "bun",
+			expectedPM:       "bun",
 		},
 		{
 			name:     "Django with poetry",
 			planFunc: detector.DjangoPlan,
 			projectFiles: map[string]string{
-				"poetry.lock":   "[[package]]",
+				"poetry.lock":    "[[package]]",
 				"pyproject.toml": "[tool.poetry]",
 			},
 			expectedCommands: []string{"poetry install"},
-			expectedPM:      "poetry",
+			expectedPM:       "poetry",
 		},
 		{
 			name:     "Go service",
@@ -188,7 +188,7 @@ func TestBuildPlans(t *testing.T) {
 				"main.go": "package main",
 			},
 			expectedCommands: []string{"go build -o app ."},
-			expectedPM:      "",
+			expectedPM:       "",
 		},
 	}
 
@@ -224,11 +224,11 @@ func TestBuildPlans(t *testing.T) {
 
 func TestFrameworkHealthChecks(t *testing.T) {
 	tests := []struct {
-		name          string
-		planFunc      func(string) ([]string, []string, map[string]any, []string, map[string]string)
-		projectFiles  map[string]string
-		expectedPath  string
-		expectedCode  int
+		name         string
+		planFunc     func(string) ([]string, []string, map[string]any, []string, map[string]string)
+		projectFiles map[string]string
+		expectedPath string
+		expectedCode int
 	}{
 		{
 			name:     "Next.js health check",
@@ -422,8 +422,8 @@ func TestPackageManagerPriority(t *testing.T) {
 		{
 			name: "yarn-berry over yarn",
 			files: map[string]string{
-				".yarnrc.yml": "nodeLinker: node-modules",
-				"yarn.lock":   "# yarn lockfile v1",
+				".yarnrc.yml":  "nodeLinker: node-modules",
+				"yarn.lock":    "# yarn lockfile v1",
 				"package.json": "{}",
 			},
 			expected: "yarn-berry",
@@ -554,10 +554,10 @@ func TestAllFrameworkPlansReturnValidStructure(t *testing.T) {
 // TestPackageManagerInDetection verifies that package manager info flows through detection
 func TestPackageManagerInDetection(t *testing.T) {
 	tests := []struct {
-		name        string
-		files       map[string]string
-		expectedPM  string
-		framework   string
+		name       string
+		files      map[string]string
+		expectedPM string
+		framework  string
 	}{
 		{
 			name: "Next.js with bun (bun.lockb)",
@@ -582,9 +582,9 @@ func TestPackageManagerInDetection(t *testing.T) {
 		{
 			name: "Next.js with pnpm",
 			files: map[string]string{
-				"next.config.js":  "module.exports = {}",
-				"package.json":    `{"dependencies": {"next": "^13.0.0"}}`,
-				"pnpm-lock.yaml":  "lockfileVersion: 6.0",
+				"next.config.js": "module.exports = {}",
+				"package.json":   `{"dependencies": {"next": "^13.0.0"}}`,
+				"pnpm-lock.yaml": "lockfileVersion: 6.0",
 			},
 			expectedPM: "pnpm",
 			framework:  "Next.js",
@@ -592,8 +592,8 @@ func TestPackageManagerInDetection(t *testing.T) {
 		{
 			name: "Django with poetry",
 			files: map[string]string{
-				"manage.py":     "#!/usr/bin/env python",
-				"poetry.lock":   "[[package]]",
+				"manage.py":   "#!/usr/bin/env python",
+				"poetry.lock": "[[package]]",
 				"pyproject.toml": `[tool.poetry]
 name = "myapp"
 [tool.poetry.dependencies]
@@ -605,8 +605,8 @@ django = "^4.2.0"`,
 		{
 			name: "FastAPI with uv",
 			files: map[string]string{
-				"main.py":  `from fastapi import FastAPI\napp = FastAPI()`,
-				"uv.lock":  "version = 1",
+				"main.py": `from fastapi import FastAPI\napp = FastAPI()`,
+				"uv.lock": "version = 1",
 			},
 			expectedPM: "uv",
 			framework:  "FastAPI",
@@ -646,16 +646,16 @@ django = "^4.2.0"`,
 // TestDjangoServerTypeDetection tests that Django ASGI and WSGI are correctly detected
 func TestDjangoServerTypeDetection(t *testing.T) {
 	tests := []struct {
-		name              string
-		projectFiles      map[string]string
+		name               string
+		projectFiles       map[string]string
 		expectedServerType string
 		expectedRunCommand string
 	}{
 		{
 			name: "Django ASGI with asgi.py file",
 			projectFiles: map[string]string{
-				"manage.py": "#!/usr/bin/env python",
-				"asgi.py":   "import os\nfrom django.core.asgi import get_asgi_application",
+				"manage.py":        "#!/usr/bin/env python",
+				"asgi.py":          "import os\nfrom django.core.asgi import get_asgi_application",
 				"requirements.txt": "django==4.2.0\nuvicorn==0.24.0",
 			},
 			expectedServerType: "asgi",
@@ -664,8 +664,8 @@ func TestDjangoServerTypeDetection(t *testing.T) {
 		{
 			name: "Django ASGI with config/asgi.py",
 			projectFiles: map[string]string{
-				"manage.py":       "#!/usr/bin/env python",
-				"config/asgi.py":  "import os\nfrom django.core.asgi import get_asgi_application",
+				"manage.py":        "#!/usr/bin/env python",
+				"config/asgi.py":   "import os\nfrom django.core.asgi import get_asgi_application",
 				"requirements.txt": "django==4.2.0\nuvicorn==0.24.0",
 			},
 			expectedServerType: "asgi",
@@ -674,8 +674,8 @@ func TestDjangoServerTypeDetection(t *testing.T) {
 		{
 			name: "Django ASGI detected via ASGI_APPLICATION in settings",
 			projectFiles: map[string]string{
-				"manage.py":  "#!/usr/bin/env python",
-				"settings.py": "ASGI_APPLICATION = 'myproject.asgi.application'",
+				"manage.py":        "#!/usr/bin/env python",
+				"settings.py":      "ASGI_APPLICATION = 'myproject.asgi.application'",
 				"requirements.txt": "django==4.2.0\nuvicorn==0.24.0",
 			},
 			expectedServerType: "asgi",
@@ -684,7 +684,7 @@ func TestDjangoServerTypeDetection(t *testing.T) {
 		{
 			name: "Django ASGI detected via uvicorn in requirements",
 			projectFiles: map[string]string{
-				"manage.py": "#!/usr/bin/env python",
+				"manage.py":        "#!/usr/bin/env python",
 				"requirements.txt": "django==4.2.0\nuvicorn==0.24.0",
 			},
 			expectedServerType: "asgi",
@@ -693,7 +693,7 @@ func TestDjangoServerTypeDetection(t *testing.T) {
 		{
 			name: "Django ASGI detected via daphne in requirements",
 			projectFiles: map[string]string{
-				"manage.py": "#!/usr/bin/env python",
+				"manage.py":        "#!/usr/bin/env python",
 				"requirements.txt": "django==4.2.0\ndaphne==4.0.0",
 			},
 			expectedServerType: "asgi",
@@ -702,7 +702,7 @@ func TestDjangoServerTypeDetection(t *testing.T) {
 		{
 			name: "Django ASGI detected via channels in requirements",
 			projectFiles: map[string]string{
-				"manage.py": "#!/usr/bin/env python",
+				"manage.py":        "#!/usr/bin/env python",
 				"requirements.txt": "django==4.2.0\nchannels==4.0.0",
 			},
 			expectedServerType: "asgi",
@@ -711,8 +711,8 @@ func TestDjangoServerTypeDetection(t *testing.T) {
 		{
 			name: "Django WSGI with wsgi.py file",
 			projectFiles: map[string]string{
-				"manage.py": "#!/usr/bin/env python",
-				"wsgi.py":   "import os\nfrom django.core.wsgi import get_wsgi_application",
+				"manage.py":        "#!/usr/bin/env python",
+				"wsgi.py":          "import os\nfrom django.core.wsgi import get_wsgi_application",
 				"requirements.txt": "django==4.2.0\ngunicorn==21.2.0",
 			},
 			expectedServerType: "wsgi",
@@ -721,8 +721,8 @@ func TestDjangoServerTypeDetection(t *testing.T) {
 		{
 			name: "Django WSGI with config/wsgi.py",
 			projectFiles: map[string]string{
-				"manage.py":       "#!/usr/bin/env python",
-				"config/wsgi.py":  "import os\nfrom django.core.wsgi import get_wsgi_application",
+				"manage.py":        "#!/usr/bin/env python",
+				"config/wsgi.py":   "import os\nfrom django.core.wsgi import get_wsgi_application",
 				"requirements.txt": "django==4.2.0\ngunicorn==21.2.0",
 			},
 			expectedServerType: "wsgi",
@@ -731,7 +731,7 @@ func TestDjangoServerTypeDetection(t *testing.T) {
 		{
 			name: "Django WSGI default (no asgi.py or specific indicators)",
 			projectFiles: map[string]string{
-				"manage.py": "#!/usr/bin/env python",
+				"manage.py":        "#!/usr/bin/env python",
 				"requirements.txt": "django==4.2.0",
 			},
 			expectedServerType: "wsgi",
@@ -740,9 +740,9 @@ func TestDjangoServerTypeDetection(t *testing.T) {
 		{
 			name: "Django ASGI takes priority over WSGI when both exist",
 			projectFiles: map[string]string{
-				"manage.py": "#!/usr/bin/env python",
-				"asgi.py":   "import os\nfrom django.core.asgi import get_asgi_application",
-				"wsgi.py":   "import os\nfrom django.core.wsgi import get_wsgi_application",
+				"manage.py":        "#!/usr/bin/env python",
+				"asgi.py":          "import os\nfrom django.core.asgi import get_asgi_application",
+				"wsgi.py":          "import os\nfrom django.core.wsgi import get_wsgi_application",
 				"requirements.txt": "django==4.2.0\nuvicorn==0.24.0\ngunicorn==21.2.0",
 			},
 			expectedServerType: "asgi",

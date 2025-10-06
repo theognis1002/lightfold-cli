@@ -18,18 +18,28 @@ type MockProvider struct {
 	destroyedID   string
 }
 
-func (m *MockProvider) Name() string                      { return "mock" }
-func (m *MockProvider) DisplayName() string               { return "Mock Provider" }
-func (m *MockProvider) SupportsProvisioning() bool        { return true }
-func (m *MockProvider) SupportsBYOS() bool                { return true }
-func (m *MockProvider) ValidateCredentials(ctx context.Context) error { return nil }
+func (m *MockProvider) Name() string                                               { return "mock" }
+func (m *MockProvider) DisplayName() string                                        { return "Mock Provider" }
+func (m *MockProvider) SupportsProvisioning() bool                                 { return true }
+func (m *MockProvider) SupportsBYOS() bool                                         { return true }
+func (m *MockProvider) ValidateCredentials(ctx context.Context) error              { return nil }
 func (m *MockProvider) GetRegions(ctx context.Context) ([]providers.Region, error) { return nil, nil }
-func (m *MockProvider) GetSizes(ctx context.Context, region string) ([]providers.Size, error) { return nil, nil }
+func (m *MockProvider) GetSizes(ctx context.Context, region string) ([]providers.Size, error) {
+	return nil, nil
+}
 func (m *MockProvider) GetImages(ctx context.Context) ([]providers.Image, error) { return nil, nil }
-func (m *MockProvider) Provision(ctx context.Context, config providers.ProvisionConfig) (*providers.Server, error) { return nil, nil }
-func (m *MockProvider) GetServer(ctx context.Context, serverID string) (*providers.Server, error) { return nil, nil }
-func (m *MockProvider) WaitForActive(ctx context.Context, serverID string, timeout time.Duration) (*providers.Server, error) { return nil, nil }
-func (m *MockProvider) UploadSSHKey(ctx context.Context, name, publicKey string) (*providers.SSHKey, error) { return nil, nil }
+func (m *MockProvider) Provision(ctx context.Context, config providers.ProvisionConfig) (*providers.Server, error) {
+	return nil, nil
+}
+func (m *MockProvider) GetServer(ctx context.Context, serverID string) (*providers.Server, error) {
+	return nil, nil
+}
+func (m *MockProvider) WaitForActive(ctx context.Context, serverID string, timeout time.Duration) (*providers.Server, error) {
+	return nil, nil
+}
+func (m *MockProvider) UploadSSHKey(ctx context.Context, name, publicKey string) (*providers.SSHKey, error) {
+	return nil, nil
+}
 
 func (m *MockProvider) Destroy(ctx context.Context, serverID string) error {
 	m.destroyCalled = true

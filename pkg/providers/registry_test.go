@@ -15,18 +15,20 @@ type MockProvider struct {
 	supportsBYOS         bool
 }
 
-func (m *MockProvider) Name() string                 { return m.name }
-func (m *MockProvider) DisplayName() string          { return m.displayName }
-func (m *MockProvider) SupportsProvisioning() bool   { return m.supportsProvisioning }
-func (m *MockProvider) SupportsBYOS() bool           { return m.supportsBYOS }
-func (m *MockProvider) ValidateCredentials(ctx context.Context) error   { return nil }
-func (m *MockProvider) GetRegions(ctx context.Context) ([]Region, error) { return nil, nil }
+func (m *MockProvider) Name() string                                                { return m.name }
+func (m *MockProvider) DisplayName() string                                         { return m.displayName }
+func (m *MockProvider) SupportsProvisioning() bool                                  { return m.supportsProvisioning }
+func (m *MockProvider) SupportsBYOS() bool                                          { return m.supportsBYOS }
+func (m *MockProvider) ValidateCredentials(ctx context.Context) error               { return nil }
+func (m *MockProvider) GetRegions(ctx context.Context) ([]Region, error)            { return nil, nil }
 func (m *MockProvider) GetSizes(ctx context.Context, region string) ([]Size, error) { return nil, nil }
-func (m *MockProvider) GetImages(ctx context.Context) ([]Image, error) { return nil, nil }
+func (m *MockProvider) GetImages(ctx context.Context) ([]Image, error)              { return nil, nil }
 func (m *MockProvider) Provision(ctx context.Context, config ProvisionConfig) (*Server, error) {
 	return nil, nil
 }
-func (m *MockProvider) GetServer(ctx context.Context, serverID string) (*Server, error) { return nil, nil }
+func (m *MockProvider) GetServer(ctx context.Context, serverID string) (*Server, error) {
+	return nil, nil
+}
 func (m *MockProvider) Destroy(ctx context.Context, serverID string) error { return nil }
 func (m *MockProvider) WaitForActive(ctx context.Context, serverID string, timeout time.Duration) (*Server, error) {
 	return nil, nil

@@ -57,11 +57,11 @@ type Region struct {
 
 // Size represents a server size/instance type
 type Size struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Memory      int     `json:"memory"`      // MB
-	VCPUs       int     `json:"vcpus"`
-	Disk        int     `json:"disk"`        // GB
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	Memory       int     `json:"memory"` // MB
+	VCPUs        int     `json:"vcpus"`
+	Disk         int     `json:"disk"`          // GB
 	PriceMonthly float64 `json:"price_monthly"` // USD
 	PriceHourly  float64 `json:"price_hourly"`  // USD
 }
@@ -76,17 +76,17 @@ type Image struct {
 
 // Server represents a provisioned server
 type Server struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	Status       string            `json:"status"`
-	PublicIPv4   string            `json:"public_ipv4"`
-	PrivateIPv4  string            `json:"private_ipv4"`
-	Region       string            `json:"region"`
-	Size         string            `json:"size"`
-	Image        string            `json:"image"`
-	Tags         []string          `json:"tags"`
-	CreatedAt    time.Time         `json:"created_at"`
-	Metadata     map[string]string `json:"metadata"`
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	Status      string            `json:"status"`
+	PublicIPv4  string            `json:"public_ipv4"`
+	PrivateIPv4 string            `json:"private_ipv4"`
+	Region      string            `json:"region"`
+	Size        string            `json:"size"`
+	Image       string            `json:"image"`
+	Tags        []string          `json:"tags"`
+	CreatedAt   time.Time         `json:"created_at"`
+	Metadata    map[string]string `json:"metadata"`
 }
 
 // SSHKey represents an SSH key for server access
@@ -99,30 +99,30 @@ type SSHKey struct {
 
 // ProvisionConfig contains the configuration for provisioning a new server
 type ProvisionConfig struct {
-	Name         string            `json:"name"`
-	Region       string            `json:"region"`
-	Size         string            `json:"size"`
-	Image        string            `json:"image"`
-	SSHKeys      []string          `json:"ssh_keys"`      // SSH key IDs
-	UserData     string            `json:"user_data"`     // Cloud-init script
-	Tags         []string          `json:"tags"`
-	Metadata     map[string]string `json:"metadata"`
-	BackupsEnabled bool            `json:"backups_enabled"`
-	MonitoringEnabled bool         `json:"monitoring_enabled"`
+	Name              string            `json:"name"`
+	Region            string            `json:"region"`
+	Size              string            `json:"size"`
+	Image             string            `json:"image"`
+	SSHKeys           []string          `json:"ssh_keys"`  // SSH key IDs
+	UserData          string            `json:"user_data"` // Cloud-init script
+	Tags              []string          `json:"tags"`
+	Metadata          map[string]string `json:"metadata"`
+	BackupsEnabled    bool              `json:"backups_enabled"`
+	MonitoringEnabled bool              `json:"monitoring_enabled"`
 }
 
 // ProvisionResult contains the result of a provisioning operation
 type ProvisionResult struct {
-	Server   *Server `json:"server"`
-	SSHKey   *SSHKey `json:"ssh_key,omitempty"`
+	Server   *Server  `json:"server"`
+	SSHKey   *SSHKey  `json:"ssh_key,omitempty"`
 	Warnings []string `json:"warnings,omitempty"`
 }
 
 // ProviderError represents an error from a cloud provider
 type ProviderError struct {
-	Provider string `json:"provider"`
-	Code     string `json:"code"`
-	Message  string `json:"message"`
+	Provider string                 `json:"provider"`
+	Code     string                 `json:"code"`
+	Message  string                 `json:"message"`
 	Details  map[string]interface{} `json:"details,omitempty"`
 }
 

@@ -24,11 +24,11 @@ type Builder interface {
 
 // BuildOptions contains all parameters needed for a build operation
 type BuildOptions struct {
-	ProjectPath string                // Local project directory path
-	Detection   *detector.Detection   // Framework detection results
-	ReleasePath string                // Remote release directory path
-	EnvVars     map[string]string     // Environment variables for build
-	SSHExecutor *sshpkg.Executor      // SSH connection to remote server
+	ProjectPath string              // Local project directory path
+	Detection   *detector.Detection // Framework detection results
+	ReleasePath string              // Remote release directory path
+	EnvVars     map[string]string   // Environment variables for build
+	SSHExecutor *sshpkg.Executor    // SSH connection to remote server
 }
 
 // BuildResult contains the output of a build operation

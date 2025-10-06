@@ -101,7 +101,7 @@ func TestParseNextConfig(t *testing.T) {
 			}
 
 			fs := newMockFSReader(tmpDir)
-		config := ParseNextConfig(fs)
+			config := ParseNextConfig(fs)
 
 			if config.OutputMode != tt.expectedOutput {
 				t.Errorf("OutputMode = %v, want %v", config.OutputMode, tt.expectedOutput)
@@ -163,7 +163,7 @@ func TestParsePackageJSON(t *testing.T) {
 			os.WriteFile(filepath.Join(tmpDir, "package.json"), []byte(tt.packageJSON), 0644)
 
 			fs := newMockFSReader(tmpDir)
-		pkg := ParsePackageJSON(fs)
+			pkg := ParsePackageJSON(fs)
 
 			// Check scripts
 			for k, v := range tt.expectedScripts {
@@ -192,11 +192,11 @@ func TestParsePackageJSON(t *testing.T) {
 
 func TestDetectFrameworkAdapter(t *testing.T) {
 	tests := []struct {
-		name             string
-		framework        string
-		deps             map[string]string
-		expectedType     string
-		expectedRunMode  string
+		name            string
+		framework       string
+		deps            map[string]string
+		expectedType    string
+		expectedRunMode string
 	}{
 		{
 			name:      "Remix with Node adapter",
@@ -241,7 +241,7 @@ func TestDetectFrameworkAdapter(t *testing.T) {
 			name:      "Astro with Node adapter",
 			framework: "astro",
 			deps: map[string]string{
-				"astro":        "^4.0.0",
+				"astro":         "^4.0.0",
 				"@astrojs/node": "^8.0.0",
 			},
 			expectedType:    "node",
@@ -428,7 +428,7 @@ func TestDetectMonorepoType(t *testing.T) {
 			}
 
 			fs := newMockFSReader(tmpDir)
-		result := DetectMonorepoType(fs)
+			result := DetectMonorepoType(fs)
 			if result != tt.expected {
 				t.Errorf("DetectMonorepoType() = %v, want %v", result, tt.expected)
 			}

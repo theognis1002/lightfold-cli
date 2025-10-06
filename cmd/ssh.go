@@ -15,8 +15,8 @@ import (
 )
 
 var (
-	sshTargetFlag    string
-	sshCommandFlag   string
+	sshTargetFlag  string
+	sshCommandFlag string
 )
 
 var sshCmd = &cobra.Command{

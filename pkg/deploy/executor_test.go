@@ -246,8 +246,8 @@ func TestDirectoryStructurePaths(t *testing.T) {
 
 func TestWriteEnvironmentFile_Content(t *testing.T) {
 	envVars := map[string]string{
-		"NODE_ENV":    "production",
-		"PORT":        "8000",
+		"NODE_ENV":     "production",
+		"PORT":         "8000",
 		"DATABASE_URL": "postgres://localhost/mydb",
 	}
 
@@ -578,17 +578,17 @@ func TestPerformHealthCheck_NoDetection(t *testing.T) {
 
 func TestPerformHealthCheck_Configuration(t *testing.T) {
 	tests := []struct {
-		name       string
+		name        string
 		healthcheck map[string]any
-		wantPath   string
-		wantStatus int
+		wantPath    string
+		wantStatus  int
 		wantTimeout int
 	}{
 		{
-			name: "default values",
+			name:        "default values",
 			healthcheck: map[string]any{},
-			wantPath: "/",
-			wantStatus: 200,
+			wantPath:    "/",
+			wantStatus:  200,
 			wantTimeout: 30,
 		},
 		{
@@ -596,8 +596,8 @@ func TestPerformHealthCheck_Configuration(t *testing.T) {
 			healthcheck: map[string]any{
 				"path": "/health",
 			},
-			wantPath: "/health",
-			wantStatus: 200,
+			wantPath:    "/health",
+			wantStatus:  200,
 			wantTimeout: 30,
 		},
 		{
@@ -605,8 +605,8 @@ func TestPerformHealthCheck_Configuration(t *testing.T) {
 			healthcheck: map[string]any{
 				"expect": 204,
 			},
-			wantPath: "/",
-			wantStatus: 204,
+			wantPath:    "/",
+			wantStatus:  204,
 			wantTimeout: 30,
 		},
 		{
@@ -614,8 +614,8 @@ func TestPerformHealthCheck_Configuration(t *testing.T) {
 			healthcheck: map[string]any{
 				"expect": float64(204),
 			},
-			wantPath: "/",
-			wantStatus: 204,
+			wantPath:    "/",
+			wantStatus:  204,
 			wantTimeout: 30,
 		},
 		{
@@ -623,8 +623,8 @@ func TestPerformHealthCheck_Configuration(t *testing.T) {
 			healthcheck: map[string]any{
 				"timeout_seconds": 60,
 			},
-			wantPath: "/",
-			wantStatus: 200,
+			wantPath:    "/",
+			wantStatus:  200,
 			wantTimeout: 60,
 		},
 		{
@@ -632,19 +632,19 @@ func TestPerformHealthCheck_Configuration(t *testing.T) {
 			healthcheck: map[string]any{
 				"timeout_seconds": float64(60),
 			},
-			wantPath: "/",
-			wantStatus: 200,
+			wantPath:    "/",
+			wantStatus:  200,
 			wantTimeout: 60,
 		},
 		{
 			name: "all custom",
 			healthcheck: map[string]any{
-				"path": "/api/health",
-				"expect": 200,
+				"path":            "/api/health",
+				"expect":          200,
 				"timeout_seconds": 45,
 			},
-			wantPath: "/api/health",
-			wantStatus: 200,
+			wantPath:    "/api/health",
+			wantStatus:  200,
 			wantTimeout: 45,
 		},
 	}

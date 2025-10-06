@@ -16,11 +16,11 @@ import (
 )
 
 var (
-	configStyle       = lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAC6")).Bold(true)
-	configLabelStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Bold(true)
-	configValueStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
-	configMutedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
-	configErrorStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
+	configStyle        = lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAC6")).Bold(true)
+	configLabelStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Bold(true)
+	configValueStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
+	configMutedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	configErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("196")).Bold(true)
 	configSuccessStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("82")).Bold(true)
 )
 
@@ -124,7 +124,6 @@ var configListCmd = &cobra.Command{
 		fmt.Println()
 	},
 }
-
 
 var configSetTokenCmd = &cobra.Command{
 	Use:   "set-token <provider> [token]",

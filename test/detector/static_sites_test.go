@@ -51,7 +51,7 @@ title: My Hugo Site`,
 		{
 			name: "Hugo minimal setup",
 			files: map[string]string{
-				"config.yaml": `title: Hugo Site`,
+				"config.yaml":       `title: Hugo Site`,
 				"content/_index.md": "# Home",
 			},
 			expectedFramework: "Hugo",
@@ -136,7 +136,7 @@ func TestEleventyDetection(t *testing.T) {
     "@11ty/eleventy": "^2.0.1"
   }
 }`,
-				"src/index.md": "# Hello Eleventy",
+				"src/index.md":   "# Hello Eleventy",
 				"pnpm-lock.yaml": "lockfileVersion: '6.0'",
 			},
 			expectedFramework: "Eleventy",
@@ -260,7 +260,7 @@ Hello Jekyll!`,
 			name: "Jekyll minimal setup",
 			files: map[string]string{
 				"_config.yml": `title: Site`,
-				"Gemfile": `gem "jekyll"`,
+				"Gemfile":     `gem "jekyll"`,
 			},
 			expectedFramework: "Jekyll",
 			expectedLanguage:  "Ruby",
@@ -369,7 +369,7 @@ func TestDocusaurusDetection(t *testing.T) {
 }`,
 				"docs/intro.md": "# Introduction\n\nWelcome!",
 				"blog/hello.md": "# Hello Blog",
-				"yarn.lock": "# yarn lock",
+				"yarn.lock":     "# yarn lock",
 			},
 			expectedFramework: "Docusaurus",
 			expectedLanguage:  "JavaScript/TypeScript",

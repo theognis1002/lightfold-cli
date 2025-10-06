@@ -6,11 +6,11 @@ import (
 
 func TestParseGitHubRepo(t *testing.T) {
 	tests := []struct {
-		name        string
-		remoteURL   string
-		expectedOrg string
+		name         string
+		remoteURL    string
+		expectedOrg  string
 		expectedRepo string
-		expectError bool
+		expectError  bool
 	}{
 		{
 			name:         "SSH format with .git",

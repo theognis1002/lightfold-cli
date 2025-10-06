@@ -28,10 +28,10 @@ type DigitalOceanConfig struct {
 	Provisioned bool   `json:"provisioned,omitempty"`
 }
 
-func (d *DigitalOceanConfig) GetIP() string        { return d.IP }
-func (d *DigitalOceanConfig) GetUsername() string  { return d.Username }
-func (d *DigitalOceanConfig) GetSSHKey() string    { return d.SSHKey }
-func (d *DigitalOceanConfig) IsProvisioned() bool  { return d.Provisioned }
+func (d *DigitalOceanConfig) GetIP() string       { return d.IP }
+func (d *DigitalOceanConfig) GetUsername() string { return d.Username }
+func (d *DigitalOceanConfig) GetSSHKey() string   { return d.SSHKey }
+func (d *DigitalOceanConfig) IsProvisioned() bool { return d.Provisioned }
 
 // HetznerConfig contains Hetzner-specific deployment configuration
 type HetznerConfig struct {
@@ -45,10 +45,10 @@ type HetznerConfig struct {
 	Provisioned bool   `json:"provisioned,omitempty"`
 }
 
-func (h *HetznerConfig) GetIP() string        { return h.IP }
-func (h *HetznerConfig) GetUsername() string  { return h.Username }
-func (h *HetznerConfig) GetSSHKey() string    { return h.SSHKey }
-func (h *HetznerConfig) IsProvisioned() bool  { return h.Provisioned }
+func (h *HetznerConfig) GetIP() string       { return h.IP }
+func (h *HetznerConfig) GetUsername() string { return h.Username }
+func (h *HetznerConfig) GetSSHKey() string   { return h.SSHKey }
+func (h *HetznerConfig) IsProvisioned() bool { return h.Provisioned }
 
 // VultrConfig contains Vultr-specific deployment configuration
 type VultrConfig struct {
@@ -58,14 +58,14 @@ type VultrConfig struct {
 	SSHKeyName  string `json:"ssh_key_name,omitempty"`
 	Username    string `json:"username"`
 	Region      string `json:"region,omitempty"`
-	Plan        string `json:"plan,omitempty"`       // Vultr uses "plan" instead of "size"
+	Plan        string `json:"plan,omitempty"` // Vultr uses "plan" instead of "size"
 	Provisioned bool   `json:"provisioned,omitempty"`
 }
 
-func (v *VultrConfig) GetIP() string        { return v.IP }
-func (v *VultrConfig) GetUsername() string  { return v.Username }
-func (v *VultrConfig) GetSSHKey() string    { return v.SSHKey }
-func (v *VultrConfig) IsProvisioned() bool  { return v.Provisioned }
+func (v *VultrConfig) GetIP() string       { return v.IP }
+func (v *VultrConfig) GetUsername() string { return v.Username }
+func (v *VultrConfig) GetSSHKey() string   { return v.SSHKey }
+func (v *VultrConfig) IsProvisioned() bool { return v.Provisioned }
 
 // S3Config contains S3-specific deployment configuration
 type S3Config struct {
@@ -75,10 +75,10 @@ type S3Config struct {
 	SecretKey string `json:"secret_key,omitempty"`
 }
 
-func (s *S3Config) GetIP() string        { return "" }
-func (s *S3Config) GetUsername() string  { return "" }
-func (s *S3Config) GetSSHKey() string    { return "" }
-func (s *S3Config) IsProvisioned() bool  { return false }
+func (s *S3Config) GetIP() string       { return "" }
+func (s *S3Config) GetUsername() string { return "" }
+func (s *S3Config) GetSSHKey() string   { return "" }
+func (s *S3Config) IsProvisioned() bool { return false }
 
 // DeploymentOptions contains framework-agnostic deployment settings
 type DeploymentOptions struct {

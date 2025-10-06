@@ -18,7 +18,7 @@ func TestNextJSBuildOutput(t *testing.T) {
 				"next.config.js": `module.exports = {
   reactStrictMode: true,
 }`,
-				"package.json": `{"dependencies": {"next": "^14.0.0"}}`,
+				"package.json":   `{"dependencies": {"next": "^14.0.0"}}`,
 				"pages/index.js": "export default function Home() { return <div>Home</div> }",
 			},
 			buildOutput: ".next/",
@@ -32,7 +32,7 @@ func TestNextJSBuildOutput(t *testing.T) {
     unoptimized: true,
   },
 }`,
-				"package.json": `{"dependencies": {"next": "^14.0.0"}}`,
+				"package.json":   `{"dependencies": {"next": "^14.0.0"}}`,
 				"pages/index.js": "export default function Home() { return <div>Home</div> }",
 			},
 			buildOutput: "out/",
@@ -67,8 +67,8 @@ func TestNextJSBuildOutput(t *testing.T) {
 
 func TestAstroBuildOutput(t *testing.T) {
 	projectPath := createTestProject(t, map[string]string{
-		"astro.config.mjs": `export default {}`,
-		"package.json": `{"dependencies": {"astro": "^4.0.0"}}`,
+		"astro.config.mjs":      `export default {}`,
+		"package.json":          `{"dependencies": {"astro": "^4.0.0"}}`,
 		"src/pages/index.astro": "---\n---\n<h1>Hello Astro</h1>",
 	})
 	detection := captureDetectFramework(t, projectPath)
@@ -84,8 +84,8 @@ func TestAstroBuildOutput(t *testing.T) {
 
 func TestGatsbyBuildOutput(t *testing.T) {
 	projectPath := createTestProject(t, map[string]string{
-		"gatsby-config.js": `module.exports = {}`,
-		"package.json": `{"dependencies": {"gatsby": "^5.0.0"}}`,
+		"gatsby-config.js":   `module.exports = {}`,
+		"package.json":       `{"dependencies": {"gatsby": "^5.0.0"}}`,
 		"src/pages/index.js": "export default function Home() {}",
 	})
 	detection := captureDetectFramework(t, projectPath)
@@ -101,8 +101,8 @@ func TestGatsbyBuildOutput(t *testing.T) {
 
 func TestSvelteBuildOutput(t *testing.T) {
 	projectPath := createTestProject(t, map[string]string{
-		"svelte.config.js": `export default {}`,
-		"package.json": `{"dependencies": {"@sveltejs/kit": "^2.0.0"}}`,
+		"svelte.config.js":        `export default {}`,
+		"package.json":            `{"dependencies": {"@sveltejs/kit": "^2.0.0"}}`,
 		"src/routes/+page.svelte": "<h1>Welcome</h1>",
 	})
 	detection := captureDetectFramework(t, projectPath)
@@ -119,8 +119,8 @@ func TestSvelteBuildOutput(t *testing.T) {
 func TestVueBuildOutput(t *testing.T) {
 	projectPath := createTestProject(t, map[string]string{
 		"vite.config.js": `export default {}`,
-		"package.json": `{"dependencies": {"vue": "^3.3.0"}}`,
-		"src/App.vue": "<template><div>App</div></template>",
+		"package.json":   `{"dependencies": {"vue": "^3.3.0"}}`,
+		"src/App.vue":    "<template><div>App</div></template>",
 	})
 	detection := captureDetectFramework(t, projectPath)
 
@@ -137,7 +137,7 @@ func TestAngularBuildOutput(t *testing.T) {
 	projectPath := createTestProject(t, map[string]string{
 		"angular.json": `{"projects": {}}`,
 		"package.json": `{"dependencies": {"@angular/core": "^17.0.0"}}`,
-		"src/main.ts": "import { platformBrowserDynamic } from '@angular/platform-browser-dynamic';",
+		"src/main.ts":  "import { platformBrowserDynamic } from '@angular/platform-browser-dynamic';",
 	})
 	detection := captureDetectFramework(t, projectPath)
 
@@ -234,8 +234,8 @@ func TestASPNetBuildOutput(t *testing.T) {
 func TestRemixBuildOutput(t *testing.T) {
 	projectPath := createTestProject(t, map[string]string{
 		"remix.config.js": `module.exports = {}`,
-		"package.json": `{"dependencies": {"@remix-run/react": "^2.0.0"}}`,
-		"app/root.tsx": "export default function App() {}",
+		"package.json":    `{"dependencies": {"@remix-run/react": "^2.0.0"}}`,
+		"app/root.tsx":    "export default function App() {}",
 	})
 	detection := captureDetectFramework(t, projectPath)
 
@@ -251,8 +251,8 @@ func TestRemixBuildOutput(t *testing.T) {
 func TestNuxtBuildOutput(t *testing.T) {
 	projectPath := createTestProject(t, map[string]string{
 		"nuxt.config.js": `export default {}`,
-		"package.json": `{"dependencies": {"nuxt": "^3.0.0"}}`,
-		"app.vue": "<template><div>App</div></template>",
+		"package.json":   `{"dependencies": {"nuxt": "^3.0.0"}}`,
+		"app.vue":        "<template><div>App</div></template>",
 	})
 	detection := captureDetectFramework(t, projectPath)
 
@@ -277,7 +277,7 @@ func TestStaticSiteGeneratorsBuildOutput(t *testing.T) {
 			name:      "Hugo",
 			framework: "Hugo",
 			files: map[string]string{
-				"config.toml": "title = 'Site'",
+				"config.toml":     "title = 'Site'",
 				"content/post.md": "# Post",
 			},
 			buildOutput: "public/",
@@ -298,7 +298,7 @@ func TestStaticSiteGeneratorsBuildOutput(t *testing.T) {
 			framework: "Jekyll",
 			files: map[string]string{
 				"_config.yml": "title: Site",
-				"Gemfile": "gem 'jekyll'",
+				"Gemfile":     "gem 'jekyll'",
 			},
 			buildOutput: "_site/",
 			isStatic:    true,
@@ -308,8 +308,8 @@ func TestStaticSiteGeneratorsBuildOutput(t *testing.T) {
 			framework: "Docusaurus",
 			files: map[string]string{
 				"docusaurus.config.js": "module.exports = {}",
-				"package.json": `{"dependencies": {"@docusaurus/core": "^3.0.0"}}`,
-				"docs/intro.md": "# Intro",
+				"package.json":         `{"dependencies": {"@docusaurus/core": "^3.0.0"}}`,
+				"docs/intro.md":        "# Intro",
 			},
 			buildOutput: "build/",
 			isStatic:    false, // Docusaurus can be SSR

@@ -40,8 +40,8 @@ func captureDetectFramework(t *testing.T, projectPath string) detector.Detection
 
 func TestNextJSDetection(t *testing.T) {
 	tests := []struct {
-		name           string
-		files          map[string]string
+		name              string
+		files             map[string]string
 		expectedFramework string
 		expectedSignals   []string
 		minConfidence     float64
@@ -119,8 +119,8 @@ func TestDjangoDetection(t *testing.T) {
 		{
 			name: "Django with pyproject.toml",
 			files: map[string]string{
-				"manage.py":       "#!/usr/bin/env python",
-				"pyproject.toml":  `[tool.poetry]\nname = "myproject"\n[tool.poetry.dependencies]\nDjango = "^4.2.0"`,
+				"manage.py":      "#!/usr/bin/env python",
+				"pyproject.toml": `[tool.poetry]\nname = "myproject"\n[tool.poetry.dependencies]\nDjango = "^4.2.0"`,
 			},
 			expectedFramework: "Django",
 			expectedLanguage:  "Python",
@@ -162,7 +162,7 @@ func TestExpressJSDetection(t *testing.T) {
 
 func TestFastAPIDetection(t *testing.T) {
 	projectPath := createTestProject(t, map[string]string{
-		"main.py":         `from fastapi import FastAPI\napp = FastAPI()`,
+		"main.py":          `from fastapi import FastAPI\napp = FastAPI()`,
 		"requirements.txt": "fastapi==0.104.0\nuvicorn==0.24.0",
 	})
 
@@ -196,10 +196,10 @@ func TestGoDetection(t *testing.T) {
 
 func TestAstroDetection(t *testing.T) {
 	projectPath := createTestProject(t, map[string]string{
-		"astro.config.mjs": "export default {}",
-		"package.json":     `{"dependencies": {"astro": "^3.0.0"}, "scripts": {"dev": "astro dev", "build": "astro build"}}`,
+		"astro.config.mjs":      "export default {}",
+		"package.json":          `{"dependencies": {"astro": "^3.0.0"}, "scripts": {"dev": "astro dev", "build": "astro build"}}`,
 		"src/pages/index.astro": "---\n---\n<html></html>",
-		"public/favicon.ico": "binary",
+		"public/favicon.ico":    "binary",
 	})
 
 	detection := captureDetectFramework(t, projectPath)
@@ -225,11 +225,11 @@ func TestAstroDetection(t *testing.T) {
 
 func TestAngularDetection(t *testing.T) {
 	projectPath := createTestProject(t, map[string]string{
-		"angular.json":     `{"version": 1, "projects": {}}`,
-		"package.json":     `{"dependencies": {"@angular/core": "^16.0.0"}}`,
-		"tsconfig.json":    `{"compilerOptions": {}}`,
+		"angular.json":             `{"version": 1, "projects": {}}`,
+		"package.json":             `{"dependencies": {"@angular/core": "^16.0.0"}}`,
+		"tsconfig.json":            `{"compilerOptions": {}}`,
 		"src/app/app.component.ts": "import { Component } from '@angular/core';",
-		"src/main.ts":      "import { platformBrowserDynamic } from '@angular/platform-browser-dynamic';",
+		"src/main.ts":              "import { platformBrowserDynamic } from '@angular/platform-browser-dynamic';",
 	})
 
 	detection := captureDetectFramework(t, projectPath)
@@ -247,7 +247,7 @@ func TestVueDetection(t *testing.T) {
 	projectPath := createTestProject(t, map[string]string{
 		"vue.config.js": "module.exports = {}",
 		"package.json":  `{"dependencies": {"@vue/cli": "^5.0.0", "vue": "^3.0.0"}}`,
-		"src/App.vue": "<template><div></div></template>",
+		"src/App.vue":   "<template><div></div></template>",
 	})
 
 	detection := captureDetectFramework(t, projectPath)
@@ -259,8 +259,8 @@ func TestVueDetection(t *testing.T) {
 
 func TestSvelteDetection(t *testing.T) {
 	projectPath := createTestProject(t, map[string]string{
-		"svelte.config.js": "export default {}",
-		"package.json":     `{"dependencies": {"@sveltejs/kit": "^1.0.0"}}`,
+		"svelte.config.js":        "export default {}",
+		"package.json":            `{"dependencies": {"@sveltejs/kit": "^1.0.0"}}`,
 		"src/routes/+page.svelte": "<h1>Welcome</h1>",
 	})
 
@@ -296,10 +296,10 @@ func TestSpringBootDetection(t *testing.T) {
 
 func TestNestJSDetection(t *testing.T) {
 	projectPath := createTestProject(t, map[string]string{
-		"nest-cli.json":       `{"collection": "@nestjs/schematics"}`,
-		"package.json":        `{"dependencies": {"@nestjs/core": "^10.0.0"}}`,
-		"src/main.ts":         "import { NestFactory } from '@nestjs/core';",
-		"src/app.module.ts":   "import { Module } from '@nestjs/common';",
+		"nest-cli.json":     `{"collection": "@nestjs/schematics"}`,
+		"package.json":      `{"dependencies": {"@nestjs/core": "^10.0.0"}}`,
+		"src/main.ts":       "import { NestFactory } from '@nestjs/core';",
+		"src/app.module.ts": "import { Module } from '@nestjs/common';",
 	})
 
 	detection := captureDetectFramework(t, projectPath)
@@ -377,7 +377,7 @@ func TestTRPCDetection(t *testing.T) {
 						"start": "node dist/index.js"
 					}
 				}`,
-				"tsconfig.json":          `{"compilerOptions": {}}`,
+				"tsconfig.json":               `{"compilerOptions": {}}`,
 				"src/server/routers/index.ts": "export const router = {};",
 			},
 			expectedFramework: "tRPC",
@@ -428,8 +428,8 @@ func TestTRPCDetection(t *testing.T) {
 						"zod": "^3.22.0"
 					}
 				}`,
-				"turbo.json":              `{"pipeline": {}}`,
-				"tsconfig.json":           `{}`,
+				"turbo.json":                `{"pipeline": {}}`,
+				"tsconfig.json":             `{}`,
 				"src/server/routers/api.ts": "export const apiRouter = {};",
 			},
 			expectedFramework: "tRPC",
@@ -585,9 +585,9 @@ func TestScanTreePerformance(t *testing.T) {
 // Benchmark tests for performance
 func BenchmarkDetectFramework(b *testing.B) {
 	projectPath := createTestProject(&testing.T{}, map[string]string{
-		"next.config.js": "module.exports = {}",
-		"package.json":   `{"dependencies": {"next": "^13.0.0"}}`,
-		"pages/index.js": "export default function Home() {}",
+		"next.config.js":           "module.exports = {}",
+		"package.json":             `{"dependencies": {"next": "^13.0.0"}}`,
+		"pages/index.js":           "export default function Home() {}",
 		"src/components/Header.js": "export default function Header() {}",
 	})
 

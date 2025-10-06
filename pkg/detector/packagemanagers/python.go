@@ -63,8 +63,7 @@ func DetectDjangoServerType(fs FSReader) string {
 	for _, settingsPath := range settingsPaths {
 		if fs.Has(settingsPath) {
 			content := fs.Read(settingsPath)
-			if len(content) > 0 && (
-				filepath.Base(settingsPath) == "settings.py" || filepath.Base(settingsPath) == "base.py") {
+			if len(content) > 0 && (filepath.Base(settingsPath) == "settings.py" || filepath.Base(settingsPath) == "base.py") {
 				if strings.Contains(content, "ASGI_APPLICATION") ||
 					strings.Contains(content, "asgi") {
 					return "asgi"

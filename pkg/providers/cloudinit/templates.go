@@ -9,23 +9,23 @@ import (
 
 // UserData represents cloud-init user data configuration
 type UserData struct {
-	Username   string            `json:"username"`
-	PublicKey  string            `json:"public_key"`
-	AppName    string            `json:"app_name"`
-	Packages   []string          `json:"packages"`
-	Commands   []string          `json:"commands"`
-	UFWRules   []string          `json:"ufw_rules"`
-	Files      []CloudInitFile   `json:"files"`
-	Metadata   map[string]string `json:"metadata"`
+	Username  string            `json:"username"`
+	PublicKey string            `json:"public_key"`
+	AppName   string            `json:"app_name"`
+	Packages  []string          `json:"packages"`
+	Commands  []string          `json:"commands"`
+	UFWRules  []string          `json:"ufw_rules"`
+	Files     []CloudInitFile   `json:"files"`
+	Metadata  map[string]string `json:"metadata"`
 }
 
 // CloudInitFile represents a file to be created via cloud-init
 type CloudInitFile struct {
-	Path        string      `json:"path"`
-	Content     string      `json:"content"`
-	Permissions string      `json:"permissions"`
-	Owner       string      `json:"owner"`
-	Encoding    string      `json:"encoding,omitempty"` // base64, gzip+base64
+	Path        string `json:"path"`
+	Content     string `json:"content"`
+	Permissions string `json:"permissions"`
+	Owner       string `json:"owner"`
+	Encoding    string `json:"encoding,omitempty"` // base64, gzip+base64
 }
 
 const defaultTemplate = `#cloud-config
@@ -178,16 +178,16 @@ func getMinimalPackages() []string {
 
 func getDefaultUFWRules() []string {
 	return []string{
-		"ufw allow 22/tcp",   // SSH
-		"ufw allow 80/tcp",   // HTTP
-		"ufw allow 443/tcp",  // HTTPS
+		"ufw allow 22/tcp",  // SSH
+		"ufw allow 80/tcp",  // HTTP
+		"ufw allow 443/tcp", // HTTPS
 	}
 }
 
 func getBasicUFWRules() []string {
 	return []string{
-		"ufw allow 22/tcp",   // SSH
-		"ufw allow 80/tcp",   // HTTP
+		"ufw allow 22/tcp", // SSH
+		"ufw allow 80/tcp", // HTTP
 	}
 }
 

@@ -15,7 +15,7 @@ func TestNodeVersionDetection(t *testing.T) {
 		{
 			name: ".nvmrc file",
 			files: map[string]string{
-				".nvmrc":     "18.17.0",
+				".nvmrc":       "18.17.0",
 				"package.json": `{"dependencies": {"express": "^4.0.0"}}`,
 				"server.js":    "const express = require('express');",
 			},
@@ -43,7 +43,7 @@ func TestNodeVersionDetection(t *testing.T) {
 		{
 			name: ".nvmrc with newline",
 			files: map[string]string{
-				".nvmrc":     "18.17.0\n",
+				".nvmrc":       "18.17.0\n",
 				"package.json": `{"dependencies": {"express": "^4.0.0"}}`,
 				"server.js":    "const express = require('express');",
 			},
@@ -72,8 +72,8 @@ func TestPythonVersionDetection(t *testing.T) {
 		{
 			name: ".python-version file",
 			files: map[string]string{
-				".python-version": "3.11.5",
-				"main.py":         "from fastapi import FastAPI\napp = FastAPI()",
+				".python-version":  "3.11.5",
+				"main.py":          "from fastapi import FastAPI\napp = FastAPI()",
 				"requirements.txt": "fastapi==0.104.0",
 			},
 			expectedVersion: "3.11.5",
@@ -129,9 +129,9 @@ func TestRubyVersionDetection(t *testing.T) {
 		{
 			name: ".ruby-version file",
 			files: map[string]string{
-				".ruby-version":     "3.2.0",
-				"bin/rails":         "#!/usr/bin/env ruby\nrequire 'rails'",
-				"Gemfile.lock":      "GEM\n  remote: https://rubygems.org/",
+				".ruby-version":         "3.2.0",
+				"bin/rails":             "#!/usr/bin/env ruby\nrequire 'rails'",
+				"Gemfile.lock":          "GEM\n  remote: https://rubygems.org/",
 				"config/application.rb": "require 'rails/all'",
 			},
 			expectedVersion: "3.2.0",
@@ -139,9 +139,9 @@ func TestRubyVersionDetection(t *testing.T) {
 		{
 			name: ".ruby-version with newline",
 			files: map[string]string{
-				".ruby-version":     "3.2.0\n",
-				"bin/rails":         "#!/usr/bin/env ruby\nrequire 'rails'",
-				"Gemfile.lock":      "GEM\n  remote: https://rubygems.org/",
+				".ruby-version":         "3.2.0\n",
+				"bin/rails":             "#!/usr/bin/env ruby\nrequire 'rails'",
+				"Gemfile.lock":          "GEM\n  remote: https://rubygems.org/",
 				"config/application.rb": "require 'rails/all'",
 			},
 			expectedVersion: "3.2.0",
@@ -246,7 +246,7 @@ func TestEmptyRuntimeVersionFile(t *testing.T) {
 		{
 			name: "Empty .nvmrc file",
 			files: map[string]string{
-				".nvmrc":     "",
+				".nvmrc":       "",
 				"package.json": `{"dependencies": {"express": "^4.0.0"}}`,
 				"server.js":    "const express = require('express');",
 			},

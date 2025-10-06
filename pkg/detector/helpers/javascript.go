@@ -14,23 +14,23 @@ type FSReader interface {
 
 // NextConfig represents parsed Next.js configuration
 type NextConfig struct {
-	OutputMode   string // "standalone", "export", or "default"
-	Router       string // "app", "pages", or "unknown"
-	BuildOutput  string // build output directory
+	OutputMode  string // "standalone", "export", or "default"
+	Router      string // "app", "pages", or "unknown"
+	BuildOutput string // build output directory
 }
 
 // PackageJSON represents parsed package.json
 type PackageJSON struct {
-	Scripts      map[string]string      `json:"scripts"`
-	Dependencies map[string]string      `json:"dependencies"`
-	DevDeps      map[string]string      `json:"devDependencies"`
+	Scripts      map[string]string `json:"scripts"`
+	Dependencies map[string]string `json:"dependencies"`
+	DevDeps      map[string]string `json:"devDependencies"`
 }
 
 // FrameworkAdapter represents detected adapter information
 type FrameworkAdapter struct {
-	Type     string // e.g., "node", "static", "cloudflare", "vercel"
-	Package  string // e.g., "@sveltejs/adapter-node"
-	RunMode  string // "server" or "static"
+	Type    string // e.g., "node", "static", "cloudflare", "vercel"
+	Package string // e.g., "@sveltejs/adapter-node"
+	RunMode string // "server" or "static"
 }
 
 // ParseNextConfig parses Next.js configuration files

@@ -131,10 +131,10 @@ func TestKeyValidation(t *testing.T) {
 	tempDir := t.TempDir()
 
 	testCases := []struct {
-		name     string
-		keyPath  string
-		content  string
-		valid    bool
+		name    string
+		keyPath string
+		content string
+		valid   bool
 	}{
 		{
 			name:    "valid Ed25519 private key",

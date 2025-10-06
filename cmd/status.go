@@ -29,23 +29,23 @@ var (
 
 // StatusOutput represents the JSON structure for status output
 type StatusOutput struct {
-	Target          string                 `json:"target"`
-	ProjectPath     string                 `json:"project_path"`
-	Framework       string                 `json:"framework"`
-	Provider        string                 `json:"provider"`
-	Created         bool                   `json:"created"`
-	Configured      bool                   `json:"configured"`
-	LastCommit      string                 `json:"last_commit,omitempty"`
-	LastDeploy      string                 `json:"last_deploy,omitempty"`
-	LastRelease     string                 `json:"last_release,omitempty"`
-	ServerIP        string                 `json:"server_ip,omitempty"`
-	ServerID        string                 `json:"server_id,omitempty"`
-	ServiceStatus   string                 `json:"service_status,omitempty"`
-	ServiceUptime   string                 `json:"service_uptime,omitempty"`
-	CurrentRelease  string                 `json:"current_release,omitempty"`
-	DiskUsage       string                 `json:"disk_usage,omitempty"`
-	ServerUptime    string                 `json:"server_uptime,omitempty"`
-	HealthCheck     *HealthCheckStatus     `json:"health_check,omitempty"`
+	Target         string             `json:"target"`
+	ProjectPath    string             `json:"project_path"`
+	Framework      string             `json:"framework"`
+	Provider       string             `json:"provider"`
+	Created        bool               `json:"created"`
+	Configured     bool               `json:"configured"`
+	LastCommit     string             `json:"last_commit,omitempty"`
+	LastDeploy     string             `json:"last_deploy,omitempty"`
+	LastRelease    string             `json:"last_release,omitempty"`
+	ServerIP       string             `json:"server_ip,omitempty"`
+	ServerID       string             `json:"server_id,omitempty"`
+	ServiceStatus  string             `json:"service_status,omitempty"`
+	ServiceUptime  string             `json:"service_uptime,omitempty"`
+	CurrentRelease string             `json:"current_release,omitempty"`
+	DiskUsage      string             `json:"disk_usage,omitempty"`
+	ServerUptime   string             `json:"server_uptime,omitempty"`
+	HealthCheck    *HealthCheckStatus `json:"health_check,omitempty"`
 }
 
 // HealthCheckStatus represents health check information

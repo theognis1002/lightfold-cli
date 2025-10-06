@@ -18,7 +18,7 @@ import (
 type KeyPair struct {
 	PrivateKeyPath string `json:"private_key_path"`
 	PublicKeyPath  string `json:"public_key_path"`
-	PublicKey      string `json:"public_key"`     // SSH public key content
+	PublicKey      string `json:"public_key"` // SSH public key content
 	Fingerprint    string `json:"fingerprint"`
 }
 

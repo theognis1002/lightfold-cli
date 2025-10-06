@@ -212,7 +212,7 @@ const app = express();`,
     "fastify": "^4.0.0"
   }
 }`,
-				"server.js": `const fastify = require('fastify')();`,
+				"server.js":      `const fastify = require('fastify')();`,
 				"pnpm-lock.yaml": "lockfileVersion: 5.4",
 			},
 			expectedRuntime: "",

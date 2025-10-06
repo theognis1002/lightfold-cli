@@ -225,15 +225,15 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 	}
 
 	dropletRequest := &godo.DropletCreateRequest{
-		Name:              config.Name,
-		Region:            config.Region,
-		Size:              config.Size,
-		Image:             godo.DropletCreateImage{Slug: config.Image},
-		SSHKeys:           sshKeys,
-		UserData:          config.UserData,
-		Tags:              config.Tags,
-		Backups:           config.BackupsEnabled,
-		Monitoring:        config.MonitoringEnabled,
+		Name:       config.Name,
+		Region:     config.Region,
+		Size:       config.Size,
+		Image:      godo.DropletCreateImage{Slug: config.Image},
+		SSHKeys:    sshKeys,
+		UserData:   config.UserData,
+		Tags:       config.Tags,
+		Backups:    config.BackupsEnabled,
+		Monitoring: config.MonitoringEnabled,
 	}
 
 	droplet, _, err := c.client.Droplets.Create(ctx, dropletRequest)

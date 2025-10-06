@@ -27,10 +27,10 @@ func TestNextJSAppRouterDetection(t *testing.T) {
 		{
 			name: "Next.js with Pages Router (pages directory)",
 			files: map[string]string{
-				"next.config.js":   "module.exports = {}",
-				"package.json":     `{"dependencies": {"next": "^13.0.0"}}`,
-				"pages/index.tsx":  "export default function Home() { return <div>Pages Router</div> }",
-				"pages/_app.tsx":   "export default function App({ Component, pageProps }) { return <Component {...pageProps} /> }",
+				"next.config.js":  "module.exports = {}",
+				"package.json":    `{"dependencies": {"next": "^13.0.0"}}`,
+				"pages/index.tsx": "export default function Home() { return <div>Pages Router</div> }",
+				"pages/_app.tsx":  "export default function App({ Component, pageProps }) { return <Component {...pageProps} /> }",
 			},
 			expectedRouter: "pages",
 			expectedOutput: ".next/",
@@ -49,8 +49,8 @@ func TestNextJSAppRouterDetection(t *testing.T) {
 		{
 			name: "Next.js without router directories",
 			files: map[string]string{
-				"next.config.js": "module.exports = {}",
-				"package.json":   `{"dependencies": {"next": "^13.0.0"}}`,
+				"next.config.js":     "module.exports = {}",
+				"package.json":       `{"dependencies": {"next": "^13.0.0"}}`,
 				"public/favicon.ico": "binary",
 			},
 			expectedRouter: "", // No router detected
@@ -98,7 +98,7 @@ func TestNextJSStaticExportDetection(t *testing.T) {
   output: 'export',
   images: { unoptimized: true }
 }`,
-				"package.json":  `{"dependencies": {"next": "^14.0.0"}}`,
+				"package.json":   `{"dependencies": {"next": "^14.0.0"}}`,
 				"pages/index.js": "export default function Home() { return <div>Static Export</div> }",
 			},
 			expectedExport: "static",
@@ -111,7 +111,7 @@ func TestNextJSStaticExportDetection(t *testing.T) {
   output: "export",
   trailingSlash: true
 }`,
-				"package.json":  `{"dependencies": {"next": "^14.0.0"}}`,
+				"package.json":   `{"dependencies": {"next": "^14.0.0"}}`,
 				"pages/index.js": "export default function Home() { return <div>Static Export</div> }",
 			},
 			expectedExport: "static",
@@ -128,7 +128,7 @@ const config: NextConfig = {
 }
 
 export default config`,
-				"package.json":  `{"dependencies": {"next": "^14.0.0"}}`,
+				"package.json":    `{"dependencies": {"next": "^14.0.0"}}`,
 				"pages/index.tsx": "export default function Home() { return <div>Static Export</div> }",
 			},
 			expectedExport: "static",
@@ -141,7 +141,7 @@ export default config`,
   reactStrictMode: true,
   swcMinify: true
 }`,
-				"package.json":  `{"dependencies": {"next": "^14.0.0"}}`,
+				"package.json":   `{"dependencies": {"next": "^14.0.0"}}`,
 				"pages/index.js": "export default function Home() { return <div>SSR</div> }",
 			},
 			expectedExport: "", // No export mode
@@ -153,7 +153,7 @@ export default config`,
 				"next.config.js": `module.exports = {
   output: 'standalone'
 }`,
-				"package.json":  `{"dependencies": {"next": "^14.0.0"}}`,
+				"package.json":   `{"dependencies": {"next": "^14.0.0"}}`,
 				"pages/index.js": "export default function Home() { return <div>Standalone</div> }",
 			},
 			expectedExport: "", // Not static export
@@ -201,7 +201,7 @@ func TestNextJSCombinedNuances(t *testing.T) {
 				"next.config.js": `module.exports = {
   output: 'export'
 }`,
-				"package.json": `{"dependencies": {"next": "^14.0.0"}}`,
+				"package.json":   `{"dependencies": {"next": "^14.0.0"}}`,
 				"app/page.tsx":   "export default function Page() { return <div>App Router + Static</div> }",
 				"app/layout.tsx": "export default function Layout({ children }) { return children }",
 			},
@@ -230,7 +230,7 @@ func TestNextJSCombinedNuances(t *testing.T) {
 				"next.config.js": `module.exports = {
   reactStrictMode: true
 }`,
-				"package.json": `{"dependencies": {"next": "^14.0.0"}}`,
+				"package.json":   `{"dependencies": {"next": "^14.0.0"}}`,
 				"app/page.tsx":   "export default function Page() { return <div>App Router SSR</div> }",
 				"app/layout.tsx": "export default function Layout({ children }) { return children }",
 			},
@@ -275,19 +275,19 @@ func TestNextJSCombinedNuances(t *testing.T) {
 
 func TestNextJSPackageManagerWithNuances(t *testing.T) {
 	tests := []struct {
-		name            string
-		files           map[string]string
-		expectedPM      string
-		expectedRouter  string
-		expectedOutput  string
+		name           string
+		files          map[string]string
+		expectedPM     string
+		expectedRouter string
+		expectedOutput string
 	}{
 		{
 			name: "Next.js App Router with pnpm",
 			files: map[string]string{
-				"next.config.js":   "module.exports = {}",
-				"package.json":     `{"dependencies": {"next": "^14.0.0"}}`,
-				"pnpm-lock.yaml":   "lockfileVersion: '6.0'",
-				"app/page.tsx":     "export default function Page() { return <div>App</div> }",
+				"next.config.js": "module.exports = {}",
+				"package.json":   `{"dependencies": {"next": "^14.0.0"}}`,
+				"pnpm-lock.yaml": "lockfileVersion: '6.0'",
+				"app/page.tsx":   "export default function Page() { return <div>App</div> }",
 			},
 			expectedPM:     "pnpm",
 			expectedRouter: "app",
@@ -360,8 +360,8 @@ func TestVue2Detection(t *testing.T) {
 						"vue": "^2.6.14"
 					}
 				}`,
-				"src/App.vue":  "<template><div>App</div></template>",
-				"src/main.js":  "import Vue from 'vue'\nnew Vue({ render: h => h(App) }).$mount('#app')",
+				"src/App.vue": "<template><div>App</div></template>",
+				"src/main.js": "import Vue from 'vue'\nnew Vue({ render: h => h(App) }).$mount('#app')",
 			},
 			expectedVersion: "2",
 		},
@@ -424,8 +424,8 @@ func TestVue3Detection(t *testing.T) {
 						"vue": "^3.3.0"
 					}
 				}`,
-				"src/App.vue":  "<template><div>App</div></template>",
-				"src/main.js":  "import { createApp } from 'vue'\ncreateApp(App).mount('#app')",
+				"src/App.vue": "<template><div>App</div></template>",
+				"src/main.js": "import { createApp } from 'vue'\ncreateApp(App).mount('#app')",
 			},
 			expectedVersion: "3",
 		},
@@ -469,7 +469,7 @@ func TestVue3Detection(t *testing.T) {
 						"@vitejs/plugin-vue": "^4.0.0"
 					}
 				}`,
-				"src/App.vue":  "<template><div>App</div></template>",
+				"src/App.vue": "<template><div>App</div></template>",
 			},
 			expectedVersion: "3",
 		},

@@ -64,7 +64,7 @@ def hello():
 
 if __name__ == '__main__':
     app.run(debug=True)`,
-				"requirements.txt": "Flask==2.3.2\nWerkzeug==2.3.6",
+				"requirements.txt":     "Flask==2.3.2\nWerkzeug==2.3.6",
 				"templates/index.html": "<html><body><h1>Flask App</h1></body></html>",
 			},
 			expectedFramework: "Flask",
@@ -164,7 +164,7 @@ end`,
 RUN apk add --no-cache curl
 COPY script.sh /usr/local/bin/
 ENTRYPOINT ["/usr/local/bin/script.sh"]`,
-				"script.sh": "#!/bin/sh\necho 'Hello from Docker'",
+				"script.sh":   "#!/bin/sh\necho 'Hello from Docker'",
 				"config.yaml": "version: 1\nname: myapp",
 			},
 			expectedFramework: "Generic Docker",
@@ -207,29 +207,29 @@ func TestLanguageDetectionEdgeCases(t *testing.T) {
 		{
 			name: "Mixed language project - JavaScript dominant",
 			files: map[string]string{
-				"src/main.js":        "console.log('hello');",
-				"src/component.jsx":  "export default function Component() {}",
-				"src/utils.ts":       "export const helper = () => {};",
-				"src/types.tsx":      "export interface Props {}",
-				"server.py":          "import flask",
-				"config.yaml":        "version: 1",
+				"src/main.js":       "console.log('hello');",
+				"src/component.jsx": "export default function Component() {}",
+				"src/utils.ts":      "export const helper = () => {};",
+				"src/types.tsx":     "export interface Props {}",
+				"server.py":         "import flask",
+				"config.yaml":       "version: 1",
 			},
 			expected: "JavaScript/TypeScript",
 		},
 		{
 			name: "Python dominant project",
 			files: map[string]string{
-				"src/main.py":        "print('hello')",
-				"src/models.py":      "class User: pass",
-				"src/views.py":       "def index(): return 'hello'",
-				"src/utils.py":       "def helper(): pass",
-				"src/helpers.py":     "def util(): pass",
-				"src/services.py":    "def service(): pass",
-				"src/handlers.py":    "def handle(): pass",
-				"config.py":          "DEBUG = True",
-				"requirements.txt":   "django==4.2.0",
-				"package.json":       "{}",
-				"index.js":           "console.log('test');",
+				"src/main.py":      "print('hello')",
+				"src/models.py":    "class User: pass",
+				"src/views.py":     "def index(): return 'hello'",
+				"src/utils.py":     "def helper(): pass",
+				"src/helpers.py":   "def util(): pass",
+				"src/services.py":  "def service(): pass",
+				"src/handlers.py":  "def handle(): pass",
+				"config.py":        "DEBUG = True",
+				"requirements.txt": "django==4.2.0",
+				"package.json":     "{}",
+				"index.js":         "console.log('test');",
 			},
 			expected: "Python",
 		},
@@ -256,9 +256,9 @@ func TestLanguageDetectionEdgeCases(t *testing.T) {
 		{
 			name: "PHP project",
 			files: map[string]string{
-				"index.php":          "<?php echo 'hello'; ?>",
-				"models/User.php":    "<?php class User {}",
-				"config/app.php":     "<?php return [];",
+				"index.php":       "<?php echo 'hello'; ?>",
+				"models/User.php": "<?php class User {}",
+				"config/app.php":  "<?php return [];",
 			},
 			expected: "PHP",
 		},
@@ -274,18 +274,18 @@ func TestLanguageDetectionEdgeCases(t *testing.T) {
 		{
 			name: "Java project",
 			files: map[string]string{
-				"src/Main.java":      "public class Main {}",
-				"src/User.java":      "public class User {}",
-				"src/Helper.java":    "public class Helper {}",
+				"src/Main.java":   "public class Main {}",
+				"src/User.java":   "public class User {}",
+				"src/Helper.java": "public class Helper {}",
 			},
 			expected: "Java",
 		},
 		{
 			name: "Elixir project",
 			files: map[string]string{
-				"lib/app.ex":         "defmodule App do end",
-				"lib/user.ex":        "defmodule User do end",
-				"test/app_test.exs":  "defmodule AppTest do end",
+				"lib/app.ex":        "defmodule App do end",
+				"lib/user.ex":       "defmodule User do end",
+				"test/app_test.exs": "defmodule AppTest do end",
 			},
 			expected: "Elixir",
 		},
@@ -336,11 +336,11 @@ func TestPackageManagerBuildPlans(t *testing.T) {
 		{
 			name: "Astro with bun",
 			files: map[string]string{
-				"astro.config.js":   "export default {}",
-				"package.json":      `{"dependencies": {"astro": "^3.0.0"}}`,
-				"bun.lockb":         "binary content",
+				"astro.config.js":       "export default {}",
+				"package.json":          `{"dependencies": {"astro": "^3.0.0"}}`,
+				"bun.lockb":             "binary content",
 				"src/pages/index.astro": "---\n---\n<h1>Astro</h1>",
-				"public/favicon.ico": "favicon",
+				"public/favicon.ico":    "favicon",
 			},
 			expectedFramework:  "Astro",
 			expectedInstallCmd: "bun install",
@@ -381,11 +381,11 @@ func TestPackageManagerBuildPlans(t *testing.T) {
 
 func TestHealthCheckEndpoints(t *testing.T) {
 	tests := []struct {
-		name             string
-		files            map[string]string
+		name              string
+		files             map[string]string
 		expectedFramework string
-		expectedPath     string
-		expectedTimeout  int
+		expectedPath      string
+		expectedTimeout   int
 	}{
 		{
 			name: "Django health check",
@@ -394,8 +394,8 @@ func TestHealthCheckEndpoints(t *testing.T) {
 				"requirements.txt": "Django==4.2.0",
 			},
 			expectedFramework: "Django",
-			expectedPath:     "/healthz",
-			expectedTimeout:  30,
+			expectedPath:      "/healthz",
+			expectedTimeout:   30,
 		},
 		{
 			name: "FastAPI health check",
@@ -404,8 +404,8 @@ func TestHealthCheckEndpoints(t *testing.T) {
 				"requirements.txt": "fastapi==0.104.0",
 			},
 			expectedFramework: "FastAPI",
-			expectedPath:     "/health",
-			expectedTimeout:  30,
+			expectedPath:      "/health",
+			expectedTimeout:   30,
 		},
 		{
 			name: "Rails health check",
@@ -415,8 +415,8 @@ func TestHealthCheckEndpoints(t *testing.T) {
 				"config/application.rb": "require 'rails/all'",
 			},
 			expectedFramework: "Rails",
-			expectedPath:     "/up",
-			expectedTimeout:  30,
+			expectedPath:      "/up",
+			expectedTimeout:   30,
 		},
 		{
 			name: "Go service health check",
@@ -425,8 +425,8 @@ func TestHealthCheckEndpoints(t *testing.T) {
 				"main.go": "package main\nfunc main() {}",
 			},
 			expectedFramework: "Go",
-			expectedPath:     "/healthz",
-			expectedTimeout:  30,
+			expectedPath:      "/healthz",
+			expectedTimeout:   30,
 		},
 		{
 			name: "Spring Boot health check",
@@ -443,8 +443,8 @@ func TestHealthCheckEndpoints(t *testing.T) {
 				"src/main/java/Application.java": "public class Application {}",
 			},
 			expectedFramework: "Spring Boot",
-			expectedPath:     "/actuator/health",
-			expectedTimeout:  30,
+			expectedPath:      "/actuator/health",
+			expectedTimeout:   30,
 		},
 	}
 

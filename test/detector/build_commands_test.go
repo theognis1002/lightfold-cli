@@ -202,9 +202,9 @@ app.Run();`,
 // TestExpressBuildCommands verifies no duplicate commands
 func TestExpressBuildCommands(t *testing.T) {
 	tests := []struct {
-		name          string
-		files         map[string]string
-		expectBuild   bool
+		name        string
+		files       map[string]string
+		expectBuild bool
 	}{
 		{
 			name: "Express with npm",

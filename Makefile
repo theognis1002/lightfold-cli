@@ -1,4 +1,4 @@
-.PHONY: build test test-verbose test-cover bench clean install help
+.PHONY: build test test-verbose test-cover bench clean install help lint
 
 # Build the binary
 build:
@@ -32,6 +32,10 @@ clean:
 install: build
 	cp lightfold /usr/local/bin/
 
+# Format Go code
+lint:
+	gofmt -w .
+
 # Show help
 help:
 	@echo "Available targets:"
@@ -43,4 +47,5 @@ help:
 	@echo "  test-all    - Run all tests (verbose + coverage + bench)"
 	@echo "  clean       - Clean build artifacts"
 	@echo "  install     - Install lightfold to /usr/local/bin"
+	@echo "  lint        - Format Go code using gofmt"
 	@echo "  help        - Show this help message"
