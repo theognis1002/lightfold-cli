@@ -304,10 +304,8 @@ func (c *Config) FindTargetByPath(projectPath string) (string, TargetConfig, boo
 	return "", TargetConfig{}, false
 }
 
-// TokenConfig stores API tokens for all providers
-type TokenConfig struct {
-	Tokens map[string]string `json:"tokens,omitempty"` // provider_name -> token
-}
+// TokenConfig stores API tokens for all providers as a flat map
+type TokenConfig map[string]string
 
 func GetTokensPath() string {
 	homeDir, err := os.UserHomeDir()
@@ -317,7 +315,7 @@ func GetTokensPath() string {
 	return filepath.Join(homeDir, LocalConfigDir, LocalTokensFile)
 }
 
-func LoadTokens() (*TokenConfig, error) {
+func LoadTokens() (TokenConfig, error) {
 	tokensPath := GetTokensPath()
 
 	dir := filepath.Dir(tokensPath)
@@ -326,9 +324,7 @@ func LoadTokens() (*TokenConfig, error) {
 	}
 
 	if _, err := os.Stat(tokensPath); os.IsNotExist(err) {
-		return &TokenConfig{
-			Tokens: make(map[string]string),
-		}, nil
+		return make(TokenConfig), nil
 	}
 
 	data, err := os.ReadFile(tokensPath)
@@ -341,14 +337,14 @@ func LoadTokens() (*TokenConfig, error) {
 		return nil, fmt.Errorf("failed to parse tokens file: %w", err)
 	}
 
-	if tokens.Tokens == nil {
-		tokens.Tokens = make(map[string]string)
+	if tokens == nil {
+		tokens = make(TokenConfig)
 	}
 
-	return &tokens, nil
+	return tokens, nil
 }
 
-func (t *TokenConfig) SaveTokens() error {
+func (t TokenConfig) SaveTokens() error {
 	tokensPath := GetTokensPath()
 
 	dir := filepath.Dir(tokensPath)
@@ -368,11 +364,7 @@ func (t *TokenConfig) SaveTokens() error {
 	return nil
 }
 
-func (t *TokenConfig) SetToken(provider, token string) {
-	if t.Tokens == nil {
-		t.Tokens = make(map[string]string)
-	}
-
+func (t TokenConfig) SetToken(provider, token string) {
 	for {
 		oldToken := token
 
@@ -390,28 +382,25 @@ func (t *TokenConfig) SetToken(provider, token string) {
 		}
 	}
 
-	t.Tokens[provider] = token
+	t[provider] = token
 }
 
 // GetToken retrieves an API token for a specific provider
-func (t *TokenConfig) GetToken(provider string) string {
-	if t.Tokens == nil {
-		return ""
-	}
-	return t.Tokens[provider]
+func (t TokenConfig) GetToken(provider string) string {
+	return t[provider]
 }
 
 // HasToken checks if a token exists for the given provider
-func (t *TokenConfig) HasToken(provider string) bool {
+func (t TokenConfig) HasToken(provider string) bool {
 	return t.GetToken(provider) != ""
 }
 
 // SetDigitalOceanToken is a convenience method for setting the DigitalOcean token
-func (t *TokenConfig) SetDigitalOceanToken(token string) {
+func (t TokenConfig) SetDigitalOceanToken(token string) {
 	t.SetToken("digitalocean", token)
 }
 
 // GetDigitalOceanToken is a convenience method for getting the DigitalOcean token
-func (t *TokenConfig) GetDigitalOceanToken() string {
+func (t TokenConfig) GetDigitalOceanToken() string {
 	return t.GetToken("digitalocean")
 }

@@ -51,7 +51,7 @@ var configListCmd = &cobra.Command{
 				"targets": cfg.Targets,
 				"providers": func() map[string]bool {
 					result := make(map[string]bool)
-					for provider := range tokens.Tokens {
+					for provider := range tokens {
 						result[provider] = true
 					}
 					return result
@@ -111,10 +111,10 @@ var configListCmd = &cobra.Command{
 		}
 
 		fmt.Printf("\n%s\n", configStyle.Render("Provider Tokens:"))
-		if len(tokens.Tokens) == 0 {
+		if len(tokens) == 0 {
 			fmt.Println(configMutedStyle.Render("  No provider tokens configured"))
 		} else {
-			for provider := range tokens.Tokens {
+			for provider := range tokens {
 				fmt.Printf("  %s %s\n", configLabelStyle.Render("•"), configValueStyle.Render(provider))
 			}
 		}
@@ -227,7 +227,7 @@ var configDeleteTokenCmd = &cobra.Command{
 			return
 		}
 
-		delete(tokens.Tokens, provider)
+		delete(tokens, provider)
 
 		if err := tokens.SaveTokens(); err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Error saving tokens: %v", err)))

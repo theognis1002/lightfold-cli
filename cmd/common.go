@@ -610,7 +610,7 @@ var recoverIPFromDigitalOcean = func(target *config.TargetConfig, targetName, dr
 		return fmt.Errorf("failed to load tokens: %w", err)
 	}
 
-	doToken := tokens.Tokens["digitalocean"]
+	doToken := tokens["digitalocean"]
 	if doToken == "" {
 		return fmt.Errorf("DigitalOcean API token not found")
 	}
@@ -659,7 +659,7 @@ var recoverIPFromHetzner = func(target *config.TargetConfig, targetName, serverI
 		return fmt.Errorf("failed to load tokens: %w", err)
 	}
 
-	hetznerToken := tokens.Tokens["hetzner"]
+	hetznerToken := tokens["hetzner"]
 	if hetznerToken == "" {
 		return fmt.Errorf("Hetzner Cloud API token not found")
 	}
@@ -711,7 +711,7 @@ var recoverIPFromVultr = func(target *config.TargetConfig, targetName, instanceI
 		return fmt.Errorf("failed to load tokens: %w", err)
 	}
 
-	vultrToken := tokens.Tokens["vultr"]
+	vultrToken := tokens["vultr"]
 	if vultrToken == "" {
 		return fmt.Errorf("Vultr API token not found")
 	}

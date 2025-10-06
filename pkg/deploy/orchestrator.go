@@ -46,7 +46,7 @@ type Orchestrator struct {
 	projectPath      string
 	projectName      string
 	targetName       string
-	tokens           *config.TokenConfig
+	tokens           config.TokenConfig
 	progressCallback ProgressCallback
 }
 
