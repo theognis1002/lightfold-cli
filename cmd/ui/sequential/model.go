@@ -549,19 +549,16 @@ func (m FlowModel) renderProgress() string {
 func (m FlowModel) renderHelp() string {
 	help := "Enter: Next"
 	if len(m.History) > 0 {
-		help += " • ←: Previous step"
+		help += " • ←: Back"
 	}
-	help += " • Backspace: Delete character • Ctrl+V: Paste • Esc: Cancel"
+	help += " • Esc: Cancel"
 
 	return helpStyle.Render(help)
 }
 
 func (m FlowModel) renderCompleted() string {
-	// Show completion header
-	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82")).Bold(true)
-	s := "\n" + successStyle.Render("✅ "+m.Title+" Complete") + "\n\n"
+	s := "\n"
 
-	// Show summary of selected values (excluding passwords)
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
 	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 
@@ -582,15 +579,12 @@ func (m FlowModel) renderCompleted() string {
 				}
 			}
 
-			// For select types, show the label instead of value
 			if step.Type == StepTypeSelect && value != "" {
 				for optIdx, opt := range step.Options {
 					if opt == value {
-						// Use label if available
 						if step.OptionLabels != nil && optIdx < len(step.OptionLabels) && step.OptionLabels[optIdx] != "" {
 							value = step.OptionLabels[optIdx]
 						}
-						// Add description if available
 						if step.OptionDescs != nil && optIdx < len(step.OptionDescs) && step.OptionDescs[optIdx] != "" {
 							value = value + " - " + step.OptionDescs[optIdx]
 						}

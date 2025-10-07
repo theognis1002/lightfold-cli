@@ -131,6 +131,9 @@ Examples:
 			os.Exit(1)
 		}
 
+		cfg = loadConfigOrExit()
+		target = loadTargetOrExit(cfg, targetName)
+
 		target.Builder = builderName
 		if err := cfg.SetTarget(targetName, target); err != nil {
 			fmt.Fprintf(os.Stderr, "Error saving builder config: %v\n", err)
