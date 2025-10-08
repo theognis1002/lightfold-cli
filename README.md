@@ -3,6 +3,9 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/theognis1002/lightfold-cli/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/theognis1002/lightfold-cli/ci.yml?branch=main&style=flat-square" alt="CI">
+  </a>
   <a href="https://github.com/theognis1002/lightfold-cli/releases/latest">
     <img src="https://img.shields.io/github/v/release/theognis1002/lightfold-cli?style=flat-square" alt="Latest Release">
   </a>
@@ -15,6 +18,10 @@
   <!-- <a href="https://formulae.brew.sh/formula/lightfold">
     <img src="https://img.shields.io/homebrew/v/lightfold?style=flat-square" alt="Homebrew">
   </a> -->
+</p>
+
+<p align="center">
+  <strong><a href="https://lightfold.mintlify.app/" target="_blank">Documentation</a></strong>
 </p>
 
 Deploy any web app to your favorite cloud provider with a single command. No Docker, no YAML, no hassle.
@@ -177,3 +184,5 @@ make test
 ```
 
 See [AGENTS.md](AGENTS.md) for architecture details and [docs/RELEASING.md](docs/RELEASING.md) for release instructions.
+
+See <a href="https://lightfold.mintlify.app/" target="_blank">Documentation</a> for complete guides, API reference, and examples.
