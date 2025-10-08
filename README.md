@@ -1,17 +1,47 @@
-# Lightfold CLI
+<p align="center">
+  <img src="docs/logo.png" alt="Lightfold - Deploy your app with a single command" width="1200">
+</p>
 
-Framework detector and deployment tool for web applications with composable, idempotent commands.
+<p align="center">
+  <a href="https://github.com/theognis1002/lightfold-cli/releases/latest">
+    <img src="https://img.shields.io/github/v/release/theognis1002/lightfold-cli?style=flat-square" alt="Latest Release">
+  </a>
+  <a href="https://github.com/theognis1002/lightfold-cli/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/theognis1002/lightfold-cli?style=flat-square" alt="License">
+  </a>
+  <a href="https://github.com/theognis1002/lightfold-cli/stargazers">
+    <img src="https://img.shields.io/github/stars/theognis1002/lightfold-cli?style=flat-square" alt="Stars">
+  </a>
+  <!-- <a href="https://formulae.brew.sh/formula/lightfold">
+    <img src="https://img.shields.io/homebrew/v/lightfold?style=flat-square" alt="Homebrew">
+  </a> -->
+</p>
+
+Deploy any web app to your favorite cloud provider with a single command. No Docker, no YAML, no hassle.
+
+## Quick Start
+
+```bash
+# Install
+brew tap theognis1002/lightfold
+brew install lightfold
+
+# Deploy your app
+cd your-project
+lightfold deploy
+```
+
+That's it! Lightfold will:
+- Auto-detect your framework (Next.js, Django, Rails, etc.)
+- Set up a server on your preferred cloud (DigitalOcean, Vultr, etc.)
+- Deploy your app with zero configuration
 
 ## Features
 
-- **Framework Detection**: Detects 16+ frameworks (Next.js, Astro, Django, FastAPI, Express.js, tRPC, NestJS, Laravel, Rails, etc.)
-- **Package Manager Detection**: npm, yarn, pnpm, bun, pip, poetry, uv, pipenv
-- **Pluggable Builders**: Native (traditional), Nixpacks (auto-detected), or Dockerfile (reserved)
-- **Composable Commands**: Run deployment steps independently or orchestrated together
-- **Idempotent Operations**: Safe to rerun commands - skips already-completed steps
-- **Multi-Provider Support**: DigitalOcean, Vultr, Hetzner Cloud, S3, BYOS (Bring Your Own Server)
-- **State Tracking**: Remembers what's been done, skips unnecessary work
-- **Blue/Green Deployments**: Zero-downtime releases with automatic rollback
+- **Works With Your Stack**: Supports 15+ frameworks including Next.js, Astro, Django, Rails, Laravel
+- **Deploy Anywhere**: DigitalOcean, Vultr, Hetzner Cloud, or bring your own server
+- **Zero Config**: Automatic framework detection and server setup
+- **Smart Deploys**: Only deploys what changed, skips everything else
 
 ## Installation
 
@@ -34,37 +64,6 @@ cd lightfold-cli
 make build
 sudo make install
 ```
-
-## Quick Start
-
-1. **Install Lightfold:**
-   ```bash
-   brew install theognis1002/lightfold/lightfold
-   ```
-
-2. **Navigate to your project:**
-   ```bash
-   cd ~/Projects/myapp
-   ```
-
-3. **Deploy:**
-   ```bash
-   lightfold deploy
-   ```
-
-That's it! On first run, you'll be prompted to:
-- Select a cloud provider (DigitalOcean, Vultr, Hetzner Cloud, BYOS, etc.)
-- Provide credentials (API tokens, SSH keys)
-- Choose region and server size
-
-Then Lightfold automatically:
-1. Detects your framework
-2. Selects optimal builder (Dockerfile → Nixpacks → Native)
-3. Provisions infrastructure
-4. Configures the server
-5. Deploys your code
-
-For subsequent deployments, just run the same command - it intelligently skips completed steps and only redeploys code changes.
 
 ## Commands
 
@@ -121,7 +120,7 @@ Config stored in `~/.lightfold/config.json`:
 
 ### API Tokens
 
-Tokens stored securely in `~/.lightfold/tokens.json` (0600 permissions):
+Tokens stored locally in `~/.lightfold/tokens.json`:
 
 ```json
 {
@@ -147,27 +146,6 @@ State per target in `~/.lightfold/state/<target>.json`:
 }
 ```
 
-
-## Detection
-
-### Framework Detection
-Uses scoring system based on:
-1. Framework config files (highest priority)
-2. Package manager lockfiles and dependencies
-3. Build scripts and directory structure
-
-### Package Manager Priority
-- **JavaScript/TypeScript**: bun → pnpm → yarn → npm
-- **Python**: uv → poetry → pipenv → pip
-
-### Builder Selection
-Auto-selection priority:
-1. **Dockerfile exists** → use `dockerfile` builder
-2. **Node/Python + nixpacks available** → use `nixpacks` builder
-3. **Fallback** → use `native` builder
-
-Override with `--builder` flag.
-
 ## Supported Frameworks
 
 **Frontend**: Next.js, Astro, Gatsby, Svelte/SvelteKit, Vue.js, Angular
@@ -177,16 +155,17 @@ Override with `--builder` flag.
 ## Supported Providers
 
 ### Available
-- **DigitalOcean** - Full provisioning support
-- **Hetzner Cloud** - Full provisioning support
-- **Vultr** - Full provisioning support
-- **BYOS (Bring Your Own Server)** - Use any existing server
+- [**DigitalOcean**](https://www.digitalocean.com) - Full provisioning support
+- [**Hetzner Cloud**](https://www.hetzner.com/cloud) - Full provisioning support
+- [**Vultr**](https://www.vultr.com) - Full provisioning support
+- **BYOS** (Bring Your Own Server) - Use any existing server
 
 ### Coming Soon
-- [ ] Linode
-- [ ] AWS EC2
-- [ ] Google Cloud (Compute Engine)
-- [ ] Azure (VMs)
+- [ ] [Linode](https://www.linode.com)
+- [ ] [AWS EC2](https://aws.amazon.com/ec2)
+- [ ] [Google Cloud](https://cloud.google.com/compute) (Compute Engine)
+- [ ] [Azure](https://azure.microsoft.com/products/virtual-machines) (VMs)
+- [ ] [Traefik](https://traefik.io) / [Caddy](https://caddyserver.com)
 
 ## Development
 
@@ -198,11 +177,3 @@ make test
 ```
 
 See [AGENTS.md](AGENTS.md) for architecture details and [docs/RELEASING.md](docs/RELEASING.md) for release instructions.
-
-## Key Design Principles
-
-1. **Composable** - Each command works standalone
-2. **Idempotent** - Safe to rerun without side effects
-3. **Stateful** - Tracks progress, skips completed work
-4. **Provider-Agnostic** - Unified interface across clouds
-5. **Release-Based** - Timestamped releases, easy rollback
