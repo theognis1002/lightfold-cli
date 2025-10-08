@@ -50,6 +50,7 @@ Lightfold CLI is a framework detector and deployment tool with composable, idemp
      - `status` - View deployment state and server status (supports `--json`)
      - `logs` - Fetch and display application logs (supports `--tail` and `--lines`)
      - `rollback` - Instant rollback to previous release (with confirmation)
+     - `sync` - Sync local state/config with actual server state (drift recovery)
      - `config` - Manage targets and API tokens
      - `domain` - Manage custom domains and SSL (add, remove, show)
      - `keygen` - Generate SSH keypairs
@@ -296,6 +297,29 @@ Lightfold uses a composable architecture where each deployment step is an indepe
 - `--force` flag reruns all steps
 - `--dry-run` shows execution plan without running
 - **Result**: True one-command deployment - users never need to run individual commands manually
+
+**6. State Synchronization** (`lightfold sync [PATH]`)
+- **Drift recovery command** for syncing local state/config with actual server state
+- Flexible invocation:
+  - `lightfold sync` - Sync current directory
+  - `lightfold sync ~/path/to/project` - Sync specific path
+  - `lightfold sync --target myapp` - Sync named target
+- Use cases:
+  - Local state files corrupted or deleted
+  - Server IP changed (e.g., rebuilt server)
+  - Recovering from bad state or manual server changes
+  - After manually modifying server deployment
+- Sync operations:
+  - Recovers server IP from provider API (DigitalOcean, Vultr, Hetzner)
+  - Verifies SSH connectivity
+  - Syncs remote markers (`/etc/lightfold/created`, `/etc/lightfold/configured`)
+  - Updates deployment info (current release, git commit, last deploy time)
+  - Checks service status (informational)
+- Preserves user-supplied data:
+  - Domain configuration (never deleted)
+  - Environment variables
+  - Build/run command overrides
+- **Reusable**: `syncTarget()` function in `cmd/common.go`
 
 ### Configuration Architecture
 
@@ -853,6 +877,7 @@ Generates cloud-init user data for server provisioning:
 - [ ] `status` - Config, state, server status, health checks, uptime, --json
 - [ ] `logs` - Fetch logs, --tail streaming, --lines customization
 - [ ] `rollback` - Previous release rollback with confirmation
+- [ ] `sync` - State/config sync, IP recovery, remote marker sync, 3 invocation patterns
 - [ ] `config` - Token storage, target management
 - [ ] `ssh` - Interactive SSH sessions
 - [ ] `destroy` - VM destruction, local cleanup
@@ -932,6 +957,9 @@ lightfold logs --lines 200             # Last 200 lines
 lightfold rollback                     # Rollback current directory
 lightfold rollback --force             # Skip confirmation
 
+lightfold sync                         # Sync current directory state
+lightfold sync --target myapp          # Sync named target state
+
 # Configuration
 lightfold config list
 lightfold config set-token digitalocean
@@ -970,6 +998,7 @@ lightfold destroy --target myapp       # Destroy VM and cleanup
 - **New convenience commands**:
   - `logs` - View application logs via journalctl (supports --tail and --lines)
   - `rollback` - Standalone rollback command (removed from deploy --rollback)
+  - `sync` - Sync local state/config with actual server state (drift recovery)
   - Enhanced `status` - Now includes app uptime, health checks, commit info, --json support
 - **Provider configuration storage**:
   - BYOS targets MUST store config under `provider: "byos"` key

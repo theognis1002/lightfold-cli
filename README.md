@@ -85,6 +85,7 @@ For granular control over deployment steps:
 - **`lightfold status`** - View deployment status
 - **`lightfold logs`** - View application logs
 - **`lightfold rollback`** - Rollback to previous release
+- **`lightfold sync`** - Sync local state with current config
 - **`lightfold ssh`** - SSH into deployment target
 - **`lightfold destroy`** - Destroy VM and remove local config
 
@@ -124,11 +125,9 @@ Tokens stored securely in `~/.lightfold/tokens.json` (0600 permissions):
 
 ```json
 {
-  "tokens": {
-    "digitalocean": "dop_v1_...",
-    "vultr": "...",
-    "hetzner": "..."
-  }
+  "digitalocean": "dop_v1_...",
+  "vultr": "...",
+  "hetzner": "..."
 }
 ```
 
@@ -179,15 +178,15 @@ Override with `--builder` flag.
 
 ### Available
 - **DigitalOcean** - Full provisioning support
-- **Vultr** - Full provisioning support
 - **Hetzner Cloud** - Full provisioning support
+- **Vultr** - Full provisioning support
 - **BYOS (Bring Your Own Server)** - Use any existing server
 
 ### Coming Soon
-- [ ] Linode/Akamai
+- [ ] Linode
 - [ ] AWS EC2
-- [ ] Google Cloud Compute
-- [ ] Azure Virtual Machines
+- [ ] Google Cloud (Compute Engine)
+- [ ] Azure (VMs)
 
 ## Development
 
@@ -198,26 +197,6 @@ make build && ./lightfold .
 make test
 ```
 
-### Creating a Release
-
-1. **Tag a new version:**
-   ```bash
-   git tag -a v0.1.0 -m "Release v0.1.0"
-   git push origin v0.1.0
-   ```
-
-2. **GitHub Actions will automatically:**
-   - Build binaries for all platforms
-   - Create a GitHub Release
-   - Update the Homebrew tap formula
-   - Generate checksums and changelog
-
-3. **Users can then install via:**
-   ```bash
-   brew update
-   brew install theognis1002/lightfold/lightfold
-   ```
-
 See [AGENTS.md](AGENTS.md) for architecture details and [docs/RELEASING.md](docs/RELEASING.md) for release instructions.
 
 ## Key Design Principles
@@ -227,9 +206,3 @@ See [AGENTS.md](AGENTS.md) for architecture details and [docs/RELEASING.md](docs
 3. **Stateful** - Tracks progress, skips completed work
 4. **Provider-Agnostic** - Unified interface across clouds
 5. **Release-Based** - Timestamped releases, easy rollback
-
-
-## TODO
-- [ ] `sync` command for syncing state with current VM provider
-- [ ] separate `configure` command from `push` - right now we build/deploy app in `configure`
-- [ ] add 100% unit test coverage in `detector/` + expand detector scenarios

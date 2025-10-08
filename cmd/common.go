@@ -17,9 +17,9 @@ import (
 	_ "lightfold/pkg/providers/vultr"
 	"lightfold/pkg/proxy"
 	_ "lightfold/pkg/proxy/nginx"
+	sshpkg "lightfold/pkg/ssh"
 	"lightfold/pkg/ssl"
 	_ "lightfold/pkg/ssl/certbot"
-	sshpkg "lightfold/pkg/ssh"
 	"lightfold/pkg/state"
 	"lightfold/pkg/util"
 	"os"
@@ -932,4 +932,236 @@ func extractPortFromTarget(target *config.TargetConfig, projectPath string) int 
 	default:
 		return 3000
 	}
+}
+
+// syncTarget syncs local config/state with actual server state to recover from drift
+// Returns the synced state or an error
+func syncTarget(target config.TargetConfig, targetName string, cfg *config.Config) (*state.TargetState, error) {
+	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
+
+	// S3 providers don't need syncing (static deployments)
+	if target.Provider == "s3" {
+		fmt.Printf("%s\n", mutedStyle.Render("S3 deployments don't require syncing (static files)"))
+		return nil, nil
+	}
+
+	// Load current state
+	targetState, err := state.LoadState(targetName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load state: %w", err)
+	}
+
+	// Track changes for summary
+	changesDetected := false
+
+	// Step 1: Recover server IP from provider API if missing (for provisioned servers)
+	if target.Provider == "digitalocean" {
+		doConfig, err := target.GetDigitalOceanConfig()
+		if err == nil && doConfig.Provisioned {
+			dropletID := doConfig.DropletID
+			if dropletID == "" && targetState.ProvisionedID != "" {
+				dropletID = targetState.ProvisionedID
+			}
+
+			if dropletID != "" {
+				originalIP := doConfig.IP
+				fmt.Printf("%s Recovering server IP from DigitalOcean API...\n", labelStyle.Render("→"))
+
+				if err := recoverIPFromDigitalOcean(&target, targetName, dropletID); err != nil {
+					fmt.Printf("%s Failed to recover IP: %v\n", mutedStyle.Render("  ⚠"), err)
+				} else {
+					// Reload config to get updated IP
+					updatedCfg, _ := config.LoadConfig()
+					if updatedTarget, exists := updatedCfg.GetTarget(targetName); exists {
+						target = updatedTarget
+						if updatedDoConfig, _ := updatedTarget.GetDigitalOceanConfig(); updatedDoConfig != nil {
+							if updatedDoConfig.IP != originalIP {
+								fmt.Printf("%s %s\n", successStyle.Render("  ✓"), mutedStyle.Render(fmt.Sprintf("IP updated: %s → %s", originalIP, updatedDoConfig.IP)))
+								changesDetected = true
+							}
+						}
+					}
+				}
+			}
+		}
+	} else if target.Provider == "hetzner" {
+		hetznerConfig, err := target.GetHetznerConfig()
+		if err == nil && hetznerConfig.Provisioned {
+			serverID := hetznerConfig.ServerID
+			if serverID == "" && targetState.ProvisionedID != "" {
+				serverID = targetState.ProvisionedID
+			}
+
+			if serverID != "" {
+				originalIP := hetznerConfig.IP
+				fmt.Printf("%s Recovering server IP from Hetzner API...\n", labelStyle.Render("→"))
+
+				if err := recoverIPFromHetzner(&target, targetName, serverID); err != nil {
+					fmt.Printf("%s Failed to recover IP: %v\n", mutedStyle.Render("  ⚠"), err)
+				} else {
+					// Reload config to get updated IP
+					updatedCfg, _ := config.LoadConfig()
+					if updatedTarget, exists := updatedCfg.GetTarget(targetName); exists {
+						target = updatedTarget
+						if updatedHetznerConfig, _ := updatedTarget.GetHetznerConfig(); updatedHetznerConfig != nil {
+							if updatedHetznerConfig.IP != originalIP {
+								fmt.Printf("%s %s\n", successStyle.Render("  ✓"), mutedStyle.Render(fmt.Sprintf("IP updated: %s → %s", originalIP, updatedHetznerConfig.IP)))
+								changesDetected = true
+							}
+						}
+					}
+				}
+			}
+		}
+	} else if target.Provider == "vultr" {
+		vultrConfig, err := target.GetVultrConfig()
+		if err == nil && vultrConfig.Provisioned {
+			instanceID := vultrConfig.InstanceID
+			if instanceID == "" && targetState.ProvisionedID != "" {
+				instanceID = targetState.ProvisionedID
+			}
+
+			if instanceID != "" {
+				originalIP := vultrConfig.IP
+				fmt.Printf("%s Recovering server IP from Vultr API...\n", labelStyle.Render("→"))
+
+				if err := recoverIPFromVultr(&target, targetName, instanceID); err != nil {
+					fmt.Printf("%s Failed to recover IP: %v\n", mutedStyle.Render("  ⚠"), err)
+				} else {
+					// Reload config to get updated IP
+					updatedCfg, _ := config.LoadConfig()
+					if updatedTarget, exists := updatedCfg.GetTarget(targetName); exists {
+						target = updatedTarget
+						if updatedVultrConfig, _ := updatedTarget.GetVultrConfig(); updatedVultrConfig != nil {
+							if updatedVultrConfig.IP != originalIP {
+								fmt.Printf("%s %s\n", successStyle.Render("  ✓"), mutedStyle.Render(fmt.Sprintf("IP updated: %s → %s", originalIP, updatedVultrConfig.IP)))
+								changesDetected = true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Step 2: Establish SSH connection
+	providerCfg, err := target.GetSSHProviderConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get SSH config: %w", err)
+	}
+
+	if providerCfg.GetIP() == "" {
+		return nil, fmt.Errorf("server IP address is not configured")
+	}
+
+	fmt.Printf("%s Connecting to server at %s...\n", labelStyle.Render("→"), providerCfg.GetIP())
+
+	sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
+	if err := sshExecutor.Connect(3, 2*time.Second); err != nil {
+		return nil, fmt.Errorf("failed to connect via SSH: %w", err)
+	}
+	defer sshExecutor.Disconnect()
+
+	fmt.Printf("%s %s\n", successStyle.Render("  ✓"), mutedStyle.Render("SSH connection established"))
+
+	// If we can SSH and have an IP, the server is definitely created
+	if !targetState.Created {
+		targetState.Created = true
+		changesDetected = true
+		fmt.Printf("%s %s\n", successStyle.Render("  ✓"), mutedStyle.Render("Server is created (SSH accessible)"))
+	}
+
+	// Step 3: Sync remote markers to local state
+	fmt.Printf("%s Syncing remote state markers...\n", labelStyle.Render("→"))
+
+	// Check created marker (create it if missing but server is accessible)
+	createdResult := sshExecutor.Execute(fmt.Sprintf("test -f %s/%s && echo 'true' || echo 'false'", config.RemoteLightfoldDir, config.RemoteCreatedMarker))
+	if createdResult.ExitCode == 0 {
+		remoteCreated := strings.TrimSpace(createdResult.Stdout) == "true"
+
+		// If server is accessible but marker doesn't exist, create it
+		if !remoteCreated {
+			markerCmd := fmt.Sprintf("sudo mkdir -p %s && echo 'created' | sudo tee %s/%s > /dev/null", config.RemoteLightfoldDir, config.RemoteLightfoldDir, config.RemoteCreatedMarker)
+			markerResult := sshExecutor.Execute(markerCmd)
+			if markerResult.ExitCode == 0 {
+				fmt.Printf("%s %s\n", successStyle.Render("  ✓"), mutedStyle.Render("Created marker written to server"))
+				changesDetected = true
+			}
+		}
+	}
+
+	// Check configured marker
+	configuredResult := sshExecutor.Execute(fmt.Sprintf("test -f %s/%s && echo 'true' || echo 'false'", config.RemoteLightfoldDir, config.RemoteConfiguredMarker))
+	if configuredResult.ExitCode == 0 {
+		remoteConfigured := strings.TrimSpace(configuredResult.Stdout) == "true"
+		if targetState.Configured != remoteConfigured {
+			targetState.Configured = remoteConfigured
+			changesDetected = true
+			fmt.Printf("%s %s\n", successStyle.Render("  ✓"), mutedStyle.Render(fmt.Sprintf("Configured state updated: %v", remoteConfigured)))
+		}
+	}
+
+	// Step 4: Sync deployment information
+	fmt.Printf("%s Syncing deployment information...\n", labelStyle.Render("→"))
+
+	appName := strings.ReplaceAll(targetName, "-", "_")
+
+	// Get current release
+	currentReleaseResult := sshExecutor.Execute(fmt.Sprintf("readlink -f %s/%s/current 2>/dev/null", config.RemoteAppBaseDir, appName))
+	if currentReleaseResult.ExitCode == 0 {
+		currentReleasePath := strings.TrimSpace(currentReleaseResult.Stdout)
+		if currentReleasePath != "" && !strings.Contains(currentReleasePath, "none") {
+			releaseTimestamp := filepath.Base(currentReleasePath)
+			if releaseTimestamp != "" && targetState.LastRelease != releaseTimestamp {
+				targetState.LastRelease = releaseTimestamp
+				changesDetected = true
+				fmt.Printf("%s %s\n", successStyle.Render("  ✓"), mutedStyle.Render(fmt.Sprintf("Current release: %s", releaseTimestamp)))
+
+				// Try to get git commit from deployed release
+				gitCommitResult := sshExecutor.Execute(fmt.Sprintf("cat %s/.git-commit 2>/dev/null", currentReleasePath))
+				if gitCommitResult.ExitCode == 0 {
+					gitCommit := strings.TrimSpace(gitCommitResult.Stdout)
+					if gitCommit != "" && targetState.LastCommit != gitCommit {
+						targetState.LastCommit = gitCommit
+						changesDetected = true
+						commitShort := gitCommit
+						if len(commitShort) > 7 {
+							commitShort = commitShort[:7]
+						}
+						fmt.Printf("%s %s\n", successStyle.Render("  ✓"), mutedStyle.Render(fmt.Sprintf("Git commit: %s", commitShort)))
+					}
+				}
+
+				// Update last deploy time if we have a release
+				if !targetState.LastDeploy.IsZero() {
+					// Keep existing last deploy time, but update if missing
+				} else {
+					targetState.LastDeploy = time.Now()
+					changesDetected = true
+				}
+			}
+		}
+	}
+
+	// Check service status (informational only, don't update state)
+	// Only show if service is active to avoid confusion
+	serviceResult := sshExecutor.Execute(fmt.Sprintf("systemctl is-active %s 2>/dev/null", appName))
+	if serviceResult.ExitCode == 0 && strings.TrimSpace(serviceResult.Stdout) == "active" {
+		fmt.Printf("%s %s\n", successStyle.Render("  ✓"), mutedStyle.Render("Service is active"))
+	}
+
+	// Step 5: Save updated state
+	if changesDetected {
+		fmt.Printf("%s Saving synced state...\n", labelStyle.Render("→"))
+		if err := state.SaveState(targetName, targetState); err != nil {
+			return nil, fmt.Errorf("failed to save state: %w", err)
+		}
+		fmt.Printf("%s %s\n", successStyle.Render("  ✓"), mutedStyle.Render("State saved successfully"))
+	} else {
+		fmt.Printf("%s %s\n", mutedStyle.Render("ℹ"), mutedStyle.Render("No changes detected - state is already in sync"))
+	}
+
+	return targetState, nil
 }

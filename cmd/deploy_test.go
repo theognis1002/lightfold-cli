@@ -344,10 +344,10 @@ func TestCreateTarget_Idempotency(t *testing.T) {
 	}
 
 	doConfig := &config.DigitalOceanConfig{
-		IP:         "192.168.1.1",
-		SSHKey:     "/tmp/key",
-		Username:   "deploy",
-		DropletID:  "999",
+		IP:          "192.168.1.1",
+		SSHKey:      "/tmp/key",
+		Username:    "deploy",
+		DropletID:   "999",
 		Provisioned: true,
 	}
 	target.SetProviderConfig("digitalocean", doConfig)
