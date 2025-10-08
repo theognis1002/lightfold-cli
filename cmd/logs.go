@@ -5,6 +5,7 @@ import (
 	sshpkg "lightfold/pkg/ssh"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -59,6 +60,11 @@ Examples:
 
 		sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
 		defer sshExecutor.Disconnect()
+
+		if err := sshExecutor.Connect(3, 2*time.Second); err != nil {
+			fmt.Fprintf(os.Stderr, "Error connecting to server: %v\n", err)
+			os.Exit(1)
+		}
 
 		appName := strings.ReplaceAll(targetName, "-", "_")
 
