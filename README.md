@@ -26,6 +26,10 @@
 
 Deploy any web app to your favorite cloud provider with a single command. No Docker, no YAML, no hassle.
 
+<p align="center">
+  <img src="docs/demo.gif" alt="Lightfold CLI Demo" width="800">
+</p>
+
 ## Quick Start
 
 ```bash
@@ -155,9 +159,9 @@ State per target in `~/.lightfold/state/<target>.json`:
 
 ## Supported Frameworks
 
-**Frontend**: Next.js, Astro, Gatsby, Svelte/SvelteKit, Vue.js, Angular
-**Backend**: Django, Flask, FastAPI, Express.js, NestJS, tRPC, Laravel, Rails, Spring Boot, ASP.NET Core, Phoenix
-**Languages**: JavaScript/TypeScript, Python, PHP, Ruby, Go, Java, C#, Elixir
+- **Frontend**: Next.js, Astro, Gatsby, Svelte/SvelteKit, Vue.js, Angular
+- **Backend**: Django, Flask, FastAPI, Express.js, NestJS, tRPC, Laravel, Rails, Spring Boot, ASP.NET Core, Phoenix
+- **Languages**: JavaScript/TypeScript, Python, PHP, Ruby, Go, Java, C#, Elixir
 
 ## Supported Providers
 
