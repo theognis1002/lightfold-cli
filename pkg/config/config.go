@@ -8,7 +8,6 @@ import (
 	"strings"
 )
 
-// ProviderConfig is a generic interface for provider-specific configurations
 type ProviderConfig interface {
 	GetIP() string
 	GetUsername() string
@@ -16,7 +15,6 @@ type ProviderConfig interface {
 	IsProvisioned() bool
 }
 
-// DigitalOceanConfig contains DigitalOcean-specific deployment configuration
 type DigitalOceanConfig struct {
 	DropletID   string `json:"droplet_id,omitempty"` // For provisioned droplets
 	IP          string `json:"ip"`
@@ -33,7 +31,6 @@ func (d *DigitalOceanConfig) GetUsername() string { return d.Username }
 func (d *DigitalOceanConfig) GetSSHKey() string   { return d.SSHKey }
 func (d *DigitalOceanConfig) IsProvisioned() bool { return d.Provisioned }
 
-// HetznerConfig contains Hetzner-specific deployment configuration
 type HetznerConfig struct {
 	ServerID    string `json:"server_id,omitempty"`
 	IP          string `json:"ip"`
@@ -50,7 +47,6 @@ func (h *HetznerConfig) GetUsername() string { return h.Username }
 func (h *HetznerConfig) GetSSHKey() string   { return h.SSHKey }
 func (h *HetznerConfig) IsProvisioned() bool { return h.Provisioned }
 
-// VultrConfig contains Vultr-specific deployment configuration
 type VultrConfig struct {
 	InstanceID  string `json:"instance_id,omitempty"` // For provisioned instances
 	IP          string `json:"ip"`
@@ -67,7 +63,6 @@ func (v *VultrConfig) GetUsername() string { return v.Username }
 func (v *VultrConfig) GetSSHKey() string   { return v.SSHKey }
 func (v *VultrConfig) IsProvisioned() bool { return v.Provisioned }
 
-// S3Config contains S3-specific deployment configuration
 type S3Config struct {
 	Bucket    string `json:"bucket"`
 	Region    string `json:"region"`
@@ -80,7 +75,6 @@ func (s *S3Config) GetUsername() string { return "" }
 func (s *S3Config) GetSSHKey() string   { return "" }
 func (s *S3Config) IsProvisioned() bool { return false }
 
-// DeploymentOptions contains framework-agnostic deployment settings
 type DeploymentOptions struct {
 	SkipBuild     bool              `json:"skip_build,omitempty"`
 	EnvVars       map[string]string `json:"env_vars,omitempty"`
@@ -90,7 +84,14 @@ type DeploymentOptions struct {
 	RunCommands   []string          `json:"run_commands,omitempty"`
 }
 
-// TargetConfig contains the complete target deployment configuration
+type DomainConfig struct {
+	Domain     string `json:"domain,omitempty"`
+	SSLEnabled bool   `json:"ssl_enabled,omitempty"`
+	SSLManager string `json:"ssl_manager,omitempty"` // "certbot", "caddy", etc.
+	ProxyType  string `json:"proxy_type,omitempty"`  // "nginx", "caddy", etc.
+	Email      string `json:"email,omitempty"`       // Email for SSL certificate registration
+}
+
 type TargetConfig struct {
 	ProjectPath    string                     `json:"project_path"`
 	Framework      string                     `json:"framework"`
@@ -98,9 +99,9 @@ type TargetConfig struct {
 	Builder        string                     `json:"builder,omitempty"`
 	ProviderConfig map[string]json.RawMessage `json:"provider_config"`
 	Deploy         *DeploymentOptions         `json:"deploy,omitempty"`
+	Domain         *DomainConfig              `json:"domain,omitempty"`
 }
 
-// GetProviderConfig unmarshals the provider-specific config into the given type
 func (t *TargetConfig) GetProviderConfig(provider string, target interface{}) error {
 	if t.ProviderConfig == nil {
 		return fmt.Errorf("no provider configuration found")
@@ -114,7 +115,6 @@ func (t *TargetConfig) GetProviderConfig(provider string, target interface{}) er
 	return json.Unmarshal(configJSON, target)
 }
 
-// SetProviderConfig marshals and stores provider-specific configuration
 func (t *TargetConfig) SetProviderConfig(provider string, config interface{}) error {
 	if t.ProviderConfig == nil {
 		t.ProviderConfig = make(map[string]json.RawMessage)
@@ -129,7 +129,6 @@ func (t *TargetConfig) SetProviderConfig(provider string, config interface{}) er
 	return nil
 }
 
-// GetDigitalOceanConfig is a convenience method to get DigitalOcean configuration
 func (t *TargetConfig) GetDigitalOceanConfig() (*DigitalOceanConfig, error) {
 	var config DigitalOceanConfig
 	if err := t.GetProviderConfig("digitalocean", &config); err != nil {
@@ -138,7 +137,6 @@ func (t *TargetConfig) GetDigitalOceanConfig() (*DigitalOceanConfig, error) {
 	return &config, nil
 }
 
-// GetHetznerConfig is a convenience method to get Hetzner configuration
 func (t *TargetConfig) GetHetznerConfig() (*HetznerConfig, error) {
 	var config HetznerConfig
 	if err := t.GetProviderConfig("hetzner", &config); err != nil {
@@ -147,7 +145,6 @@ func (t *TargetConfig) GetHetznerConfig() (*HetznerConfig, error) {
 	return &config, nil
 }
 
-// GetS3Config is a convenience method to get S3 configuration
 func (t *TargetConfig) GetS3Config() (*S3Config, error) {
 	var config S3Config
 	if err := t.GetProviderConfig("s3", &config); err != nil {
@@ -156,7 +153,6 @@ func (t *TargetConfig) GetS3Config() (*S3Config, error) {
 	return &config, nil
 }
 
-// GetVultrConfig is a convenience method to get Vultr configuration
 func (t *TargetConfig) GetVultrConfig() (*VultrConfig, error) {
 	var config VultrConfig
 	if err := t.GetProviderConfig("vultr", &config); err != nil {
@@ -165,8 +161,6 @@ func (t *TargetConfig) GetVultrConfig() (*VultrConfig, error) {
 	return &config, nil
 }
 
-// GetSSHProviderConfig returns the appropriate ProviderConfig for SSH-based providers
-// This eliminates the need for repetitive switch statements throughout the codebase
 func (t *TargetConfig) GetSSHProviderConfig() (ProviderConfig, error) {
 	switch t.Provider {
 	case "digitalocean":
@@ -182,7 +176,6 @@ func (t *TargetConfig) GetSSHProviderConfig() (ProviderConfig, error) {
 	}
 }
 
-// GetAnyProviderConfig returns the appropriate ProviderConfig for any provider
 func (t *TargetConfig) GetAnyProviderConfig() (ProviderConfig, error) {
 	switch t.Provider {
 	case "digitalocean":
@@ -267,19 +260,16 @@ func (c *Config) SaveConfig() error {
 	return nil
 }
 
-// GetTarget retrieves a target configuration by name
 func (c *Config) GetTarget(targetName string) (TargetConfig, bool) {
 	target, exists := c.Targets[targetName]
 	return target, exists
 }
 
-// SetTarget stores a target configuration by name
 func (c *Config) SetTarget(targetName string, target TargetConfig) error {
 	c.Targets[targetName] = target
 	return nil
 }
 
-// DeleteTarget removes a target configuration and saves the config
 func (c *Config) DeleteTarget(targetName string) error {
 	if _, exists := c.Targets[targetName]; !exists {
 		return nil
@@ -289,7 +279,6 @@ func (c *Config) DeleteTarget(targetName string) error {
 	return c.SaveConfig()
 }
 
-// FindTargetByPath finds a target by its project path
 func (c *Config) FindTargetByPath(projectPath string) (string, TargetConfig, bool) {
 	absPath, err := filepath.Abs(projectPath)
 	if err != nil {
@@ -304,7 +293,6 @@ func (c *Config) FindTargetByPath(projectPath string) (string, TargetConfig, boo
 	return "", TargetConfig{}, false
 }
 
-// TokenConfig stores API tokens for all providers as a flat map
 type TokenConfig map[string]string
 
 func GetTokensPath() string {
@@ -385,22 +373,18 @@ func (t TokenConfig) SetToken(provider, token string) {
 	t[provider] = token
 }
 
-// GetToken retrieves an API token for a specific provider
 func (t TokenConfig) GetToken(provider string) string {
 	return t[provider]
 }
 
-// HasToken checks if a token exists for the given provider
 func (t TokenConfig) HasToken(provider string) bool {
 	return t.GetToken(provider) != ""
 }
 
-// SetDigitalOceanToken is a convenience method for setting the DigitalOcean token
 func (t TokenConfig) SetDigitalOceanToken(token string) {
 	t.SetToken("digitalocean", token)
 }
 
-// GetDigitalOceanToken is a convenience method for getting the DigitalOcean token
 func (t TokenConfig) GetDigitalOceanToken() string {
 	return t.GetToken("digitalocean")
 }

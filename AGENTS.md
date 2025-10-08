@@ -51,6 +51,7 @@ Lightfold CLI is a framework detector and deployment tool with composable, idemp
      - `logs` - Fetch and display application logs (supports `--tail` and `--lines`)
      - `rollback` - Instant rollback to previous release (with confirmation)
      - `config` - Manage targets and API tokens
+     - `domain` - Manage custom domains and SSL (add, remove, show)
      - `keygen` - Generate SSH keypairs
      - `ssh` - Interactive SSH sessions to deployment targets
      - `destroy` - Destroy VM and remove local configuration
@@ -66,13 +67,28 @@ Lightfold CLI is a framework detector and deployment tool with composable, idemp
    - Local state files per target: `~/.lightfold/state/<target>.json`
    - Remote state markers on servers: `/etc/lightfold/{created,configured}`
    - Git commit tracking to skip unchanged deployments
-   - Tracks: last commit, last deploy time, last release ID, provision ID, builder
+   - Tracks: last commit, last deploy time, last release ID, provision ID, builder, SSL status
    - Enables idempotent operations and intelligent step skipping
+
+5.5. **SSL Management** (`pkg/ssl/`):
+   - Pluggable SSL manager system with registry pattern
+   - **Certbot Manager**: Let's Encrypt integration via certbot
+   - Interface: `IsAvailable()`, `IssueCertificate(domain, email)`, `RenewCertificate(domain)`, `EnableAutoRenewal()`
+   - Auto-renewal setup via systemd timer
+   - Certificate paths: `/etc/letsencrypt/live/{domain}/`
+
+5.6. **Reverse Proxy Management** (`pkg/proxy/`):
+   - Pluggable proxy manager system with registry pattern
+   - **Nginx Manager**: HTTP and HTTPS configuration with auto-redirect
+   - Interface: `Configure(ProxyConfig)`, `Reload()`, `Remove(appName)`, `IsAvailable()`
+   - Template-based config generation (HTTP-only and HTTPS with SSL)
+   - Support for static file serving and security headers
 
 6. **Configuration Management** (`pkg/config/`):
    - **Target-Based Config**: Named deployment targets (not path-based)
    - Structure: `~/.lightfold/config.json` with `targets` map
-   - Each target stores: project path, framework, provider, builder, provider config
+   - Each target stores: project path, framework, provider, builder, provider config, domain config
+   - **Domain Config**: Optional domain, SSL settings, proxy type, SSL manager
    - Secure API token storage in `~/.lightfold/tokens.json` (0600 permissions)
    - Provider-agnostic config interface with `ProviderConfig` methods
    - Support for BYOS and provisioned configurations per target
@@ -430,6 +446,126 @@ This ensures robustness and prevents "stuck in bad state" scenarios.
 - ✅ Hetzner Cloud (fully implemented with IP recovery)
 - ✅ BYOS (Bring Your Own Server - no provisioning, just deployment)
 - 🔜 Linode, Fly.io, AWS EC2, Google Cloud, Azure (trivial to add with IP recovery pattern)
+
+### Domain & SSL Architecture
+
+**Overview:**
+Lightfold supports optional custom domains with automatic Let's Encrypt SSL certificates. The architecture uses pluggable SSL and proxy managers for extensibility.
+
+**Key Components:**
+
+1. **SSL Manager System** (`pkg/ssl/`):
+   - Registry pattern for pluggable SSL backends
+   - **Certbot Manager**: Uses Let's Encrypt via certbot for automatic certificate issuance
+   - Interface methods: `IsAvailable()`, `IssueCertificate(domain, email)`, `RenewCertificate(domain)`, `EnableAutoRenewal()`
+   - Auto-renewal via systemd timer (`certbot.timer`)
+   - Certificate storage: `/etc/letsencrypt/live/{domain}/`
+
+2. **Proxy Manager System** (`pkg/proxy/`):
+   - Registry pattern for pluggable reverse proxies
+   - **Nginx Manager**: Template-based HTTP/HTTPS configuration
+   - Interface methods: `Configure(ProxyConfig)`, `Reload()`, `Remove(appName)`, `GetConfigPath(appName)`, `IsAvailable()`
+   - HTTP-only config: Basic proxy_pass to app port
+   - HTTPS config: SSL certificates + HTTP→HTTPS redirect + security headers
+
+3. **Domain Configuration** (`pkg/config/DomainConfig`):
+   ```go
+   type DomainConfig struct {
+       Domain     string // example.com
+       SSLEnabled bool   // true if Let's Encrypt enabled
+       SSLManager string // "certbot"
+       ProxyType  string // "nginx"
+   }
+   ```
+
+4. **Domain Commands** (`cmd/domain.go`):
+   - `lightfold domain add --domain example.com` - Configure domain + SSL
+   - `lightfold domain remove` - Revert to IP-based access
+   - `lightfold domain show` - Display current domain config
+   - All commands support 3 invocation patterns (current dir, path arg, --target flag)
+
+**Domain Configuration Flow:**
+
+1. User runs `lightfold domain add --domain example.com`
+2. Target validation: ensures target is created and configured
+3. SSH connection test to server
+4. User prompted for SSL enable (default: yes)
+5. If SSL enabled:
+   - Check if certbot is installed
+   - Install certbot if needed: `apt-get install -y certbot python3-certbot-nginx`
+   - Issue certificate: `certbot --nginx -d example.com --non-interactive --agree-tos --email noreply@example.com`
+   - Enable auto-renewal: `systemctl enable certbot.timer`
+6. Configure nginx with domain (HTTP or HTTPS based on SSL choice)
+7. Reload nginx: `systemctl reload nginx`
+8. Update target config with domain settings
+9. Save config to `~/.lightfold/config.json`
+
+**Domain Removal Flow:**
+
+1. User runs `lightfold domain remove`
+2. Confirmation prompt with current domain info
+3. Revert nginx to IP-based configuration (no domain, no SSL)
+4. Reload nginx
+5. Clear domain config from target
+6. Save config
+
+**Optional Integration:**
+
+- During `lightfold configure` or `lightfold deploy`, user is prompted:
+  ```
+  Want to add a custom domain? (y/N):
+  Domain: example.com
+  Enable SSL with Let's Encrypt? (Y/n):
+  ```
+- If declined, helpful hint is shown after deployment
+- Domain configuration is completely optional and never blocks deployments
+
+**Design Principles:**
+
+- **DRY**: Reusable SSL/proxy managers via interfaces and registry pattern
+- **Extensible**: Easy to add Caddy, custom SSL providers, or other proxies
+- **Optional**: Never blocks deployments, graceful degradation on failures
+- **Idempotent**: Safe to rerun domain commands
+- **Simple**: Sensible defaults, minimal user input required
+
+**Adding New SSL Managers:**
+
+```go
+// 1. Create pkg/ssl/newmanager/manager.go
+package newmanager
+
+func init() {
+    ssl.Register("newmanager", func() ssl.SSLManager {
+        return &Manager{}
+    })
+}
+
+// 2. Implement the SSLManager interface
+type Manager struct { executor *ssh.Executor }
+func (m *Manager) Name() string { return "newmanager" }
+func (m *Manager) IsAvailable() (bool, error) { /* check if available */ }
+func (m *Manager) IssueCertificate(domain, email string) error { /* issue cert */ }
+// ... implement remaining interface methods
+```
+
+**Adding New Proxy Managers:**
+
+```go
+// 1. Create pkg/proxy/newproxy/manager.go
+package newproxy
+
+func init() {
+    proxy.Register("newproxy", func() proxy.ProxyManager {
+        return &Manager{}
+    })
+}
+
+// 2. Implement the ProxyManager interface
+type Manager struct { executor *ssh.Executor }
+func (m *Manager) Name() string { return "newproxy" }
+func (m *Manager) Configure(config proxy.ProxyConfig) error { /* configure */ }
+// ... implement remaining interface methods
+```
 
 ## Development Guidelines
 
@@ -799,6 +935,12 @@ lightfold rollback --force             # Skip confirmation
 # Configuration
 lightfold config list
 lightfold config set-token digitalocean
+
+# Domain & SSL Management - all support 3 patterns
+lightfold domain add --domain example.com    # Add domain to current directory
+lightfold domain add --domain app.com --target myapp  # Add to named target
+lightfold domain remove                # Remove domain from current directory
+lightfold domain show --target myapp   # Show domain config for target
 
 # Utilities
 lightfold ssh --target myapp           # SSH into server

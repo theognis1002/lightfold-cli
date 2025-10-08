@@ -15,11 +15,16 @@ import (
 	_ "lightfold/pkg/providers/digitalocean"
 	_ "lightfold/pkg/providers/hetzner"
 	_ "lightfold/pkg/providers/vultr"
+	"lightfold/pkg/proxy"
+	_ "lightfold/pkg/proxy/nginx"
+	"lightfold/pkg/ssl"
+	_ "lightfold/pkg/ssl/certbot"
 	sshpkg "lightfold/pkg/ssh"
 	"lightfold/pkg/state"
 	"lightfold/pkg/util"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,7 +33,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// loadConfigOrExit loads the configuration and exits with an error message if it fails
 func loadConfigOrExit() *config.Config {
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -38,7 +42,6 @@ func loadConfigOrExit() *config.Config {
 	return cfg
 }
 
-// loadTargetOrExit loads a specific target configuration by name and exits if not found
 func loadTargetOrExit(cfg *config.Config, targetName string) config.TargetConfig {
 	target, exists := cfg.GetTarget(targetName)
 	if !exists {
@@ -49,13 +52,7 @@ func loadTargetOrExit(cfg *config.Config, targetName string) config.TargetConfig
 	return target
 }
 
-// resolveTarget resolves a target from three possible inputs:
-// 1. targetFlag (if provided)
-// 2. pathArg (if provided)
-// 3. "." (current directory, if neither provided)
-// Returns the resolved target config and target name, or exits with error if not found.
 func resolveTarget(cfg *config.Config, targetFlag string, pathArg string) (config.TargetConfig, string) {
-	// Determine effective target: --target flag, positional arg, or current dir
 	effectiveTarget := targetFlag
 	if effectiveTarget == "" {
 		if pathArg != "" {
@@ -89,12 +86,8 @@ func resolveTarget(cfg *config.Config, targetFlag string, pathArg string) (confi
 	return target, targetName
 }
 
-// createTarget creates or returns an existing target configuration.
-// If the target already exists and is created, returns the existing config.
-// Otherwise, runs framework detection and provisioning flow.
 func createTarget(targetName, projectPath string, cfg *config.Config) (config.TargetConfig, error) {
 	if target, exists := cfg.GetTarget(targetName); exists && state.IsCreated(targetName) {
-		// Print skip message with consistent styling
 		skipStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 		fmt.Printf("%s\n", skipStyle.Render("Infrastructure already created (skipping)"))
 		return target, nil
@@ -165,7 +158,6 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 				return config.TargetConfig{}, fmt.Errorf("failed to get BYOS config: %w", err)
 			}
 
-			fmt.Println("\nValidating SSH connection...")
 			sshExecutor := sshpkg.NewExecutor(byosConfig.GetIP(), "22", byosConfig.GetUsername(), byosConfig.GetSSHKey())
 			defer sshExecutor.Disconnect()
 
@@ -174,7 +166,9 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 				return config.TargetConfig{}, fmt.Errorf("SSH connection failed: %v", result.Error)
 			}
 
-			fmt.Println("✓ SSH connection validated")
+			successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+			mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+			fmt.Printf("%s %s\n", successStyle.Render("✓"), mutedStyle.Render("SSH connection validated"))
 
 			markerCmd := fmt.Sprintf("sudo mkdir -p %s && echo 'created' | sudo tee %s/%s > /dev/null", config.RemoteLightfoldDir, config.RemoteLightfoldDir, config.RemoteCreatedMarker)
 			result = sshExecutor.Execute(markerCmd)
@@ -248,8 +242,6 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 	return targetConfig, nil
 }
 
-// configureTarget configures a server with the application.
-// If already configured, skips unless force flag is set.
 func configureTarget(target config.TargetConfig, targetName string, force bool) error {
 	projectPath := target.ProjectPath
 	if target.Provider == "digitalocean" {
@@ -263,7 +255,6 @@ func configureTarget(target config.TargetConfig, targetName string, force bool) 
 			}
 
 			if doConfig.IP == "" && dropletID != "" {
-				fmt.Println("Recovering server IP from DigitalOcean...")
 				if err := recoverIPFromDigitalOcean(&target, targetName, dropletID); err != nil {
 					return fmt.Errorf("failed to recover IP: %w", err)
 				}
@@ -282,7 +273,6 @@ func configureTarget(target config.TargetConfig, targetName string, force bool) 
 			}
 
 			if hetznerConfig.IP == "" && serverID != "" {
-				fmt.Println("Recovering server IP from Hetzner Cloud...")
 				if err := recoverIPFromHetzner(&target, targetName, serverID); err != nil {
 					return fmt.Errorf("failed to recover IP: %w", err)
 				}
@@ -301,7 +291,6 @@ func configureTarget(target config.TargetConfig, targetName string, force bool) 
 			}
 
 			if vultrConfig.IP == "" && instanceID != "" {
-				fmt.Println("Recovering server IP from Vultr...")
 				if err := recoverIPFromVultr(&target, targetName, instanceID); err != nil {
 					return fmt.Errorf("failed to recover IP: %w", err)
 				}
@@ -355,7 +344,6 @@ func configureTarget(target config.TargetConfig, targetName string, force bool) 
 		return fmt.Errorf("failed to update state: %w", err)
 	}
 
-	// Cleanup old releases after configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Printf("Warning: failed to load config for cleanup: %v\n", err)
@@ -384,8 +372,9 @@ func handleBYOSWithFlags(targetConfig *config.TargetConfig, targetName string) e
 		userFlag = "root"
 	}
 
-	fmt.Printf("Creating BYOS target with IP: %s\n", ipFlag)
-	fmt.Println("Validating SSH connection...")
+	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+
 	sshExecutor := sshpkg.NewExecutor(ipFlag, "22", userFlag, sshKeyFlag)
 	defer sshExecutor.Disconnect()
 
@@ -394,7 +383,7 @@ func handleBYOSWithFlags(targetConfig *config.TargetConfig, targetName string) e
 		return fmt.Errorf("SSH connection failed: %v", result.Error)
 	}
 
-	fmt.Println("✓ SSH connection validated")
+	fmt.Printf("%s %s\n", successStyle.Render("✓"), mutedStyle.Render("SSH connection validated"))
 
 	markerCmd := fmt.Sprintf("sudo mkdir -p %s && echo 'created' | sudo tee %s/%s > /dev/null", config.RemoteLightfoldDir, config.RemoteLightfoldDir, config.RemoteCreatedMarker)
 	result = sshExecutor.Execute(markerCmd)
@@ -540,7 +529,6 @@ func handleProvisionWithFlags(targetConfig *config.TargetConfig, targetName, pro
 		}
 	}
 
-	fmt.Printf("Provisioning %s server...\n", provider)
 	projectName := util.GetTargetName(projectPath)
 	orchestrator, err := deploy.GetOrchestrator(*targetConfig, projectPath, projectName, targetName)
 	if err != nil {
@@ -569,7 +557,9 @@ func handleProvisionWithFlags(targetConfig *config.TargetConfig, targetName, pro
 		}
 	}
 
-	fmt.Printf("✓ Server provisioned at %s\n", result.Server.PublicIPv4)
+	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	fmt.Printf("%s %s\n", successStyle.Render("✓"), mutedStyle.Render(fmt.Sprintf("Server provisioned at %s", result.Server.PublicIPv4)))
 
 	return nil
 }
@@ -625,7 +615,6 @@ var recoverIPFromDigitalOcean = func(target *config.TargetConfig, targetName, dr
 		return fmt.Errorf("failed to fetch droplet info: %w", err)
 	}
 
-	// Update config with the IP and droplet_id
 	doConfig, err := target.GetDigitalOceanConfig()
 	if err != nil {
 		return fmt.Errorf("failed to get DigitalOcean config: %w", err)
@@ -634,7 +623,10 @@ var recoverIPFromDigitalOcean = func(target *config.TargetConfig, targetName, dr
 	doConfig.IP = server.PublicIPv4
 	doConfig.DropletID = dropletID
 	target.SetProviderConfig("digitalocean", doConfig)
-	fmt.Printf("  ✓ Recovered IP: %s\n", server.PublicIPv4)
+
+	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	fmt.Printf("%s %s\n", successStyle.Render("✓"), mutedStyle.Render(fmt.Sprintf("Recovered IP: %s", server.PublicIPv4)))
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -664,19 +656,16 @@ var recoverIPFromHetzner = func(target *config.TargetConfig, targetName, serverI
 		return fmt.Errorf("Hetzner Cloud API token not found")
 	}
 
-	// Get the provider to fetch server info
 	provider, err := providers.GetProvider("hetzner", hetznerToken)
 	if err != nil {
 		return fmt.Errorf("failed to get Hetzner provider: %w", err)
 	}
 
-	// Fetch server info
 	server, err := provider.GetServer(context.Background(), serverID)
 	if err != nil {
 		return fmt.Errorf("failed to fetch server info: %w", err)
 	}
 
-	// Update config with the IP and server_id
 	hetznerConfig, err := target.GetHetznerConfig()
 	if err != nil {
 		return fmt.Errorf("failed to get Hetzner config: %w", err)
@@ -685,9 +674,11 @@ var recoverIPFromHetzner = func(target *config.TargetConfig, targetName, serverI
 	hetznerConfig.IP = server.PublicIPv4
 	hetznerConfig.ServerID = serverID
 	target.SetProviderConfig("hetzner", hetznerConfig)
-	fmt.Printf("  ✓ Recovered IP: %s\n", server.PublicIPv4)
 
-	// Save the updated config
+	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	fmt.Printf("%s %s\n", successStyle.Render("✓"), mutedStyle.Render(fmt.Sprintf("Recovered IP: %s", server.PublicIPv4)))
+
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
@@ -726,7 +717,6 @@ var recoverIPFromVultr = func(target *config.TargetConfig, targetName, instanceI
 		return fmt.Errorf("failed to fetch instance info: %w", err)
 	}
 
-	// Update config with the IP and instance_id
 	vultrConfig, err := target.GetVultrConfig()
 	if err != nil {
 		return fmt.Errorf("failed to get Vultr config: %w", err)
@@ -735,7 +725,10 @@ var recoverIPFromVultr = func(target *config.TargetConfig, targetName, instanceI
 	vultrConfig.IP = server.PublicIPv4
 	vultrConfig.InstanceID = instanceID
 	target.SetProviderConfig("vultr", vultrConfig)
-	fmt.Printf("  ✓ Recovered IP: %s\n", server.PublicIPv4)
+
+	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	fmt.Printf("%s %s\n", successStyle.Render("✓"), mutedStyle.Render(fmt.Sprintf("Recovered IP: %s", server.PublicIPv4)))
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -753,10 +746,6 @@ var recoverIPFromVultr = func(target *config.TargetConfig, targetName, instanceI
 	return nil
 }
 
-// resolveBuilder determines which builder to use based on 3-layer priority:
-// 1. CLI flag (highest priority)
-// 2. Existing config (if target exists and builder is set)
-// 3. Auto-select (first time or builder no longer available)
 func resolveBuilder(target config.TargetConfig, projectPath string, detection *detector.Detection, flagValue string) string {
 	if flagValue != "" {
 		return flagValue
@@ -773,4 +762,174 @@ func resolveBuilder(target config.TargetConfig, projectPath string, detection *d
 		return "native"
 	}
 	return builderName
+}
+
+func configureDomainAndSSL(target *config.TargetConfig, targetName string, domain string, enableSSL bool) error {
+	if domain == "" {
+		return fmt.Errorf("domain is required")
+	}
+
+	providerCfg, err := target.GetSSHProviderConfig()
+	if err != nil {
+		return fmt.Errorf("failed to get SSH config: %w", err)
+	}
+
+	sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
+	defer sshExecutor.Disconnect()
+
+	if err := sshExecutor.Connect(3, 2*time.Second); err != nil {
+		return fmt.Errorf("failed to connect to server: %w", err)
+	}
+
+	if target.Domain == nil {
+		target.Domain = &config.DomainConfig{}
+	}
+	target.Domain.Domain = domain
+	target.Domain.SSLEnabled = enableSSL
+	target.Domain.ProxyType = "nginx"
+
+	if enableSSL {
+		target.Domain.SSLManager = "certbot"
+
+		checkResult := sshExecutor.Execute("which certbot")
+		if checkResult.ExitCode != 0 {
+			installCmd := "sudo apt-get update && sudo apt-get install -y certbot python3-certbot-nginx"
+			installResult := sshExecutor.Execute(installCmd)
+			if installResult.Error != nil || installResult.ExitCode != 0 {
+				return fmt.Errorf("failed to install certbot: %v", installResult.Error)
+			}
+		}
+	}
+
+	proxyManager, err := proxy.GetManager("nginx")
+	if err != nil {
+		return fmt.Errorf("failed to get proxy manager: %w", err)
+	}
+
+	if nginxMgr, ok := proxyManager.(interface{ SetExecutor(*sshpkg.Executor) }); ok {
+		nginxMgr.SetExecutor(sshExecutor)
+	}
+
+	port := extractPortFromTarget(target, target.ProjectPath)
+
+	appName := targetName
+
+	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+
+	httpOnlyConfig := proxy.ProxyConfig{
+		Domain:      domain,
+		Port:        port,
+		AppName:     appName,
+		SSLEnabled:  false, // HTTP only first
+		SSLCertPath: "",
+		SSLKeyPath:  "",
+	}
+	if err := proxyManager.Configure(httpOnlyConfig); err != nil {
+		return fmt.Errorf("failed to configure proxy: %w", err)
+	}
+
+	if err := proxyManager.Reload(); err != nil {
+		return fmt.Errorf("failed to reload proxy: %w", err)
+	}
+
+	fmt.Printf("%s %s\n", successStyle.Render("✓"), mutedStyle.Render("Configured reverse proxy with domain"))
+
+	if enableSSL {
+		sslManager, err := ssl.GetManager("certbot")
+		if err != nil {
+			return fmt.Errorf("failed to get SSL manager: %w", err)
+		}
+
+		if certbotMgr, ok := sslManager.(interface{ SetExecutor(*sshpkg.Executor) }); ok {
+			certbotMgr.SetExecutor(sshExecutor)
+		}
+
+		email := "noreply@" + domain
+		if err := sslManager.IssueCertificate(domain, email); err != nil {
+			return fmt.Errorf("failed to issue SSL certificate: %w", err)
+		}
+
+		if err := sslManager.EnableAutoRenewal(); err != nil {
+			fmt.Printf("Warning: failed to enable auto-renewal: %v\n", err)
+		}
+
+		if err := state.MarkSSLConfigured(targetName); err != nil {
+			fmt.Printf("Warning: failed to update SSL state: %v\n", err)
+		}
+
+		fmt.Printf("%s %s\n", successStyle.Render("✓"), mutedStyle.Render(fmt.Sprintf("Issued SSL certificate for %s", domain)))
+	}
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if err := cfg.SetTarget(targetName, *target); err != nil {
+		return fmt.Errorf("failed to update target config: %w", err)
+	}
+
+	if err := cfg.SaveConfig(); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	protocol := "http"
+	if enableSSL {
+		protocol = "https"
+	}
+
+	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("170"))
+	fmt.Printf("\n%s %s\n", successStyle.Render("✓"), successStyle.Render("Domain configured successfully!"))
+	fmt.Printf("  %s %s\n\n", mutedStyle.Render("Your app is now available at:"), valueStyle.Render(fmt.Sprintf("%s://%s", protocol, domain)))
+
+	return nil
+}
+
+func extractPortFromTarget(target *config.TargetConfig, projectPath string) int {
+	detection := detector.DetectFramework(projectPath)
+
+	for _, runCmd := range detection.RunPlan {
+
+		if strings.Contains(runCmd, "-port") || strings.Contains(runCmd, "--port") {
+			parts := strings.Fields(runCmd)
+			for i, part := range parts {
+				if (part == "-port" || part == "--port") && i+1 < len(parts) {
+					if port, err := strconv.Atoi(parts[i+1]); err == nil {
+						return port
+					}
+				}
+			}
+		}
+
+		if strings.Contains(runCmd, "--bind") || strings.Contains(runCmd, "--listen") {
+			parts := strings.Fields(runCmd)
+			for i, part := range parts {
+				if (part == "--bind" || part == "--listen") && i+1 < len(parts) {
+					bindAddr := parts[i+1]
+					if colonIdx := strings.LastIndex(bindAddr, ":"); colonIdx != -1 {
+						portStr := bindAddr[colonIdx+1:]
+						if port, err := strconv.Atoi(portStr); err == nil {
+							return port
+						}
+					}
+				}
+			}
+		}
+	}
+
+	switch detection.Framework {
+	case "Next.js", "Nuxt.js", "Remix", "SvelteKit", "Astro":
+		return 3000
+	case "Django", "Flask", "FastAPI":
+		return 5000
+	case "Go", "Fiber":
+		return 8080
+	case "Express.js":
+		return 3000
+	case "Ruby on Rails":
+		return 3000
+	default:
+		return 3000
+	}
 }

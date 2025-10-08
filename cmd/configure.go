@@ -1,10 +1,13 @@
 package cmd
 
 import (
+	"bufio"
 	"fmt"
 	"lightfold/pkg/config"
 	"os"
+	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
 )
 
@@ -45,11 +48,59 @@ Examples:
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
+
+		// Prompt for optional domain configuration
+		promptDomainConfiguration(&target, targetName)
 	},
 }
 
 func processConfigureFlags(target *config.TargetConfig) error {
 	return target.ProcessDeploymentOptions(envFile, envVars, skipBuild)
+}
+
+func promptDomainConfiguration(target *config.TargetConfig, targetName string) {
+	if target.Domain != nil && target.Domain.Domain != "" {
+		return
+	}
+
+	fmt.Println()
+	promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
+	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+
+	fmt.Printf("%s", promptStyle.Render("Want to add a custom domain? (Y/n): "))
+
+	reader := bufio.NewReader(os.Stdin)
+	response, _ := reader.ReadString('\n')
+	response = strings.TrimSpace(strings.ToLower(response))
+
+	// Default to yes - only skip if user explicitly says no
+	if response == "n" || response == "no" {
+		domainHint := fmt.Sprintf("💡 You can add a domain later with: lightfold domain add --target %s --domain example.com", targetName)
+		fmt.Printf("\n%s\n", hintStyle.Render(domainHint))
+		return
+	}
+
+	fmt.Printf("%s", promptStyle.Render("Domain: "))
+	domain, _ := reader.ReadString('\n')
+	domain = strings.TrimSpace(domain)
+
+	// If no domain provided, skip gracefully
+	if domain == "" {
+		domainHint := fmt.Sprintf("💡 You can add a domain later with: lightfold domain add --target %s --domain example.com", targetName)
+		fmt.Printf("\n%s\n", hintStyle.Render(domainHint))
+		return
+	}
+
+	fmt.Printf("%s", promptStyle.Render("Enable SSL with Let's Encrypt? (Y/n): "))
+	sslResponse, _ := reader.ReadString('\n')
+	sslResponse = strings.TrimSpace(strings.ToLower(sslResponse))
+	enableSSL := sslResponse != "n" && sslResponse != "no"
+
+	fmt.Println()
+	if err := configureDomainAndSSL(target, targetName, domain, enableSSL); err != nil {
+		fmt.Printf("Warning: domain/SSL setup failed: %v\n", err)
+		fmt.Println("You can try again with: lightfold domain add --domain", domain)
+	}
 }
 
 func init() {

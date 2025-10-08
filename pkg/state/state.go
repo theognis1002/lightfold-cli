@@ -9,18 +9,18 @@ import (
 	"time"
 )
 
-// TargetState tracks the deployment state for a specific target
 type TargetState struct {
-	LastCommit    string    `json:"last_commit,omitempty"`
-	LastDeploy    time.Time `json:"last_deploy,omitempty"`
-	Created       bool      `json:"created"`
-	Configured    bool      `json:"configured"`
-	LastRelease   string    `json:"last_release,omitempty"`
-	ProvisionedID string    `json:"provisioned_id,omitempty"`
-	Builder       string    `json:"builder,omitempty"`
+	LastCommit     string    `json:"last_commit,omitempty"`
+	LastDeploy     time.Time `json:"last_deploy,omitempty"`
+	Created        bool      `json:"created"`
+	Configured     bool      `json:"configured"`
+	LastRelease    string    `json:"last_release,omitempty"`
+	ProvisionedID  string    `json:"provisioned_id,omitempty"`
+	Builder        string    `json:"builder,omitempty"`
+	SSLConfigured  bool      `json:"ssl_configured,omitempty"`
+	LastSSLRenewal time.Time `json:"last_ssl_renewal,omitempty"`
 }
 
-// GetStatePath returns the path to the state directory
 func GetStatePath() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -29,22 +29,18 @@ func GetStatePath() string {
 	return filepath.Join(homeDir, config.LocalConfigDir, config.LocalStateDir)
 }
 
-// GetTargetStatePath returns the path to a specific target's state file
 func GetTargetStatePath(targetName string) string {
 	return filepath.Join(GetStatePath(), targetName+".json")
 }
 
-// LoadState loads the state for a specific target
 func LoadState(targetName string) (*TargetState, error) {
 	statePath := GetTargetStatePath(targetName)
 
-	// Ensure state directory exists
 	stateDir := filepath.Dir(statePath)
 	if err := os.MkdirAll(stateDir, config.PermDirectory); err != nil {
 		return nil, fmt.Errorf("failed to create state directory: %w", err)
 	}
 
-	// If state file doesn't exist, return empty state
 	if _, err := os.Stat(statePath); os.IsNotExist(err) {
 		return &TargetState{}, nil
 	}
@@ -62,11 +58,9 @@ func LoadState(targetName string) (*TargetState, error) {
 	return &state, nil
 }
 
-// SaveState saves the state for a specific target
 func SaveState(targetName string, state *TargetState) error {
 	statePath := GetTargetStatePath(targetName)
 
-	// Ensure state directory exists
 	stateDir := filepath.Dir(statePath)
 	if err := os.MkdirAll(stateDir, config.PermDirectory); err != nil {
 		return fmt.Errorf("failed to create state directory: %w", err)
@@ -84,7 +78,6 @@ func SaveState(targetName string, state *TargetState) error {
 	return nil
 }
 
-// MarkCreated marks a target as created
 func MarkCreated(targetName string, provisionedID string) error {
 	state, err := LoadState(targetName)
 	if err != nil {
@@ -99,7 +92,6 @@ func MarkCreated(targetName string, provisionedID string) error {
 	return SaveState(targetName, state)
 }
 
-// MarkConfigured marks a target as configured
 func MarkConfigured(targetName string) error {
 	state, err := LoadState(targetName)
 	if err != nil {
@@ -110,7 +102,6 @@ func MarkConfigured(targetName string) error {
 	return SaveState(targetName, state)
 }
 
-// UpdateDeployment updates the deployment state after a successful push
 func UpdateDeployment(targetName, commitHash, releaseTimestamp string) error {
 	state, err := LoadState(targetName)
 	if err != nil {
@@ -124,7 +115,6 @@ func UpdateDeployment(targetName, commitHash, releaseTimestamp string) error {
 	return SaveState(targetName, state)
 }
 
-// IsCreated checks if a target has been created
 func IsCreated(targetName string) bool {
 	state, err := LoadState(targetName)
 	if err != nil {
@@ -133,7 +123,6 @@ func IsCreated(targetName string) bool {
 	return state.Created
 }
 
-// IsConfigured checks if a target has been configured
 func IsConfigured(targetName string) bool {
 	state, err := LoadState(targetName)
 	if err != nil {
@@ -142,7 +131,6 @@ func IsConfigured(targetName string) bool {
 	return state.Configured
 }
 
-// GetLastCommit returns the last deployed commit hash
 func GetLastCommit(targetName string) string {
 	state, err := LoadState(targetName)
 	if err != nil {
@@ -151,7 +139,6 @@ func GetLastCommit(targetName string) string {
 	return state.LastCommit
 }
 
-// GetProvisionedID returns the provisioned server ID for a target
 func GetProvisionedID(targetName string) string {
 	state, err := LoadState(targetName)
 	if err != nil {
@@ -174,13 +161,11 @@ func GetTargetState(targetName string) (*TargetState, error) {
 	return LoadState(targetName)
 }
 
-// DeleteState removes the state file for a specific target
 func DeleteState(targetName string) error {
 	statePath := GetTargetStatePath(targetName)
 
-	// Check if state file exists
 	if _, err := os.Stat(statePath); os.IsNotExist(err) {
-		return nil // Already deleted, no error
+		return nil
 	}
 
 	if err := os.Remove(statePath); err != nil {
@@ -188,4 +173,43 @@ func DeleteState(targetName string) error {
 	}
 
 	return nil
+}
+
+func MarkSSLConfigured(targetName string) error {
+	state, err := LoadState(targetName)
+	if err != nil {
+		return err
+	}
+
+	state.SSLConfigured = true
+	state.LastSSLRenewal = time.Now()
+
+	return SaveState(targetName, state)
+}
+
+func UpdateSSLRenewal(targetName string) error {
+	state, err := LoadState(targetName)
+	if err != nil {
+		return err
+	}
+
+	state.LastSSLRenewal = time.Now()
+
+	return SaveState(targetName, state)
+}
+
+func IsSSLConfigured(targetName string) bool {
+	state, err := LoadState(targetName)
+	if err != nil {
+		return false
+	}
+	return state.SSLConfigured
+}
+
+func GetLastSSLRenewal(targetName string) time.Time {
+	state, err := LoadState(targetName)
+	if err != nil {
+		return time.Time{}
+	}
+	return state.LastSSLRenewal
 }

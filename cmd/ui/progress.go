@@ -29,6 +29,7 @@ type progressModel struct {
 	spinner           spinner.Model
 	skipInit          bool
 	completionMessage string
+	alternateText     bool // For alternating step descriptions
 }
 
 type stepHistoryItem struct {
@@ -49,6 +50,8 @@ type stepUpdateMsg struct {
 type countdownMsg struct {
 	seconds int
 }
+
+type alternateTextMsg struct{}
 
 type completeMsg struct{}
 
@@ -91,7 +94,6 @@ func (m progressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case stepUpdateMsg:
 		if msg.step.Progress == -1 {
-			// Ignore verbose command output (Progress == -1)
 			return m, nil
 		}
 
@@ -114,6 +116,43 @@ func (m progressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+		var cmd tea.Cmd
+		if msg.step.Name == "wait_cloud_init" || msg.step.Name == "wait_active" {
+			cmd = tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
+				return alternateTextMsg{}
+			})
+		}
+
+		return m, cmd
+
+	case alternateTextMsg:
+		if len(m.stepHistory) > 0 {
+			lastStep := &m.stepHistory[len(m.stepHistory)-1]
+			if lastStep.status == "in_progress" {
+				if lastStep.name == "wait_cloud_init" {
+					if m.alternateText {
+						lastStep.description = "Initializing server..."
+					} else {
+						lastStep.description = "This could take a few minutes. Please wait..."
+					}
+					m.alternateText = !m.alternateText
+					return m, tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
+						return alternateTextMsg{}
+					})
+				}
+				if lastStep.name == "wait_active" {
+					if m.alternateText {
+						lastStep.description = "Waiting for server to become active..."
+					} else {
+						lastStep.description = "Provisioning in progress. Please wait..."
+					}
+					m.alternateText = !m.alternateText
+					return m, tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
+						return alternateTextMsg{}
+					})
+				}
+			}
+		}
 		return m, nil
 
 	case progressMsg:

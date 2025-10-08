@@ -49,7 +49,6 @@ Examples:
   lightfold deploy --dry-run                 # Preview deployment plan`,
 	Args: cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		// Determine effective target: --target flag, positional arg, or current dir
 		effectiveTarget := deployTargetFlag
 		if effectiveTarget == "" {
 			if len(args) > 0 {
@@ -66,7 +65,6 @@ Examples:
 		var targetName string
 
 		if !exists {
-			// Treat as a path - validate and convert to absolute path
 			var err error
 			projectPath, err = util.ValidateProjectPath(effectiveTarget)
 			if err != nil {
@@ -150,6 +148,14 @@ Examples:
 			os.Exit(1)
 		}
 
+		cfg = loadConfigOrExit()
+		target = loadTargetOrExit(cfg, targetName)
+
+		promptDomainConfiguration(&target, targetName)
+
+		cfg = loadConfigOrExit()
+		target = loadTargetOrExit(cfg, targetName)
+
 		fmt.Printf("\n%s\n", deployStepHeaderStyle.Render("Step 4/4: Deploy app"))
 
 		if err := target.ProcessDeploymentOptions(envFile, envVars, skipBuild); err != nil {
@@ -173,7 +179,6 @@ Examples:
 
 		projectName := util.GetTargetName(projectPath)
 
-		// Use custom deployment options if available
 		var executor *deploy.Executor
 		if target.Deploy != nil && (len(target.Deploy.BuildCommands) > 0 || len(target.Deploy.RunCommands) > 0) {
 			executor = deploy.NewExecutorWithOptions(sshExecutor, projectName, projectPath, &detection, target.Deploy)
@@ -197,7 +202,6 @@ Examples:
 		fmt.Printf("%s %s\n", deploySuccessStyle.Render("✓"), deployMutedStyle.Render("Uploading release to server..."))
 
 		if !target.Deploy.SkipBuild {
-			// Pass env vars to build (for NEXT_PUBLIC_*, etc.)
 			if err := executor.BuildReleaseWithEnv(releasePath, target.Deploy.EnvVars); err != nil {
 				fmt.Fprintf(os.Stderr, "Error building release: %v\n", err)
 				os.Exit(1)
@@ -206,7 +210,6 @@ Examples:
 		}
 
 		if len(target.Deploy.EnvVars) > 0 {
-			// Also write to shared location for runtime
 			if err := executor.WriteEnvironmentFile(target.Deploy.EnvVars); err != nil {
 				fmt.Fprintf(os.Stderr, "Error writing environment: %v\n", err)
 				os.Exit(1)
@@ -246,6 +249,13 @@ Examples:
 			)
 
 		fmt.Println(successBox)
+		fmt.Println()
+
+		if target.Domain == nil || target.Domain.Domain == "" {
+			hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+			domainHint := fmt.Sprintf("Have a domain? Run 'lightfold domain add --target %s --domain example.com' to add a custom domain.", targetName)
+			fmt.Printf("%s\n", hintStyle.Render(domainHint))
+		}
 	},
 }
 

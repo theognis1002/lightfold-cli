@@ -87,21 +87,18 @@ func runRootCommand(cmd *cobra.Command, args []string) {
 	showDetectionResults(detectionResult)
 }
 
-// showDetectionResults displays detection results in a clean, non-interactive format
 func showDetectionResults(detection detector.Detection) {
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
 	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 	signalStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#40BDA3"))
 	successCheckStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
 
-	// Get target name from current directory
 	cwd, err := os.Getwd()
 	if err != nil {
 		cwd = "."
 	}
 	targetName := util.GetTargetName(cwd)
 
-	// Framework info box
 	frameworkBox := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(lipgloss.Color("#01FAC6")).
@@ -113,15 +110,14 @@ func showDetectionResults(detection detector.Detection) {
 	content.WriteString(valueStyle.Render(targetName))
 	content.WriteString("\n")
 
-	content.WriteString(labelStyle.Render("Framework: "))
-	content.WriteString(valueStyle.Render(detection.Framework))
-	content.WriteString("\n")
-
 	content.WriteString(labelStyle.Render("Language:  "))
 	content.WriteString(valueStyle.Render(detection.Language))
+	content.WriteString("\n")
+
+	content.WriteString(labelStyle.Render("Framework: "))
+	content.WriteString(valueStyle.Render(detection.Framework))
 	content.WriteString("\n\n")
 
-	// Detection signals
 	if len(detection.Signals) > 0 {
 		content.WriteString(labelStyle.Render("Detection signals:"))
 		content.WriteString("\n")
@@ -133,7 +129,6 @@ func showDetectionResults(detection detector.Detection) {
 		content.WriteString("\n")
 	}
 
-	// Build Plan
 	content.WriteString(labelStyle.Render("Build Commands:"))
 	content.WriteString("\n")
 	for i, cmd := range detection.BuildPlan {
@@ -141,7 +136,6 @@ func showDetectionResults(detection detector.Detection) {
 	}
 	content.WriteString("\n")
 
-	// Run Plan
 	content.WriteString(labelStyle.Render("Run Commands:"))
 	content.WriteString("\n")
 	for i, cmd := range detection.RunPlan {
@@ -150,7 +144,6 @@ func showDetectionResults(detection detector.Detection) {
 
 	fmt.Printf("%s\n\n", frameworkBox.Render(content.String()))
 
-	// Next step suggestion
 	deployStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#01FAC6"))
 	normalStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 	fmt.Printf("%s%s%s\n",
