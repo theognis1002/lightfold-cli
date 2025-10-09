@@ -115,7 +115,20 @@ Examples:
 		}
 
 		builderName := resolveBuilder(target, projectPath, &detection, deployBuilderFlag)
-		fmt.Printf("  %s %s\n", deployMutedStyle.Render("Builder:"), deployMutedStyle.Render(builderName))
+
+		// Check if Dockerfile exists but dockerfile builder is not available (fallback scenario)
+		dockerfilePath := filepath.Join(projectPath, "Dockerfile")
+		_, dockerfileExists := os.Stat(dockerfilePath)
+		showFallback := dockerfileExists == nil && builderName != "dockerfile"
+
+		if showFallback {
+			fmt.Printf("  %s %s %s\n",
+				deployMutedStyle.Render("Builder:"),
+				deployMutedStyle.Render(builderName),
+				deployMutedStyle.Render("(dockerfile not implemented, using "+builderName+")"))
+		} else {
+			fmt.Printf("  %s %s\n", deployMutedStyle.Render("Builder:"), deployMutedStyle.Render(builderName))
+		}
 
 		if target.Builder != builderName {
 			target.Builder = builderName

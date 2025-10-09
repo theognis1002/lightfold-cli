@@ -55,7 +55,7 @@ func ListAvailableBuilders() []string {
 
 // AutoSelectBuilder determines the best builder for a project
 // Priority order:
-// 1. Dockerfile exists → use "dockerfile"
+// 1. Dockerfile exists → use "dockerfile" (if available, else fallback to nixpacks/native)
 // 2. Node/Python + nixpacks available → use "nixpacks"
 // 3. Fallback → use "native"
 func AutoSelectBuilder(projectPath string, detection *detector.Detection) (string, error) {
@@ -64,6 +64,15 @@ func AutoSelectBuilder(projectPath string, detection *detector.Detection) (strin
 	if _, err := os.Stat(dockerfilePath); err == nil {
 		if builder, err := GetBuilder("dockerfile"); err == nil && builder.IsAvailable() {
 			return "dockerfile", nil
+		}
+		// Dockerfile exists but builder not available - fallback to nixpacks if possible
+		if detection != nil {
+			lang := strings.ToLower(detection.Language)
+			if lang == "javascript" || lang == "typescript" || lang == "python" {
+				if builder, err := GetBuilder("nixpacks"); err == nil && builder.IsAvailable() {
+					return "nixpacks", nil
+				}
+			}
 		}
 	}
 

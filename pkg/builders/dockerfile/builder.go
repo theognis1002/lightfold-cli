@@ -22,7 +22,9 @@ func (d *DockerfileBuilder) Name() string {
 }
 
 func (d *DockerfileBuilder) IsAvailable() bool {
-	return true
+	// TODO: Implement Dockerfile builder - check for Docker daemon availability
+	// Dockerfile builder is not yet implemented
+	return false
 }
 
 func (d *DockerfileBuilder) NeedsNginx() bool {

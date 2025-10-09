@@ -18,8 +18,9 @@ func TestDockerfileBuilder_Name(t *testing.T) {
 
 func TestDockerfileBuilder_IsAvailable(t *testing.T) {
 	builder := &DockerfileBuilder{}
-	if !builder.IsAvailable() {
-		t.Error("Dockerfile builder should always be available (registration check)")
+	// TODO: When Dockerfile builder is implemented, this should return true
+	if builder.IsAvailable() {
+		t.Error("Dockerfile builder should return false until implemented")
 	}
 }
 
