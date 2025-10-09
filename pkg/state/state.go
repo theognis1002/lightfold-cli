@@ -10,15 +10,20 @@ import (
 )
 
 type TargetState struct {
-	LastCommit     string    `json:"last_commit,omitempty"`
-	LastDeploy     time.Time `json:"last_deploy,omitempty"`
-	Created        bool      `json:"created"`
-	Configured     bool      `json:"configured"`
-	LastRelease    string    `json:"last_release,omitempty"`
-	ProvisionedID  string    `json:"provisioned_id,omitempty"`
-	Builder        string    `json:"builder,omitempty"`
-	SSLConfigured  bool      `json:"ssl_configured,omitempty"`
-	LastSSLRenewal time.Time `json:"last_ssl_renewal,omitempty"`
+	LastCommit      string    `json:"last_commit,omitempty"`
+	LastDeploy      time.Time `json:"last_deploy,omitempty"`
+	Created         bool      `json:"created"`
+	Configured      bool      `json:"configured"`
+	LastRelease     string    `json:"last_release,omitempty"`
+	ProvisionedID   string    `json:"provisioned_id,omitempty"`
+	Builder         string    `json:"builder,omitempty"`
+	SSLConfigured   bool      `json:"ssl_configured,omitempty"`
+	LastSSLRenewal  time.Time `json:"last_ssl_renewal,omitempty"`
+	ConfigureFailed bool      `json:"configure_failed,omitempty"`
+	ConfigureError  string    `json:"configure_error,omitempty"`
+	PushFailed      bool      `json:"push_failed,omitempty"`
+	PushError       string    `json:"push_error,omitempty"`
+	LastFailure     time.Time `json:"last_failure,omitempty"`
 }
 
 func GetStatePath() string {
@@ -212,4 +217,54 @@ func GetLastSSLRenewal(targetName string) time.Time {
 		return time.Time{}
 	}
 	return state.LastSSLRenewal
+}
+
+func MarkConfigureFailed(targetName string, errMsg string) error {
+	state, err := LoadState(targetName)
+	if err != nil {
+		return err
+	}
+
+	state.ConfigureFailed = true
+	state.ConfigureError = errMsg
+	state.LastFailure = time.Now()
+
+	return SaveState(targetName, state)
+}
+
+func MarkPushFailed(targetName string, errMsg string) error {
+	state, err := LoadState(targetName)
+	if err != nil {
+		return err
+	}
+
+	state.PushFailed = true
+	state.PushError = errMsg
+	state.LastFailure = time.Now()
+
+	return SaveState(targetName, state)
+}
+
+func ClearConfigureFailure(targetName string) error {
+	state, err := LoadState(targetName)
+	if err != nil {
+		return err
+	}
+
+	state.ConfigureFailed = false
+	state.ConfigureError = ""
+
+	return SaveState(targetName, state)
+}
+
+func ClearPushFailure(targetName string) error {
+	state, err := LoadState(targetName)
+	if err != nil {
+		return err
+	}
+
+	state.PushFailed = false
+	state.PushError = ""
+
+	return SaveState(targetName, state)
 }

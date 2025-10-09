@@ -131,6 +131,7 @@ Examples:
 
 		tmpTarball := fmt.Sprintf("/tmp/lightfold-%s-release.tar.gz", projectName)
 		if err := executor.CreateReleaseTarball(tmpTarball); err != nil {
+			state.MarkPushFailed(targetNameResolved, fmt.Sprintf("failed to create tarball: %v", err))
 			fmt.Fprintf(os.Stderr, "Error creating tarball: %v\n", err)
 			os.Exit(1)
 		}
@@ -139,6 +140,7 @@ Examples:
 
 		releasePath, err := executor.UploadRelease(tmpTarball)
 		if err != nil {
+			state.MarkPushFailed(targetNameResolved, fmt.Sprintf("failed to upload release: %v", err))
 			fmt.Fprintf(os.Stderr, "Error uploading release: %v\n", err)
 			os.Exit(1)
 		}
@@ -148,6 +150,7 @@ Examples:
 
 		if !target.Deploy.SkipBuild {
 			if err := executor.BuildRelease(releasePath); err != nil {
+				state.MarkPushFailed(targetNameResolved, fmt.Sprintf("failed to build release: %v", err))
 				fmt.Fprintf(os.Stderr, "Error building release: %v\n", err)
 				os.Exit(1)
 			}
@@ -156,6 +159,7 @@ Examples:
 
 		if len(target.Deploy.EnvVars) > 0 {
 			if err := executor.WriteEnvironmentFile(target.Deploy.EnvVars); err != nil {
+				state.MarkPushFailed(targetNameResolved, fmt.Sprintf("failed to write environment file: %v", err))
 				fmt.Fprintf(os.Stderr, "Error writing environment: %v\n", err)
 				os.Exit(1)
 			}
@@ -163,6 +167,7 @@ Examples:
 		}
 
 		if err := executor.DeployWithHealthCheck(releasePath, 5, 3*time.Second); err != nil {
+			state.MarkPushFailed(targetNameResolved, fmt.Sprintf("deployment failed: %v", err))
 			fmt.Fprintf(os.Stderr, "Error during deployment: %v\n", err)
 			os.Exit(1)
 		}
@@ -173,6 +178,10 @@ Examples:
 		}
 		fmt.Printf("%s %s\n", pushSuccessStyle.Render("✓"), pushMutedStyle.Render("Cleaning up old releases..."))
 
+		// Clear any previous push failure and update deployment state
+		if err := state.ClearPushFailure(targetNameResolved); err != nil {
+			fmt.Printf("Warning: failed to clear push failure in state: %v\n", err)
+		}
 		if err := state.UpdateDeployment(targetNameResolved, currentCommit, releaseTimestamp); err != nil {
 			fmt.Printf("Warning: failed to update state: %v\n", err)
 		}

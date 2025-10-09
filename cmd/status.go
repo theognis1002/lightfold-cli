@@ -29,23 +29,28 @@ var (
 
 // StatusOutput represents the JSON structure for status output
 type StatusOutput struct {
-	Target         string             `json:"target"`
-	ProjectPath    string             `json:"project_path"`
-	Framework      string             `json:"framework"`
-	Provider       string             `json:"provider"`
-	Created        bool               `json:"created"`
-	Configured     bool               `json:"configured"`
-	LastCommit     string             `json:"last_commit,omitempty"`
-	LastDeploy     string             `json:"last_deploy,omitempty"`
-	LastRelease    string             `json:"last_release,omitempty"`
-	ServerIP       string             `json:"server_ip,omitempty"`
-	ServerID       string             `json:"server_id,omitempty"`
-	ServiceStatus  string             `json:"service_status,omitempty"`
-	ServiceUptime  string             `json:"service_uptime,omitempty"`
-	CurrentRelease string             `json:"current_release,omitempty"`
-	DiskUsage      string             `json:"disk_usage,omitempty"`
-	ServerUptime   string             `json:"server_uptime,omitempty"`
-	HealthCheck    *HealthCheckStatus `json:"health_check,omitempty"`
+	Target          string             `json:"target"`
+	ProjectPath     string             `json:"project_path"`
+	Framework       string             `json:"framework"`
+	Provider        string             `json:"provider"`
+	Created         bool               `json:"created"`
+	Configured      bool               `json:"configured"`
+	ConfigureFailed bool               `json:"configure_failed,omitempty"`
+	ConfigureError  string             `json:"configure_error,omitempty"`
+	PushFailed      bool               `json:"push_failed,omitempty"`
+	PushError       string             `json:"push_error,omitempty"`
+	LastFailure     string             `json:"last_failure,omitempty"`
+	LastCommit      string             `json:"last_commit,omitempty"`
+	LastDeploy      string             `json:"last_deploy,omitempty"`
+	LastRelease     string             `json:"last_release,omitempty"`
+	ServerIP        string             `json:"server_ip,omitempty"`
+	ServerID        string             `json:"server_id,omitempty"`
+	ServiceStatus   string             `json:"service_status,omitempty"`
+	ServiceUptime   string             `json:"service_uptime,omitempty"`
+	CurrentRelease  string             `json:"current_release,omitempty"`
+	DiskUsage       string             `json:"disk_usage,omitempty"`
+	ServerUptime    string             `json:"server_uptime,omitempty"`
+	HealthCheck     *HealthCheckStatus `json:"health_check,omitempty"`
 }
 
 // HealthCheckStatus represents health check information
@@ -144,12 +149,16 @@ func showAllTargets(cfg *config.Config) {
 
 		if targetState.Configured {
 			fmt.Printf("    %s\n", statusSuccessStyle.Render("✓ Configure"))
+		} else if targetState.ConfigureFailed {
+			fmt.Printf("    %s\n", statusErrorStyle.Render("✗ Configure (failed)"))
 		} else {
 			fmt.Printf("    %s\n", statusMutedStyle.Render("[ ] Configure"))
 		}
 
 		if !targetState.LastDeploy.IsZero() {
 			fmt.Printf("    %s\n", statusSuccessStyle.Render("✓ Push"))
+		} else if targetState.PushFailed {
+			fmt.Printf("    %s\n", statusErrorStyle.Render("✗ Push (failed)"))
 		} else {
 			fmt.Printf("    %s\n", statusMutedStyle.Render("[ ] Push"))
 		}
@@ -203,6 +212,16 @@ func showTargetDetail(cfg *config.Config, targetName string) {
 	}
 	if targetState.Configured {
 		fmt.Printf("  Configured: %s\n", statusSuccessStyle.Render("✓ Yes"))
+	} else if targetState.ConfigureFailed {
+		fmt.Printf("  Configured: %s\n", statusErrorStyle.Render("✗ Failed"))
+		if targetState.ConfigureError != "" {
+			// Wrap long error messages
+			errorMsg := targetState.ConfigureError
+			if len(errorMsg) > 80 {
+				errorMsg = errorMsg[:77] + "..."
+			}
+			fmt.Printf("  Error:      %s\n", statusMutedStyle.Render(errorMsg))
+		}
 	} else {
 		fmt.Printf("  Configured: %s\n", statusMutedStyle.Render("✗ No"))
 	}
@@ -218,9 +237,22 @@ func showTargetDetail(cfg *config.Config, targetName string) {
 	}
 	if !targetState.LastDeploy.IsZero() {
 		fmt.Printf("  Last Deploy: %s\n", statusValueStyle.Render(targetState.LastDeploy.Format("2006-01-02 15:04:05")))
+	} else if targetState.PushFailed {
+		fmt.Printf("  Last Deploy: %s\n", statusErrorStyle.Render("✗ Failed"))
+		if targetState.PushError != "" {
+			// Wrap long error messages
+			errorMsg := targetState.PushError
+			if len(errorMsg) > 80 {
+				errorMsg = errorMsg[:77] + "..."
+			}
+			fmt.Printf("  Error:      %s\n", statusMutedStyle.Render(errorMsg))
+		}
 	}
 	if targetState.LastRelease != "" {
 		fmt.Printf("  Last Release: %s\n", statusValueStyle.Render(targetState.LastRelease))
+	}
+	if !targetState.LastFailure.IsZero() {
+		fmt.Printf("  Last Failure: %s\n", statusErrorStyle.Render(targetState.LastFailure.Format("2006-01-02 15:04:05")))
 	}
 	fmt.Println()
 
@@ -311,8 +343,12 @@ func showTargetDetail(cfg *config.Config, targetName string) {
 
 	if !targetState.Created {
 		fmt.Printf("%s %s\n", statusLabelStyle.Render("Next:"), statusValueStyle.Render(fmt.Sprintf("lightfold create --target %s", targetName)))
+	} else if targetState.ConfigureFailed {
+		fmt.Printf("%s %s\n", statusLabelStyle.Render("Retry:"), statusValueStyle.Render(fmt.Sprintf("lightfold configure --target %s --force", targetName)))
 	} else if !targetState.Configured {
 		fmt.Printf("%s %s\n", statusLabelStyle.Render("Next:"), statusValueStyle.Render(fmt.Sprintf("lightfold configure --target %s", targetName)))
+	} else if targetState.PushFailed {
+		fmt.Printf("%s %s\n", statusLabelStyle.Render("Retry:"), statusValueStyle.Render(fmt.Sprintf("lightfold push --target %s", targetName)))
 	} else {
 		fmt.Printf("%s %s\n", statusLabelStyle.Render("Ready to deploy:"), statusValueStyle.Render(fmt.Sprintf("lightfold push --target %s", targetName)))
 	}
@@ -321,19 +357,27 @@ func showTargetDetail(cfg *config.Config, targetName string) {
 // collectStatusData gathers all status information for a target
 func collectStatusData(cfg *config.Config, targetName string, target config.TargetConfig, targetState *state.TargetState) StatusOutput {
 	statusData := StatusOutput{
-		Target:      targetName,
-		ProjectPath: target.ProjectPath,
-		Framework:   target.Framework,
-		Provider:    target.Provider,
-		Created:     targetState.Created,
-		Configured:  targetState.Configured,
-		LastCommit:  targetState.LastCommit,
-		LastRelease: targetState.LastRelease,
-		ServerID:    targetState.ProvisionedID,
+		Target:          targetName,
+		ProjectPath:     target.ProjectPath,
+		Framework:       target.Framework,
+		Provider:        target.Provider,
+		Created:         targetState.Created,
+		Configured:      targetState.Configured,
+		ConfigureFailed: targetState.ConfigureFailed,
+		ConfigureError:  targetState.ConfigureError,
+		PushFailed:      targetState.PushFailed,
+		PushError:       targetState.PushError,
+		LastCommit:      targetState.LastCommit,
+		LastRelease:     targetState.LastRelease,
+		ServerID:        targetState.ProvisionedID,
 	}
 
 	if !targetState.LastDeploy.IsZero() {
 		statusData.LastDeploy = targetState.LastDeploy.Format(time.RFC3339)
+	}
+
+	if !targetState.LastFailure.IsZero() {
+		statusData.LastFailure = targetState.LastFailure.Format(time.RFC3339)
 	}
 
 	if target.Provider == "s3" {

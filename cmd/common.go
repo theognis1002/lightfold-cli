@@ -338,7 +338,16 @@ func configureTarget(target config.TargetConfig, targetName string, force bool) 
 	defer cancel()
 
 	if err := tui.ShowConfigurationProgressWithOrchestrator(ctx, orchestrator, providerCfg); err != nil {
+		// Mark configuration as failed
+		if markErr := state.MarkConfigureFailed(targetName, err.Error()); markErr != nil {
+			fmt.Printf("Warning: failed to mark configure failure in state: %v\n", markErr)
+		}
 		return fmt.Errorf("configuration failed: %w", err)
+	}
+
+	// Clear any previous failure and mark as configured
+	if err := state.ClearConfigureFailure(targetName); err != nil {
+		fmt.Printf("Warning: failed to clear configure failure in state: %v\n", err)
 	}
 	if err := state.MarkConfigured(targetName); err != nil {
 		return fmt.Errorf("failed to update state: %w", err)
