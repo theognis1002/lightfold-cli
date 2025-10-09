@@ -24,7 +24,7 @@
   <strong><a href="https://lightfold.mintlify.app/" target="_blank">Documentation</a></strong>
 </p>
 
-Deploy any web app to your favorite cloud provider with a single command. No Docker, no YAML, no hassle.
+Deploy any web app to your cloud provider with a single command. No Docker, no YAML, no hassle.
 
 <p align="center">
   <img src="docs/demo.gif" alt="Lightfold CLI Demo" width="800">
@@ -44,7 +44,7 @@ lightfold deploy
 
 That's it! Lightfold will:
 - Auto-detect your framework (Next.js, Django, Rails, etc.)
-- Set up a server on your preferred cloud (DigitalOcean, Vultr, etc.)
+- Set up a server on your preferred cloud (DigitalOcean, Vultr, Hetzner, etc.)
 - Deploy your app with zero configuration
 
 ## Features
@@ -137,7 +137,8 @@ Tokens stored locally in `~/.lightfold/tokens.json`:
 {
   "digitalocean": "dop_v1_...",
   "vultr": "...",
-  "hetzner": "..."
+  "hetzner": "...",
+  "flyio": "..."
 }
 ```
 
@@ -169,6 +170,7 @@ State per target in `~/.lightfold/state/<target>.json`:
 - [**DigitalOcean**](https://www.digitalocean.com) - Full provisioning support
 - [**Hetzner Cloud**](https://www.hetzner.com/cloud) - Full provisioning support
 - [**Vultr**](https://www.vultr.com) - Full provisioning support
+- [ ] [**Fly.io**](https://fly.io) - Container-based deployment (infrastructure provisioning complete, deployment in progress)
 - **BYOS** (Bring Your Own Server) - Use any existing server
 
 ### Coming Soon

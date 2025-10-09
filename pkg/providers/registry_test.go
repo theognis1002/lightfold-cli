@@ -19,6 +19,7 @@ func (m *MockProvider) Name() string                                            
 func (m *MockProvider) DisplayName() string                                         { return m.displayName }
 func (m *MockProvider) SupportsProvisioning() bool                                  { return m.supportsProvisioning }
 func (m *MockProvider) SupportsBYOS() bool                                          { return m.supportsBYOS }
+func (m *MockProvider) SupportsSSH() bool                                           { return true }
 func (m *MockProvider) ValidateCredentials(ctx context.Context) error               { return nil }
 func (m *MockProvider) GetRegions(ctx context.Context) ([]Region, error)            { return nil, nil }
 func (m *MockProvider) GetSizes(ctx context.Context, region string) ([]Size, error) { return nil, nil }

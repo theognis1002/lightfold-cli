@@ -7,6 +7,7 @@ import (
 	"lightfold/pkg/config"
 	"lightfold/pkg/providers"
 	_ "lightfold/pkg/providers/digitalocean"
+	_ "lightfold/pkg/providers/flyio"
 	_ "lightfold/pkg/providers/hetzner"
 	"lightfold/pkg/state"
 	"lightfold/pkg/util"
@@ -120,26 +121,58 @@ Examples:
 
 			token := tokens.GetToken(target.Provider)
 			if token == "" {
-				fmt.Printf("%s %s\n",
-					destroyWarningStyle.Render("⚠"), destroyMutedStyle.Render(fmt.Sprintf("No API token found for provider '%s', skipping VM destruction", target.Provider)))
-			} else {
-				provider, err := providers.GetProvider(target.Provider, token)
-				if err != nil {
-					fmt.Printf("%s %s\n",
-						destroyWarningStyle.Render("⚠"), destroyMutedStyle.Render(fmt.Sprintf("Error getting provider '%s': %v", target.Provider, err)))
-					fmt.Printf("%s %s\n", destroyMutedStyle.Render("→"), destroyMutedStyle.Render("Continuing with local cleanup..."))
-				} else {
-					ctx, cancel := context.WithTimeout(context.Background(), config.DefaultDestroyTimeout)
-					defer cancel()
+				fmt.Fprintf(os.Stderr, "\n%s %s\n",
+					destroyDangerStyle.Render("✗"), "No API token found for provider '"+target.Provider+"'")
+				fmt.Fprintln(os.Stderr, "\nCannot destroy VM without API token. Aborting to prevent orphaned resources.")
+				fmt.Fprintln(os.Stderr, "Local config and state preserved. Re-run after adding token with:")
+				fmt.Fprintf(os.Stderr, "  lightfold config set-token %s\n\n", target.Provider)
+				os.Exit(1)
+			}
 
-					if err := provider.Destroy(ctx, provisionedID); err != nil {
-						fmt.Printf("%s %s\n",
-							destroyWarningStyle.Render("⚠"), destroyMutedStyle.Render(fmt.Sprintf("Failed to destroy VM: %v", err)))
-						fmt.Printf("%s %s\n", destroyMutedStyle.Render("→"), destroyMutedStyle.Render("Continuing with local cleanup..."))
-					} else {
-						fmt.Printf("%s %s\n", destroySuccessStyle.Render("✓"), destroyMutedStyle.Render("VM destroyed successfully"))
+			provider, err := providers.GetProvider(target.Provider, token)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "\n%s %s\n",
+					destroyDangerStyle.Render("✗"), fmt.Sprintf("Error getting provider '%s': %v", target.Provider, err))
+				fmt.Fprintln(os.Stderr, "\nCannot destroy VM due to provider error. Aborting to prevent orphaned resources.")
+				fmt.Fprintln(os.Stderr, "Local config and state preserved.")
+				fmt.Fprintln(os.Stderr)
+				os.Exit(1)
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), config.DefaultDestroyTimeout)
+			defer cancel()
+
+			if err := provider.Destroy(ctx, provisionedID); err != nil {
+				providerErr, ok := err.(*providers.ProviderError)
+				isNotFound := false
+
+				if ok {
+					isNotFound = providerErr.Code == "not_found" ||
+						providerErr.Code == "server_not_found" ||
+						providerErr.Code == "machine_not_found" ||
+						providerErr.Code == "droplet_not_found"
+
+					if !isNotFound {
+						errMsg := strings.ToLower(providerErr.Message)
+						isNotFound = strings.Contains(errMsg, "not found") ||
+							strings.Contains(errMsg, "404") ||
+							strings.Contains(errMsg, "does not exist")
 					}
 				}
+
+				if isNotFound {
+					fmt.Printf("%s %s\n",
+						destroyWarningStyle.Render("⚠"), destroyMutedStyle.Render("VM not found (may have been deleted manually) - proceeding with local cleanup"))
+				} else {
+					fmt.Fprintf(os.Stderr, "\n%s %s\n",
+						destroyDangerStyle.Render("✗"), fmt.Sprintf("Failed to destroy VM: %v", err))
+					fmt.Fprintln(os.Stderr, "\nVM destruction failed. Aborting to prevent inconsistent state.")
+					fmt.Fprintln(os.Stderr, "Local config and state preserved. Please investigate the error and retry.")
+					fmt.Fprintln(os.Stderr)
+					os.Exit(1)
+				}
+			} else {
+				fmt.Printf("%s %s\n", destroySuccessStyle.Render("✓"), destroyMutedStyle.Render("VM destroyed successfully"))
 			}
 		}
 
@@ -157,7 +190,6 @@ Examples:
 
 		fmt.Println()
 
-		// Success banner with cleaner bubbletea style (red border for destruction)
 		successBox := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("196")). // Red border for destruction

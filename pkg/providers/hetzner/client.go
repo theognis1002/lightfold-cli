@@ -46,6 +46,10 @@ func (c *Client) SupportsBYOS() bool {
 	return true
 }
 
+func (c *Client) SupportsSSH() bool {
+	return true
+}
+
 func (c *Client) ValidateCredentials(ctx context.Context) error {
 	if c.token == "" {
 		return &providers.ProviderError{

@@ -109,7 +109,6 @@ func RunProvisionDigitalOceanFlow(projectName string) (*config.DigitalOceanConfi
 
 	results := final.GetResults()
 
-	// Store API token securely if a new one was provided
 	if newToken, ok := results["api_token"]; ok && newToken != "" {
 		tokens.SetToken("digitalocean", newToken)
 		if err := tokens.SaveTokens(); err != nil {
@@ -132,7 +131,6 @@ func RunProvisionDigitalOceanFlow(projectName string) (*config.DigitalOceanConfi
 		}
 		keyPath = keyPair.PrivateKeyPath
 	} else {
-		// Key exists, get its path
 		keysDir, err := ssh.GetKeysDirectory()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get keys directory: %w", err)
@@ -185,7 +183,6 @@ func RunProvisionHetznerFlow(projectName string) (*config.HetznerConfig, error) 
 
 	var activeToken string
 
-	// If no existing token, collect it first
 	if !hasExistingToken {
 		tokenFlow := NewFlow("Configure Hetzner Cloud", []Step{
 			CreateHetznerAPITokenStep("api_token"),
@@ -206,7 +203,6 @@ func RunProvisionHetznerFlow(projectName string) (*config.HetznerConfig, error) 
 		tokenResults := tokenFinal.GetResults()
 		activeToken = tokenResults["api_token"]
 
-		// Save the token immediately
 		tokens.SetToken("hetzner", activeToken)
 		if err := tokens.SaveTokens(); err != nil {
 			return nil, fmt.Errorf("failed to save API token: %w", err)
@@ -215,7 +211,6 @@ func RunProvisionHetznerFlow(projectName string) (*config.HetznerConfig, error) 
 		activeToken = existingToken
 	}
 
-	// Now create the provision flow with dynamic data using the token
 	dynamicSteps := []Step{
 		CreateHetznerLocationStepDynamic("location", activeToken),
 		CreateHetznerServerTypeStepDynamic("server_type", activeToken, ""),
@@ -256,7 +251,6 @@ func RunProvisionHetznerFlow(projectName string) (*config.HetznerConfig, error) 
 		}
 		keyPath = keyPair.PrivateKeyPath
 	} else {
-		// Key exists, get its path
 		keysDir, err := ssh.GetKeysDirectory()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get keys directory: %w", err)
@@ -309,7 +303,6 @@ func RunProvisionVultrFlow(projectName string) (*config.VultrConfig, error) {
 
 	var activeToken string
 
-	// If no existing token, collect it first
 	if !hasExistingToken {
 		tokenFlow := NewFlow("Configure Vultr", []Step{
 			CreateVultrAPITokenStep("api_token"),
@@ -330,7 +323,6 @@ func RunProvisionVultrFlow(projectName string) (*config.VultrConfig, error) {
 		tokenResults := tokenFinal.GetResults()
 		activeToken = tokenResults["api_token"]
 
-		// Save the token immediately
 		tokens.SetToken("vultr", activeToken)
 		if err := tokens.SaveTokens(); err != nil {
 			return nil, fmt.Errorf("failed to save API token: %w", err)
@@ -339,7 +331,6 @@ func RunProvisionVultrFlow(projectName string) (*config.VultrConfig, error) {
 		activeToken = existingToken
 	}
 
-	// Now create the provision flow with dynamic data using the token
 	dynamicSteps := []Step{
 		CreateVultrRegionStepDynamic("region", activeToken),
 		CreateVultrPlanStepDynamic("plan", activeToken, ""),
@@ -430,6 +421,85 @@ func RunS3Flow() (*config.S3Config, error) {
 		AccessKey: results["access_key"],
 		SecretKey: results["secret_key"],
 	}, nil
+}
+
+func RunProvisionFlyioFlow(projectName string) (*config.FlyioConfig, error) {
+	flow := CreateProvisionFlyioFlow(projectName)
+
+	p := tea.NewProgram(flow)
+	finalModel, err := p.Run()
+	if err != nil {
+		return nil, err
+	}
+
+	final := finalModel.(FlowModel)
+	if final.Cancelled {
+		return nil, fmt.Errorf("Fly.io configuration cancelled")
+	}
+
+	if !final.Completed {
+		return nil, fmt.Errorf("Fly.io configuration not completed")
+	}
+
+	results := final.GetResults()
+
+	if token, ok := results["api_token"]; ok && token != "" {
+		tokens, _ := config.LoadTokens()
+		tokens.SetToken("flyio", token)
+		tokens.SaveTokens()
+	}
+
+	keyName := ssh.GetKeyName(projectName)
+	keyPath := generateSSHKeyIfNeeded(keyName)
+
+	sizeStr, hasSize := results["size"]
+	if !hasSize || sizeStr == "" {
+		sizeStr = "shared-cpu-1x"
+	}
+	sizeID := extractID(sizeStr)
+	if sizeID == "" {
+		sizeID = "shared-cpu-1x"
+	}
+
+	regionStr := results["region"]
+	if regionStr == "" {
+		regionStr = "sjc"
+	}
+
+	return &config.FlyioConfig{
+		IP:          "",
+		Username:    "root",
+		SSHKey:      keyPath,
+		SSHKeyName:  keyName,
+		Region:      regionStr,
+		Size:        sizeID,
+		Provisioned: true,
+		AppName:     projectName,
+	}, nil
+}
+
+func CreateProvisionFlyioFlow(projectName string) *FlowModel {
+	tokens, _ := config.LoadTokens()
+	existingToken := tokens.GetToken("flyio")
+	hasToken := existingToken != ""
+
+	steps := []Step{}
+
+	if !hasToken {
+		steps = append(steps, CreateFlyioAPITokenStep("api_token"))
+	}
+
+	activeToken := existingToken
+	if hasToken {
+		steps = append(steps,
+			CreateFlyioRegionStepDynamic("region", activeToken),
+			CreateFlyioSizeStepDynamic("size", activeToken, ""),
+		)
+	}
+
+	flow := NewFlow("Configure Fly.io Deployment", steps)
+	flow.SetProjectName(projectName)
+	return flow
 }
 
 func GetProjectNameFromPath(projectPath string) string {

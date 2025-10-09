@@ -35,6 +35,8 @@ type StatusOutput struct {
 	Provider        string             `json:"provider"`
 	Created         bool               `json:"created"`
 	Configured      bool               `json:"configured"`
+	CreateFailed    bool               `json:"create_failed,omitempty"`
+	CreateError     string             `json:"create_error,omitempty"`
 	ConfigureFailed bool               `json:"configure_failed,omitempty"`
 	ConfigureError  string             `json:"configure_error,omitempty"`
 	PushFailed      bool               `json:"push_failed,omitempty"`
@@ -97,11 +99,9 @@ Examples:
 
 func showAllTargets(cfg *config.Config) {
 	if len(cfg.Targets) == 0 {
-		fmt.Println(statusMutedStyle.Render("No targets configured yet."))
-		fmt.Printf("\n%s\n", statusMutedStyle.Render("Create your first target:"))
-		fmt.Printf("  %s\n", statusValueStyle.Render("lightfold create --target myapp"))
-
-		fmt.Printf("\n%s\n", statusMutedStyle.Render("Full deployment pipeline:"))
+		fmt.Println(statusMutedStyle.Render("No targets configured yet!"))
+		fmt.Printf("\n%s\n", statusMutedStyle.Render("Deploy your first project:"))
+		fmt.Printf("  %s  %s\n", statusValueStyle.Render("lightfold deploy"), statusMutedStyle.Render("# in project directory"))
 		fmt.Printf("  %s\n", statusValueStyle.Render("lightfold deploy --target myapp"))
 
 		return
@@ -121,6 +121,12 @@ func showAllTargets(cfg *config.Config) {
 
 		fmt.Printf("  Provider:    %s\n", statusValueStyle.Render(target.Provider))
 		fmt.Printf("  Framework:   %s\n", statusValueStyle.Render(target.Framework))
+
+		if target.Provider == "flyio" {
+			if flyConfig, err := target.GetFlyioConfig(); err == nil && flyConfig.AppName != "" {
+				fmt.Printf("  App Name:    %s\n", statusValueStyle.Render(flyConfig.AppName))
+			}
+		}
 
 		providerCfg, _ := target.GetAnyProviderConfig()
 		var ip string
@@ -143,6 +149,8 @@ func showAllTargets(cfg *config.Config) {
 
 		if targetState.Created || hasIP {
 			fmt.Printf("    %s\n", statusSuccessStyle.Render("✓ Create"))
+		} else if targetState.CreateFailed {
+			fmt.Printf("    %s\n", statusErrorStyle.Render("✗ Create (failed)"))
 		} else {
 			fmt.Printf("    %s\n", statusMutedStyle.Render("[ ] Create"))
 		}
@@ -207,6 +215,15 @@ func showTargetDetail(cfg *config.Config, targetName string) {
 	fmt.Printf("%s\n", statusHeaderStyle.Render("State:"))
 	if targetState.Created {
 		fmt.Printf("  Created:    %s\n", statusSuccessStyle.Render("✓ Yes"))
+	} else if targetState.CreateFailed {
+		fmt.Printf("  Created:    %s\n", statusErrorStyle.Render("✗ Failed"))
+		if targetState.CreateError != "" {
+			errorMsg := targetState.CreateError
+			if len(errorMsg) > 80 {
+				errorMsg = errorMsg[:77] + "..."
+			}
+			fmt.Printf("  Error:      %s\n", statusMutedStyle.Render(errorMsg))
+		}
 	} else {
 		fmt.Printf("  Created:    %s\n", statusMutedStyle.Render("✗ No"))
 	}
@@ -215,7 +232,6 @@ func showTargetDetail(cfg *config.Config, targetName string) {
 	} else if targetState.ConfigureFailed {
 		fmt.Printf("  Configured: %s\n", statusErrorStyle.Render("✗ Failed"))
 		if targetState.ConfigureError != "" {
-			// Wrap long error messages
 			errorMsg := targetState.ConfigureError
 			if len(errorMsg) > 80 {
 				errorMsg = errorMsg[:77] + "..."
@@ -240,7 +256,6 @@ func showTargetDetail(cfg *config.Config, targetName string) {
 	} else if targetState.PushFailed {
 		fmt.Printf("  Last Deploy: %s\n", statusErrorStyle.Render("✗ Failed"))
 		if targetState.PushError != "" {
-			// Wrap long error messages
 			errorMsg := targetState.PushError
 			if len(errorMsg) > 80 {
 				errorMsg = errorMsg[:77] + "..."
@@ -324,7 +339,6 @@ func showTargetDetail(cfg *config.Config, targetName string) {
 				fmt.Printf("  Server:    %s\n", statusValueStyle.Render(uptime))
 			}
 
-			// Display health check status
 			if statusData.HealthCheck != nil {
 				fmt.Printf("\n%s\n", statusHeaderStyle.Render("Health Check:"))
 				if statusData.HealthCheck.Status == "healthy" {
@@ -341,7 +355,9 @@ func showTargetDetail(cfg *config.Config, targetName string) {
 		fmt.Println()
 	}
 
-	if !targetState.Created {
+	if targetState.CreateFailed {
+		fmt.Printf("%s %s\n", statusLabelStyle.Render("Retry:"), statusValueStyle.Render(fmt.Sprintf("lightfold deploy --target %s", targetName)))
+	} else if !targetState.Created {
 		fmt.Printf("%s %s\n", statusLabelStyle.Render("Next:"), statusValueStyle.Render(fmt.Sprintf("lightfold create --target %s", targetName)))
 	} else if targetState.ConfigureFailed {
 		fmt.Printf("%s %s\n", statusLabelStyle.Render("Retry:"), statusValueStyle.Render(fmt.Sprintf("lightfold configure --target %s --force", targetName)))
@@ -363,6 +379,8 @@ func collectStatusData(cfg *config.Config, targetName string, target config.Targ
 		Provider:        target.Provider,
 		Created:         targetState.Created,
 		Configured:      targetState.Configured,
+		CreateFailed:    targetState.CreateFailed,
+		CreateError:     targetState.CreateError,
 		ConfigureFailed: targetState.ConfigureFailed,
 		ConfigureError:  targetState.ConfigureError,
 		PushFailed:      targetState.PushFailed,
@@ -400,13 +418,11 @@ func collectStatusData(cfg *config.Config, targetName string, target config.Targ
 
 	appName := strings.ReplaceAll(targetName, "-", "_")
 
-	// Get service status
 	result := sshExecutor.Execute(fmt.Sprintf("systemctl is-active %s 2>/dev/null || echo 'not-found'", appName))
 	if result.ExitCode == 0 {
 		statusData.ServiceStatus = strings.TrimSpace(result.Stdout)
 	}
 
-	// Get service uptime
 	if statusData.ServiceStatus == "active" {
 		result = sshExecutor.Execute(fmt.Sprintf("systemctl show -p ActiveEnterTimestamp %s 2>/dev/null | cut -d= -f2", appName))
 		if result.ExitCode == 0 && result.Stdout != "" {
@@ -421,7 +437,6 @@ func collectStatusData(cfg *config.Config, targetName string, target config.Targ
 		}
 	}
 
-	// Get current release
 	result = sshExecutor.Execute(fmt.Sprintf("readlink -f %s/%s/current 2>/dev/null || echo 'none'", config.RemoteAppBaseDir, appName))
 	if result.ExitCode == 0 {
 		currentRelease := strings.TrimSpace(result.Stdout)
@@ -430,19 +445,16 @@ func collectStatusData(cfg *config.Config, targetName string, target config.Targ
 		}
 	}
 
-	// Get disk usage
 	result = sshExecutor.Execute("df -h / | tail -1 | awk '{print $5}'")
 	if result.ExitCode == 0 {
 		statusData.DiskUsage = strings.TrimSpace(result.Stdout)
 	}
 
-	// Get server uptime
 	result = sshExecutor.Execute("uptime -p 2>/dev/null || uptime | awk '{print $3, $4}'")
 	if result.ExitCode == 0 {
 		statusData.ServerUptime = strings.TrimSpace(result.Stdout)
 	}
 
-	// Perform health check
 	if statusData.ServiceStatus == "active" {
 		healthCheck := performHealthCheck(sshExecutor)
 		statusData.HealthCheck = &healthCheck
@@ -457,7 +469,6 @@ func performHealthCheck(sshExecutor *sshpkg.Executor) HealthCheckStatus {
 		Status: "unhealthy",
 	}
 
-	// Measure response time
 	startTime := time.Now()
 	curlCmd := "curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8000/"
 	result := sshExecutor.Execute(curlCmd)

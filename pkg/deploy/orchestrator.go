@@ -12,7 +12,9 @@ import (
 	"lightfold/pkg/providers"
 	"lightfold/pkg/providers/cloudinit"
 	_ "lightfold/pkg/providers/digitalocean" // Register DigitalOcean provider
+	_ "lightfold/pkg/providers/flyio"        // Register Fly.io provider
 	_ "lightfold/pkg/providers/hetzner"      // Register Hetzner provider
+	_ "lightfold/pkg/providers/vultr"        // Register Vultr provider
 	sshpkg "lightfold/pkg/ssh"
 	"lightfold/pkg/state"
 	"lightfold/pkg/util"
@@ -84,28 +86,21 @@ func (o *Orchestrator) Deploy(ctx context.Context) (*DeploymentResult, error) {
 }
 
 func (o *Orchestrator) checkExistingServer() error {
-	switch o.config.Provider {
-	case "digitalocean":
-		doConfig, err := o.config.GetDigitalOceanConfig()
-		if err == nil && doConfig.Provisioned {
-			if doConfig.DropletID != "" && doConfig.IP != "" {
-				return fmt.Errorf("server already provisioned (ID: %s, IP: %s). Use a different command to redeploy or destroy the existing server first",
-					doConfig.DropletID,
-					doConfig.IP)
-			}
-		}
-	case "hetzner":
-		hetznerConfig, err := o.config.GetHetznerConfig()
-		if err == nil && hetznerConfig.Provisioned {
-			if hetznerConfig.ServerID != "" && hetznerConfig.IP != "" {
-				return fmt.Errorf("server already provisioned (ID: %s, IP: %s). Use a different command to redeploy or destroy the existing server first",
-					hetznerConfig.ServerID,
-					hetznerConfig.IP)
-			}
-		}
-	case "s3":
+	if o.config.Provider == "s3" {
 		return nil
 	}
+
+	providerCfg, err := o.config.GetSSHProviderConfig()
+	if err != nil {
+		return nil
+	}
+
+	if providerCfg.IsProvisioned() && providerCfg.GetServerID() != "" && providerCfg.GetIP() != "" {
+		return fmt.Errorf("server already provisioned (ID: %s, IP: %s). Use a different command to redeploy or destroy the existing server first",
+			providerCfg.GetServerID(),
+			providerCfg.GetIP())
+	}
+
 	return nil
 }
 
@@ -116,18 +111,19 @@ func (o *Orchestrator) deployWithProvider(ctx context.Context) (*DeploymentResul
 		return o.deployS3(ctx)
 	}
 
-	var providerCfg config.ProviderConfig
-	var err error
-
-	switch o.config.Provider {
-	case "digitalocean":
-		providerCfg, err = o.config.GetDigitalOceanConfig()
-	case "hetzner":
-		providerCfg, err = o.config.GetHetznerConfig()
-	default:
-		return nil, fmt.Errorf("unsupported provider for SSH deployment: %s", o.config.Provider)
+	// Check if this is a container provider (Fly.io)
+	if o.config.Provider == "flyio" {
+		// Check if app needs to be created first
+		flyioConfig, err := o.config.GetFlyioConfig()
+		if err != nil || flyioConfig.AppName == "" {
+			// App not created yet - provision it first
+			return o.provisionServer(ctx, token)
+		}
+		// App exists - deploy to it
+		return o.deployFlyio(ctx, token)
 	}
 
+	providerCfg, err := o.config.GetSSHProviderConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider configuration: %w", err)
 	}
@@ -144,7 +140,6 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		Steps: []DeploymentStep{},
 	}
 
-	// Step 1: Initialize provider client
 	o.notifyProgress(DeploymentStep{
 		Name:        "init_client",
 		Description: fmt.Sprintf("Initializing %s client...", o.config.Provider),
@@ -160,7 +155,6 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		return nil, fmt.Errorf("failed to initialize provider: %w", err)
 	}
 
-	// Step 2: Validate credentials
 	o.notifyProgress(DeploymentStep{
 		Name:        "validate_credentials",
 		Description: "Validating API credentials...",
@@ -171,69 +165,60 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		return nil, fmt.Errorf("failed to validate credentials: %w", err)
 	}
 
-	var sshKeyPath, username, region, size, sshKeyName string
+	region, size, sshKeyPath, username, sshKeyName, err := o.getProvisioningParams()
+	if err != nil {
+		return nil, err
+	}
 
-	switch o.config.Provider {
-	case "digitalocean":
-		doConfig, err := o.config.GetDigitalOceanConfig()
+	var uploadedKey *providers.SSHKey
+	var publicKey string
+	var userData string
+
+	// Skip SSH setup for container providers
+	if client.SupportsSSH() {
+		o.notifyProgress(DeploymentStep{
+			Name:        "load_ssh_key",
+			Description: "Loading SSH key...",
+			Progress:    20,
+		})
+
+		publicKeyPath := sshKeyPath + ".pub"
+		publicKey, err = sshpkg.LoadPublicKey(publicKeyPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get DigitalOcean config: %w", err)
+			return nil, fmt.Errorf("failed to load public key: %w", err)
 		}
-		sshKeyPath = doConfig.SSHKey
-		username = doConfig.Username
-		region = doConfig.Region
-		size = doConfig.Size
-		sshKeyName = doConfig.SSHKeyName
-	case "hetzner":
-		hetznerConfig, err := o.config.GetHetznerConfig()
+
+		o.notifyProgress(DeploymentStep{
+			Name:        "upload_ssh_key",
+			Description: fmt.Sprintf("Uploading SSH key to %s...", client.DisplayName()),
+			Progress:    30,
+		})
+
+		if sshKeyName == "" {
+			sshKeyName = fmt.Sprintf("lightfold-%s", o.projectName)
+		}
+
+		uploadedKey, err = client.UploadSSHKey(ctx, sshKeyName, publicKey)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get Hetzner config: %w", err)
+			return nil, fmt.Errorf("failed to upload SSH key: %w", err)
 		}
-		sshKeyPath = hetznerConfig.SSHKey
-		username = hetznerConfig.Username
-		region = hetznerConfig.Location
-		size = hetznerConfig.ServerType
-		sshKeyName = hetznerConfig.SSHKeyName
-	default:
-		return nil, fmt.Errorf("unsupported provider for provisioning: %s", o.config.Provider)
-	}
 
-	o.notifyProgress(DeploymentStep{
-		Name:        "load_ssh_key",
-		Description: "Loading SSH key...",
-		Progress:    20,
-	})
+		o.notifyProgress(DeploymentStep{
+			Name:        "generate_cloudinit",
+			Description: "Generating cloud-init configuration...",
+			Progress:    40,
+		})
 
-	publicKeyPath := sshKeyPath + ".pub"
-	publicKey, err := sshpkg.LoadPublicKey(publicKeyPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load public key: %w", err)
-	}
-
-	o.notifyProgress(DeploymentStep{
-		Name:        "upload_ssh_key",
-		Description: fmt.Sprintf("Uploading SSH key to %s...", client.DisplayName()),
-		Progress:    30,
-	})
-
-	if sshKeyName == "" {
-		sshKeyName = fmt.Sprintf("lightfold-%s", o.projectName)
-	}
-
-	uploadedKey, err := client.UploadSSHKey(ctx, sshKeyName, publicKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to upload SSH key: %w", err)
-	}
-
-	o.notifyProgress(DeploymentStep{
-		Name:        "generate_cloudinit",
-		Description: "Generating cloud-init configuration...",
-		Progress:    40,
-	})
-
-	userData, err := cloudinit.GenerateWebAppUserData(username, publicKey, o.projectName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate cloud-init: %w", err)
+		userData, err = cloudinit.GenerateWebAppUserData(username, publicKey, o.projectName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate cloud-init: %w", err)
+		}
+	} else {
+		o.notifyProgress(DeploymentStep{
+			Name:        "skip_ssh_setup",
+			Description: "Container provider - skipping SSH setup...",
+			Progress:    40,
+		})
 	}
 
 	o.notifyProgress(DeploymentStep{
@@ -242,13 +227,33 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		Progress:    50,
 	})
 
-	// Sanitize project name for use as hostname (only a-z, A-Z, 0-9, . and -)
 	sanitizedName := util.SanitizeHostname(o.projectName)
 
-	// Determine image name based on provider
-	imageName := "ubuntu-22-04-x64" // Default for DigitalOcean
-	if o.config.Provider == "hetzner" {
+	imageName := "ubuntu-22-04-x64"
+	switch o.config.Provider {
+	case "hetzner":
 		imageName = "ubuntu-22.04"
+	case "vultr":
+		imageName = "1743"
+	case "flyio":
+		imageName = "ubuntu:22.04"
+	}
+
+	metadata := map[string]string{
+		"managed_by": "lightfold",
+		"project":    o.projectName,
+	}
+
+	if o.config.Provider == "flyio" {
+		flyioConfig, err := o.config.GetFlyioConfig()
+		if err == nil {
+			if flyioConfig.OrganizationID != "" {
+				metadata["organization_id"] = flyioConfig.OrganizationID
+			}
+			if flyioConfig.AppName != "" {
+				metadata["app_name"] = flyioConfig.AppName
+			}
+		}
 	}
 
 	provisionConfig := providers.ProvisionConfig{
@@ -256,11 +261,17 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		Region:            region,
 		Size:              size,
 		Image:             imageName,
-		SSHKeys:           []string{uploadedKey.ID},
+		SSHKeys:           []string{},
 		UserData:          userData,
 		Tags:              []string{"lightfold", "auto-provisioned", o.projectName},
 		BackupsEnabled:    false,
 		MonitoringEnabled: true,
+		Metadata:          metadata,
+	}
+
+	// Add SSH key for SSH-based providers
+	if uploadedKey != nil {
+		provisionConfig.SSHKeys = []string{uploadedKey.ID}
 	}
 
 	server, err := client.Provision(ctx, provisionConfig)
@@ -268,15 +279,24 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		return nil, fmt.Errorf("failed to provision server: %w", err)
 	}
 
-	o.notifyProgress(DeploymentStep{
-		Name:        "wait_active",
-		Description: fmt.Sprintf("Waiting for server %s to become active...", server.ID),
-		Progress:    70,
-	})
+	// Skip waiting for container providers - they don't have active servers until deployment
+	if client.SupportsSSH() {
+		o.notifyProgress(DeploymentStep{
+			Name:        "wait_active",
+			Description: fmt.Sprintf("Waiting for server %s to become active...", server.ID),
+			Progress:    70,
+		})
 
-	server, err = client.WaitForActive(ctx, server.ID, 5*time.Minute)
-	if err != nil {
-		return nil, fmt.Errorf("failed waiting for server: %w", err)
+		server, err = client.WaitForActive(ctx, server.ID, 5*time.Minute)
+		if err != nil {
+			return nil, fmt.Errorf("failed waiting for server: %w", err)
+		}
+	} else {
+		o.notifyProgress(DeploymentStep{
+			Name:        "skip_wait",
+			Description: "Container provider - skipping server wait...",
+			Progress:    70,
+		})
 	}
 
 	o.notifyProgress(DeploymentStep{
@@ -285,20 +305,10 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		Progress:    90,
 	})
 
-	switch o.config.Provider {
-	case "digitalocean":
-		doConfig, _ := o.config.GetDigitalOceanConfig()
-		doConfig.IP = server.PublicIPv4
-		doConfig.DropletID = server.ID
-		o.config.SetProviderConfig("digitalocean", doConfig)
-	case "hetzner":
-		hetznerConfig, _ := o.config.GetHetznerConfig()
-		hetznerConfig.IP = server.PublicIPv4
-		hetznerConfig.ServerID = server.ID
-		o.config.SetProviderConfig("hetzner", hetznerConfig)
+	if err := o.updateProviderConfigWithServerInfo(server); err != nil {
+		return nil, fmt.Errorf("failed to update provider config: %w", err)
 	}
 
-	// Save the updated configuration to disk
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config for saving: %w", err)
@@ -492,7 +502,6 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		if buildResult.StartCommand != "" {
 			executor.SetStartCommand(buildResult.StartCommand)
 		} else if len(detection.RunPlan) > 0 {
-			// Fallback to detector's RunPlan if nixpacks didn't provide a start command
 			executor.SetStartCommand(detection.RunPlan[0])
 		}
 
@@ -616,4 +625,151 @@ func (o *Orchestrator) notifyProgress(step DeploymentStep) {
 	if o.progressCallback != nil {
 		o.progressCallback(step)
 	}
+}
+
+// getProvisioningParams extracts provisioning parameters from provider-specific config
+func (o *Orchestrator) getProvisioningParams() (region, size, sshKeyPath, username, sshKeyName string, err error) {
+	switch o.config.Provider {
+	case "digitalocean":
+		doConfig, e := o.config.GetDigitalOceanConfig()
+		if e != nil {
+			err = fmt.Errorf("failed to get DigitalOcean config: %w", e)
+			return
+		}
+		region = doConfig.Region
+		size = doConfig.Size
+		sshKeyPath = doConfig.SSHKey
+		username = doConfig.Username
+		sshKeyName = doConfig.SSHKeyName
+	case "hetzner":
+		hetznerConfig, e := o.config.GetHetznerConfig()
+		if e != nil {
+			err = fmt.Errorf("failed to get Hetzner config: %w", e)
+			return
+		}
+		region = hetznerConfig.Location
+		size = hetznerConfig.ServerType
+		sshKeyPath = hetznerConfig.SSHKey
+		username = hetznerConfig.Username
+		sshKeyName = hetznerConfig.SSHKeyName
+	case "vultr":
+		vultrConfig, e := o.config.GetVultrConfig()
+		if e != nil {
+			err = fmt.Errorf("failed to get Vultr config: %w", e)
+			return
+		}
+		region = vultrConfig.Region
+		size = vultrConfig.Plan
+		sshKeyPath = vultrConfig.SSHKey
+		username = vultrConfig.Username
+		sshKeyName = vultrConfig.SSHKeyName
+	case "flyio":
+		flyioConfig, e := o.config.GetFlyioConfig()
+		if e != nil {
+			err = fmt.Errorf("failed to get Fly.io config: %w", e)
+			return
+		}
+		region = flyioConfig.Region
+		size = flyioConfig.Size
+		sshKeyPath = flyioConfig.SSHKey
+		username = flyioConfig.Username
+		sshKeyName = flyioConfig.SSHKeyName
+	default:
+		err = fmt.Errorf("unsupported provider for provisioning: %s", o.config.Provider)
+	}
+	return
+}
+
+func (o *Orchestrator) updateProviderConfigWithServerInfo(server *providers.Server) error {
+	switch o.config.Provider {
+	case "digitalocean":
+		doConfig, err := o.config.GetDigitalOceanConfig()
+		if err != nil {
+			return err
+		}
+		doConfig.IP = server.PublicIPv4
+		doConfig.DropletID = server.ID
+		return o.config.SetProviderConfig("digitalocean", doConfig)
+	case "hetzner":
+		hetznerConfig, err := o.config.GetHetznerConfig()
+		if err != nil {
+			return err
+		}
+		hetznerConfig.IP = server.PublicIPv4
+		hetznerConfig.ServerID = server.ID
+		return o.config.SetProviderConfig("hetzner", hetznerConfig)
+	case "vultr":
+		vultrConfig, err := o.config.GetVultrConfig()
+		if err != nil {
+			return err
+		}
+		vultrConfig.IP = server.PublicIPv4
+		vultrConfig.InstanceID = server.ID
+		return o.config.SetProviderConfig("vultr", vultrConfig)
+	case "flyio":
+		flyioConfig, err := o.config.GetFlyioConfig()
+		if err != nil {
+			return err
+		}
+		flyioConfig.IP = server.PublicIPv4
+		flyioConfig.MachineID = server.ID
+
+		if orgID, exists := server.Metadata["organization_id"]; exists {
+			flyioConfig.OrganizationID = orgID
+		}
+		if appName, exists := server.Metadata["app_name"]; exists {
+			flyioConfig.AppName = appName
+		}
+
+		return o.config.SetProviderConfig("flyio", flyioConfig)
+	default:
+		return fmt.Errorf("unsupported provider: %s", o.config.Provider)
+	}
+}
+
+func (o *Orchestrator) deployFlyio(ctx context.Context, token string) (*DeploymentResult, error) {
+	result := &DeploymentResult{
+		Steps: []DeploymentStep{},
+	}
+
+	o.notifyProgress(DeploymentStep{
+		Name:        "start_flyio_deploy",
+		Description: "Starting Fly.io container deployment...",
+		Progress:    5,
+	})
+
+	// Get Fly.io config
+	flyioConfig, err := o.config.GetFlyioConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Fly.io config: %w", err)
+	}
+
+	// Detect framework
+	o.notifyProgress(DeploymentStep{
+		Name:        "detect_framework",
+		Description: "Analyzing application...",
+		Progress:    10,
+	})
+
+	detection := detector.DetectFramework(o.projectPath)
+
+	// Create Fly.io deployer
+	deployer := NewFlyioDeployer(o.projectName, o.projectPath, o.targetName, &detection, flyioConfig, token)
+	deployer.SetProgressCallback(o.progressCallback)
+
+	// Get deployment options
+	deployOpts := o.config.Deploy
+
+	// Execute deployment
+	if err := deployer.Deploy(ctx, deployOpts); err != nil {
+		result.Success = false
+		result.Error = err
+		result.Message = fmt.Sprintf("Fly.io deployment failed: %v", err)
+		return result, err
+	}
+
+	result.Success = true
+	result.Message = "Successfully deployed to Fly.io"
+
+	return result, nil
 }

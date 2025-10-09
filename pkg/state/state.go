@@ -19,6 +19,8 @@ type TargetState struct {
 	Builder         string    `json:"builder,omitempty"`
 	SSLConfigured   bool      `json:"ssl_configured,omitempty"`
 	LastSSLRenewal  time.Time `json:"last_ssl_renewal,omitempty"`
+	CreateFailed    bool      `json:"create_failed,omitempty"`
+	CreateError     string    `json:"create_error,omitempty"`
 	ConfigureFailed bool      `json:"configure_failed,omitempty"`
 	ConfigureError  string    `json:"configure_error,omitempty"`
 	PushFailed      bool      `json:"push_failed,omitempty"`
@@ -265,6 +267,31 @@ func ClearPushFailure(targetName string) error {
 
 	state.PushFailed = false
 	state.PushError = ""
+
+	return SaveState(targetName, state)
+}
+
+func MarkCreateFailed(targetName string, errMsg string) error {
+	state, err := LoadState(targetName)
+	if err != nil {
+		return err
+	}
+
+	state.CreateFailed = true
+	state.CreateError = errMsg
+	state.LastFailure = time.Now()
+
+	return SaveState(targetName, state)
+}
+
+func ClearCreateFailure(targetName string) error {
+	state, err := LoadState(targetName)
+	if err != nil {
+		return err
+	}
+
+	state.CreateFailed = false
+	state.CreateError = ""
 
 	return SaveState(targetName, state)
 }

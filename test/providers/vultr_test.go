@@ -8,7 +8,6 @@ import (
 	"time"
 )
 
-// Test client creation without API calls
 func TestVultrClientCreation(t *testing.T) {
 	client := vultr.NewClient("fake-token")
 	if client == nil {
@@ -24,7 +23,6 @@ func TestVultrClientCreation(t *testing.T) {
 	}
 }
 
-// Test provider interface compliance
 func TestVultrProviderInterface(t *testing.T) {
 	client := vultr.NewClient("test-token")
 
@@ -40,7 +38,6 @@ func TestVultrProviderInterface(t *testing.T) {
 	}
 }
 
-// Test provision config validation (no API calls)
 func TestVultrProvisionConfigValidation(t *testing.T) {
 	testCases := []struct {
 		name   string
@@ -94,7 +91,6 @@ func TestVultrProvisionConfigValidation(t *testing.T) {
 	}
 }
 
-// Test server struct conversion
 func TestVultrServerConversion(t *testing.T) {
 	server := &providers.Server{
 		ID:          "abc-123-def",
@@ -122,7 +118,6 @@ func TestVultrServerConversion(t *testing.T) {
 	}
 }
 
-// Test SSH key structure
 func TestVultrSSHKeyStructure(t *testing.T) {
 	sshKey := &providers.SSHKey{
 		ID:          "key-12345",
@@ -144,7 +139,6 @@ func TestVultrSSHKeyStructure(t *testing.T) {
 	}
 }
 
-// Test provider error handling
 func TestVultrProviderErrorHandling(t *testing.T) {
 	err := &providers.ProviderError{
 		Provider: "vultr",
@@ -153,8 +147,9 @@ func TestVultrProviderErrorHandling(t *testing.T) {
 		Details:  map[string]interface{}{"status_code": 401},
 	}
 
-	if err.Error() != "API token is invalid" {
-		t.Errorf("Expected error message 'API token is invalid', got %s", err.Error())
+	expectedMsg := "API token is invalid (HTTP 401)"
+	if err.Error() != expectedMsg {
+		t.Errorf("Expected error message '%s', got %s", expectedMsg, err.Error())
 	}
 
 	if err.Provider != "vultr" {
@@ -162,7 +157,6 @@ func TestVultrProviderErrorHandling(t *testing.T) {
 	}
 }
 
-// Test context cancellation handling
 func TestVultrContextHandling(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 	defer cancel()
@@ -171,7 +165,6 @@ func TestVultrContextHandling(t *testing.T) {
 
 	select {
 	case <-ctx.Done():
-		// Expected - context should be cancelled
 	default:
 		t.Error("Expected context to be cancelled")
 	}
@@ -181,31 +174,22 @@ func TestVultrContextHandling(t *testing.T) {
 	}
 }
 
-// Test static fallback data
 func TestStaticFallbacks(t *testing.T) {
-	// Test that static data is available when API fails
-	// This ensures the app remains functional even during API outages
-
-	// Regions fallback
 	staticRegions := vultr.GetStaticRegions()
 	if len(staticRegions) == 0 {
 		t.Error("Static regions fallback should not be empty")
 	}
 
-	// Plans fallback
 	staticPlans := vultr.GetStaticPlans()
 	if len(staticPlans) == 0 {
 		t.Error("Static plans fallback should not be empty")
 	}
 
-	// Images fallback
 	staticImages := vultr.GetStaticImages()
 	if len(staticImages) == 0 {
 		t.Error("Static images fallback should not be empty")
 	}
 }
-
-// Helper function for validation testing
 func validateVultrProvisionConfig(config providers.ProvisionConfig) error {
 	if config.Name == "" {
 		return &providers.ProviderError{

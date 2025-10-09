@@ -20,6 +20,10 @@ type Provider interface {
 	// SupportsBYOS returns true if this provider supports bring-your-own-server deployments
 	SupportsBYOS() bool
 
+	// SupportsSSH returns true if this provider uses SSH-based deployments
+	// Returns false for container platforms like Fly.io that use API-based deployments
+	SupportsSSH() bool
+
 	// ValidateCredentials validates the provider's API credentials
 	ValidateCredentials(ctx context.Context) error
 
@@ -131,10 +135,23 @@ func (e *ProviderError) Error() string {
 		return e.Message
 	}
 
-	// Include details if available
+	msg := e.Message
+
 	if errDetail, ok := e.Details["error"].(string); ok && errDetail != "" {
-		return fmt.Sprintf("%s: %s", e.Message, errDetail)
+		msg = fmt.Sprintf("%s: %s", msg, errDetail)
 	}
 
-	return e.Message
+	if apiError, ok := e.Details["api_error"].(string); ok && apiError != "" {
+		msg = fmt.Sprintf("%s (API: %s)", msg, apiError)
+	}
+
+	if response, ok := e.Details["response"].(string); ok && response != "" && len(response) < 500 {
+		msg = fmt.Sprintf("%s\nAPI Response: %s", msg, response)
+	}
+
+	if statusCode, ok := e.Details["status_code"].(int); ok && statusCode != 0 {
+		msg = fmt.Sprintf("%s (HTTP %d)", msg, statusCode)
+	}
+
+	return msg
 }

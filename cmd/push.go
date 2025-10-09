@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"lightfold/pkg/config"
 	"lightfold/pkg/deploy"
 	"lightfold/pkg/detector"
 	sshpkg "lightfold/pkg/ssh"
@@ -66,7 +68,8 @@ Examples:
 			os.Exit(1)
 		}
 
-		if !state.IsConfigured(targetNameResolved) {
+		// Skip configuration check for container providers (Fly.io)
+		if target.Provider != "flyio" && !state.IsConfigured(targetNameResolved) {
 			fmt.Fprintf(os.Stderr, "Error: Target '%s' has not been configured\n", targetNameResolved)
 			fmt.Fprintf(os.Stderr, "Run 'lightfold configure --target %s' first\n", targetNameResolved)
 			os.Exit(1)
@@ -100,14 +103,84 @@ Examples:
 				}
 			}
 			fmt.Println("\nWould perform:")
-			fmt.Println("1. Create release tarball")
-			fmt.Println("2. Upload to server")
-			fmt.Println("3. Build application")
-			fmt.Println("4. Deploy with health check")
-			fmt.Println("5. Auto-rollback on failure")
+			if target.Provider == "flyio" {
+				fmt.Println("1. Generate fly.toml configuration")
+				fmt.Println("2. Set secrets via flyctl")
+				fmt.Println("3. Deploy with Fly.io nixpacks (remote build)")
+				fmt.Println("4. Wait for health checks")
+			} else {
+				fmt.Println("1. Create release tarball")
+				fmt.Println("2. Upload to server")
+				fmt.Println("3. Build application")
+				fmt.Println("4. Deploy with health check")
+				fmt.Println("5. Auto-rollback on failure")
+			}
 			return
 		}
 
+		// Route to Fly.io deployer for container-based deployments
+		if target.Provider == "flyio" {
+			ctx := context.Background()
+			tokens, err := config.LoadTokens()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error loading tokens: %v\n", err)
+				os.Exit(1)
+			}
+
+			token := tokens.GetToken("flyio")
+			if token == "" {
+				fmt.Fprintf(os.Stderr, "Error: Fly.io API token not found\n")
+				fmt.Fprintf(os.Stderr, "Run 'lightfold config set-token flyio' first\n")
+				os.Exit(1)
+			}
+
+			flyioConfig, err := target.GetFlyioConfig()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error getting Fly.io config: %v\n", err)
+				os.Exit(1)
+			}
+
+			detection := detector.DetectFramework(target.ProjectPath)
+			projectName := util.GetTargetName(target.ProjectPath)
+
+			deployer := deploy.NewFlyioDeployer(projectName, target.ProjectPath, targetNameResolved, &detection, flyioConfig, token)
+
+			fmt.Printf("%s %s\n", pushMutedStyle.Render("→"), pushMutedStyle.Render("Starting Fly.io deployment..."))
+
+			if err := deployer.Deploy(ctx, target.Deploy); err != nil {
+				state.MarkPushFailed(targetNameResolved, fmt.Sprintf("Fly.io deployment failed: %v", err))
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+
+			// Update state
+			if err := state.ClearPushFailure(targetNameResolved); err != nil {
+				fmt.Printf("Warning: failed to clear push failure in state: %v\n", err)
+			}
+			if err := state.UpdateDeployment(targetNameResolved, currentCommit, time.Now().Format("20060102150405")); err != nil {
+				fmt.Printf("Warning: failed to update state: %v\n", err)
+			}
+
+			fmt.Println()
+			successBox := lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color("82")).
+				Padding(0, 1).
+				Render(
+					lipgloss.JoinVertical(
+						lipgloss.Left,
+						pushSuccessStyle.Render(fmt.Sprintf("✓ Successfully deployed '%s' to Fly.io", targetNameResolved)),
+						"",
+						fmt.Sprintf("%s %s", pushMutedStyle.Render("App:"), pushValueStyle.Render(flyioConfig.AppName)),
+						fmt.Sprintf("%s %s", pushMutedStyle.Render("Region:"), pushValueStyle.Render(flyioConfig.Region)),
+					),
+				)
+
+			fmt.Println(successBox)
+			return
+		}
+
+		// SSH-based deployment for traditional VPS providers
 		providerCfg, err := target.GetSSHProviderConfig()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)

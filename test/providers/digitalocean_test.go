@@ -120,8 +120,6 @@ func TestSSHKeyStructure(t *testing.T) {
 		t.Error("SSH key public key should not be empty")
 	}
 }
-
-// validateProvisionConfig validates provision configuration (test helper)
 func validateProvisionConfig(config providers.ProvisionConfig) error {
 	if config.Name == "" {
 		return &providers.ProviderError{
@@ -150,8 +148,9 @@ func TestProviderErrorHandling(t *testing.T) {
 		Details:  map[string]interface{}{"status_code": 401},
 	}
 
-	if err.Error() != "API token is invalid" {
-		t.Errorf("Expected error message 'API token is invalid', got %s", err.Error())
+	expectedMsg := "API token is invalid (HTTP 401)"
+	if err.Error() != expectedMsg {
+		t.Errorf("Expected error message '%s', got %s", expectedMsg, err.Error())
 	}
 
 	if err.Provider != "digitalocean" {
@@ -160,15 +159,13 @@ func TestProviderErrorHandling(t *testing.T) {
 }
 
 func TestContextHandling(t *testing.T) {
-	// Test context cancellation handling
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 	defer cancel()
 
-	time.Sleep(2 * time.Millisecond) // Ensure context times out
+	time.Sleep(2 * time.Millisecond)
 
 	select {
 	case <-ctx.Done():
-		// Expected - context should be cancelled
 	default:
 		t.Error("Expected context to be cancelled")
 	}

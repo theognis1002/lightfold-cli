@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"lightfold/pkg/config"
 	"lightfold/pkg/deploy"
 	"lightfold/pkg/detector"
 	sshpkg "lightfold/pkg/ssh"
@@ -102,7 +104,7 @@ Examples:
 			return
 		}
 
-		fmt.Printf("\n%s\n", deployStepHeaderStyle.Render("Step 1/4: Analyzing app"))
+		fmt.Printf("\n%s\n", deployStepHeaderStyle.Render(fmt.Sprintf("Step 1/4: Analyzing '%s' app", targetName)))
 		detection := detector.DetectFramework(projectPath)
 
 		fmt.Printf("%s %s (%s)\n", deploySuccessStyle.Render("✓"), deployMutedStyle.Render(detection.Framework), deployMutedStyle.Render(detection.Language))
@@ -116,7 +118,6 @@ Examples:
 
 		builderName := resolveBuilder(target, projectPath, &detection, deployBuilderFlag)
 
-		// Check if Dockerfile exists but dockerfile builder is not available (fallback scenario)
 		dockerfilePath := filepath.Join(projectPath, "Dockerfile")
 		_, dockerfileExists := os.Stat(dockerfilePath)
 		showFallback := dockerfileExists == nil && builderName != "dockerfile"
@@ -176,6 +177,17 @@ Examples:
 			os.Exit(1)
 		}
 
+		// Branch on deployment strategy
+		if !target.RequiresSSHDeployment() {
+			// Container-based deployment (e.g., Fly.io)
+			if err := deployViaContainer(target, targetName, projectPath, &detection); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+
+		// SSH-based deployment (DigitalOcean, Hetzner, Vultr, BYOS)
 		sshProviderCfg, err := target.GetSSHProviderConfig()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -201,6 +213,7 @@ Examples:
 
 		tmpTarball := fmt.Sprintf("/tmp/lightfold-%s-release.tar.gz", projectName)
 		if err := executor.CreateReleaseTarball(tmpTarball); err != nil {
+			state.MarkPushFailed(targetName, fmt.Sprintf("failed to create tarball: %v", err))
 			fmt.Fprintf(os.Stderr, "Error creating tarball: %v\n", err)
 			os.Exit(1)
 		}
@@ -209,6 +222,7 @@ Examples:
 
 		releasePath, err := executor.UploadRelease(tmpTarball)
 		if err != nil {
+			state.MarkPushFailed(targetName, fmt.Sprintf("failed to upload release: %v", err))
 			fmt.Fprintf(os.Stderr, "Error uploading release: %v\n", err)
 			os.Exit(1)
 		}
@@ -216,6 +230,7 @@ Examples:
 
 		if !target.Deploy.SkipBuild {
 			if err := executor.BuildReleaseWithEnv(releasePath, target.Deploy.EnvVars); err != nil {
+				state.MarkPushFailed(targetName, fmt.Sprintf("failed to build release: %v", err))
 				fmt.Fprintf(os.Stderr, "Error building release: %v\n", err)
 				os.Exit(1)
 			}
@@ -224,6 +239,7 @@ Examples:
 
 		if len(target.Deploy.EnvVars) > 0 {
 			if err := executor.WriteEnvironmentFile(target.Deploy.EnvVars); err != nil {
+				state.MarkPushFailed(targetName, fmt.Sprintf("failed to write environment file: %v", err))
 				fmt.Fprintf(os.Stderr, "Error writing environment: %v\n", err)
 				os.Exit(1)
 			}
@@ -231,6 +247,7 @@ Examples:
 		}
 
 		if err := executor.DeployWithHealthCheck(releasePath, 5, 3*time.Second); err != nil {
+			state.MarkPushFailed(targetName, fmt.Sprintf("deployment failed: %v", err))
 			fmt.Fprintf(os.Stderr, "Error during deployment: %v\n", err)
 			os.Exit(1)
 		}
@@ -241,6 +258,9 @@ Examples:
 
 		releaseTimestamp := filepath.Base(releasePath)
 		currentCommit := getGitCommit(projectPath)
+		if err := state.ClearPushFailure(targetName); err != nil {
+			fmt.Printf("Warning: failed to clear push failure in state: %v\n", err)
+		}
 		if err := state.UpdateDeployment(targetName, currentCommit, releaseTimestamp); err != nil {
 			fmt.Printf("Warning: failed to update state: %v\n", err)
 		}
@@ -282,4 +302,68 @@ func init() {
 	deployCmd.Flags().StringVar(&envFile, "env-file", "", "Path to .env file with environment variables")
 	deployCmd.Flags().StringArrayVar(&envVars, "env", []string{}, "Environment variables in KEY=VALUE format (can be used multiple times)")
 	deployCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "Skip the build step during deployment")
+}
+
+// deployViaContainer handles deployment for container-based providers (e.g., Fly.io)
+func deployViaContainer(target config.TargetConfig, targetName, projectPath string, detection *detector.Detection) error {
+	ctx := context.Background()
+
+	// Route to Fly.io deployer for container-based deployments
+	if target.Provider == "flyio" {
+		tokens, err := config.LoadTokens()
+		if err != nil {
+			return fmt.Errorf("failed to load tokens: %w", err)
+		}
+
+		token := tokens.GetToken("flyio")
+		if token == "" {
+			return fmt.Errorf("Fly.io API token not found. Run 'lightfold config set-token flyio' first")
+		}
+
+		flyioConfig, err := target.GetFlyioConfig()
+		if err != nil {
+			return fmt.Errorf("failed to get Fly.io config: %w", err)
+		}
+
+		projectName := util.GetTargetName(projectPath)
+		deployer := deploy.NewFlyioDeployer(projectName, projectPath, targetName, detection, flyioConfig, token)
+
+		fmt.Printf("%s %s\n", deployMutedStyle.Render("→"), deployMutedStyle.Render("Starting Fly.io deployment..."))
+		fmt.Println()
+
+		if err := deployer.Deploy(ctx, target.Deploy); err != nil {
+			state.MarkPushFailed(targetName, fmt.Sprintf("Fly.io deployment failed: %v", err))
+			return fmt.Errorf("deployment failed: %w", err)
+		}
+
+		// Update state
+		currentCommit := getGitCommit(projectPath)
+		if err := state.ClearPushFailure(targetName); err != nil {
+			fmt.Printf("Warning: failed to clear push failure in state: %v\n", err)
+		}
+		if err := state.UpdateDeployment(targetName, currentCommit, time.Now().Format("20060102150405")); err != nil {
+			fmt.Printf("Warning: failed to update state: %v\n", err)
+		}
+
+		fmt.Println()
+		successBox := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("82")).
+			Padding(0, 1).
+			Render(
+				lipgloss.JoinVertical(
+					lipgloss.Left,
+					deploySuccessStyle.Render(fmt.Sprintf("✓ Successfully deployed '%s' to Fly.io", targetName)),
+					"",
+					fmt.Sprintf("%s %s", deployMutedStyle.Render("App:"), deployValueStyle.Render(flyioConfig.AppName)),
+					fmt.Sprintf("%s %s", deployMutedStyle.Render("Region:"), deployValueStyle.Render(flyioConfig.Region)),
+				),
+			)
+
+		fmt.Println(successBox)
+		return nil
+	}
+
+	// Fallback for other container providers (if added in future)
+	return fmt.Errorf("container deployment not implemented for provider: %s", target.Provider)
 }

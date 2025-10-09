@@ -63,6 +63,12 @@ func promptDomainConfiguration(target *config.TargetConfig, targetName string) {
 		return
 	}
 
+	// Skip domain configuration for non-SSH providers (e.g., Fly.io)
+	// These providers handle domains differently via their own platform
+	if !target.RequiresSSHDeployment() {
+		return
+	}
+
 	fmt.Println()
 	promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
 	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))

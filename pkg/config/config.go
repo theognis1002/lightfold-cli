@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"lightfold/pkg/providers"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ type ProviderConfig interface {
 	GetUsername() string
 	GetSSHKey() string
 	IsProvisioned() bool
+	GetServerID() string // Returns the cloud provider's server/instance/machine ID
 }
 
 type DigitalOceanConfig struct {
@@ -30,6 +32,7 @@ func (d *DigitalOceanConfig) GetIP() string       { return d.IP }
 func (d *DigitalOceanConfig) GetUsername() string { return d.Username }
 func (d *DigitalOceanConfig) GetSSHKey() string   { return d.SSHKey }
 func (d *DigitalOceanConfig) IsProvisioned() bool { return d.Provisioned }
+func (d *DigitalOceanConfig) GetServerID() string { return d.DropletID }
 
 type HetznerConfig struct {
 	ServerID    string `json:"server_id,omitempty"`
@@ -46,6 +49,7 @@ func (h *HetznerConfig) GetIP() string       { return h.IP }
 func (h *HetznerConfig) GetUsername() string { return h.Username }
 func (h *HetznerConfig) GetSSHKey() string   { return h.SSHKey }
 func (h *HetznerConfig) IsProvisioned() bool { return h.Provisioned }
+func (h *HetznerConfig) GetServerID() string { return h.ServerID }
 
 type VultrConfig struct {
 	InstanceID  string `json:"instance_id,omitempty"` // For provisioned instances
@@ -62,6 +66,26 @@ func (v *VultrConfig) GetIP() string       { return v.IP }
 func (v *VultrConfig) GetUsername() string { return v.Username }
 func (v *VultrConfig) GetSSHKey() string   { return v.SSHKey }
 func (v *VultrConfig) IsProvisioned() bool { return v.Provisioned }
+func (v *VultrConfig) GetServerID() string { return v.InstanceID }
+
+type FlyioConfig struct {
+	MachineID      string `json:"machine_id,omitempty"`      // For provisioned machines
+	AppName        string `json:"app_name,omitempty"`        // Fly.io requires app context
+	OrganizationID string `json:"organization_id,omitempty"` // Fly.io organization ID
+	IP             string `json:"ip"`
+	SSHKey         string `json:"ssh_key"`
+	SSHKeyName     string `json:"ssh_key_name,omitempty"`
+	Username       string `json:"username"`
+	Region         string `json:"region,omitempty"`
+	Size           string `json:"size,omitempty"` // VM preset (shared-cpu-1x, etc.)
+	Provisioned    bool   `json:"provisioned,omitempty"`
+}
+
+func (f *FlyioConfig) GetIP() string       { return f.IP }
+func (f *FlyioConfig) GetUsername() string { return f.Username }
+func (f *FlyioConfig) GetSSHKey() string   { return f.SSHKey }
+func (f *FlyioConfig) IsProvisioned() bool { return f.Provisioned }
+func (f *FlyioConfig) GetServerID() string { return f.MachineID }
 
 type S3Config struct {
 	Bucket    string `json:"bucket"`
@@ -74,6 +98,7 @@ func (s *S3Config) GetIP() string       { return "" }
 func (s *S3Config) GetUsername() string { return "" }
 func (s *S3Config) GetSSHKey() string   { return "" }
 func (s *S3Config) IsProvisioned() bool { return false }
+func (s *S3Config) GetServerID() string { return "" }
 
 type DeploymentOptions struct {
 	SkipBuild     bool              `json:"skip_build,omitempty"`
@@ -161,6 +186,14 @@ func (t *TargetConfig) GetVultrConfig() (*VultrConfig, error) {
 	return &config, nil
 }
 
+func (t *TargetConfig) GetFlyioConfig() (*FlyioConfig, error) {
+	var config FlyioConfig
+	if err := t.GetProviderConfig("flyio", &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
 func (t *TargetConfig) GetSSHProviderConfig() (ProviderConfig, error) {
 	switch t.Provider {
 	case "digitalocean":
@@ -169,6 +202,8 @@ func (t *TargetConfig) GetSSHProviderConfig() (ProviderConfig, error) {
 		return t.GetHetznerConfig()
 	case "vultr":
 		return t.GetVultrConfig()
+	case "flyio":
+		return t.GetFlyioConfig()
 	case "s3":
 		return nil, fmt.Errorf("S3 is not an SSH-based provider")
 	default:
@@ -184,11 +219,41 @@ func (t *TargetConfig) GetAnyProviderConfig() (ProviderConfig, error) {
 		return t.GetHetznerConfig()
 	case "vultr":
 		return t.GetVultrConfig()
+	case "flyio":
+		return t.GetFlyioConfig()
 	case "s3":
 		return t.GetS3Config()
 	default:
 		return nil, fmt.Errorf("unsupported provider: %s", t.Provider)
 	}
+}
+
+// RequiresSSHDeployment returns true if this target uses SSH-based deployment
+// Uses the provider's SupportsSSH() method for polymorphic dispatch
+func (t *TargetConfig) RequiresSSHDeployment() bool {
+	// S3 is a special case - static deployment
+	if t.Provider == "s3" {
+		return false
+	}
+
+	// Use provider interface to determine SSH requirement
+	tokens, err := LoadTokens()
+	if err != nil {
+		// Default to true for safety - will fail gracefully later if SSH not supported
+		return true
+	}
+
+	token := tokens.GetToken(t.Provider)
+	if token == "" {
+		return true
+	}
+
+	provider, err := providers.GetProvider(t.Provider, token)
+	if err != nil {
+		return true
+	}
+
+	return provider.SupportsSSH()
 }
 
 type Config struct {

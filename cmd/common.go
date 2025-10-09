@@ -13,6 +13,7 @@ import (
 	"lightfold/pkg/detector"
 	"lightfold/pkg/providers"
 	_ "lightfold/pkg/providers/digitalocean"
+	"lightfold/pkg/providers/flyio"
 	_ "lightfold/pkg/providers/hetzner"
 	_ "lightfold/pkg/providers/vultr"
 	"lightfold/pkg/proxy"
@@ -89,7 +90,7 @@ func resolveTarget(cfg *config.Config, targetFlag string, pathArg string) (confi
 func createTarget(targetName, projectPath string, cfg *config.Config) (config.TargetConfig, error) {
 	if target, exists := cfg.GetTarget(targetName); exists && state.IsCreated(targetName) {
 		skipStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-		fmt.Printf("%s\n", skipStyle.Render("Infrastructure already created (skipping)"))
+		fmt.Printf("  %s\n", skipStyle.Render("Infrastructure already created (skipping)"))
 		return target, nil
 	}
 
@@ -135,6 +136,12 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 			} else {
 				return config.TargetConfig{}, fmt.Errorf("invalid Vultr configuration")
 			}
+		case "flyio":
+			if flyioConfig, ok := providerConfig.(*config.FlyioConfig); ok {
+				targetConfig.SetProviderConfig("flyio", flyioConfig)
+			} else {
+				return config.TargetConfig{}, fmt.Errorf("invalid Fly.io configuration")
+			}
 		case "byos":
 			if byosConfig, ok := providerConfig.(*config.DigitalOceanConfig); ok {
 				targetConfig.SetProviderConfig("byos", byosConfig)
@@ -179,6 +186,7 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 			if err := state.MarkCreated(targetName, ""); err != nil {
 				return config.TargetConfig{}, fmt.Errorf("failed to update state: %w", err)
 			}
+			state.ClearCreateFailure(targetName)
 		} else {
 			projectName := util.GetTargetName(projectPath)
 			orchestrator, err := deploy.GetOrchestrator(targetConfig, projectPath, projectName, targetName)
@@ -191,10 +199,12 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 
 			result, err := tui.ShowProvisioningProgressWithOrchestrator(ctx, orchestrator)
 			if err != nil {
+				state.MarkCreateFailed(targetName, err.Error())
 				return config.TargetConfig{}, fmt.Errorf("provisioning failed: %w", err)
 			}
 
 			if !result.Success {
+				state.MarkCreateFailed(targetName, result.Message)
 				return config.TargetConfig{}, fmt.Errorf("provisioning failed: %s", result.Message)
 			}
 			freshCfg, err := config.LoadConfig()
@@ -213,6 +223,7 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 			if err := state.MarkCreated(targetName, serverID); err != nil {
 				return config.TargetConfig{}, fmt.Errorf("failed to update state: %w", err)
 			}
+			state.ClearCreateFailure(targetName)
 		}
 
 		return targetConfig, nil
@@ -243,6 +254,21 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 }
 
 func configureTarget(target config.TargetConfig, targetName string, force bool) error {
+	// Skip SSH configuration for container providers (e.g., Fly.io)
+	tokens, _ := config.LoadTokens()
+	if tokens != nil {
+		token := tokens.GetToken(target.Provider)
+		if token != "" {
+			provider, err := providers.GetProvider(target.Provider, token)
+			if err == nil && !provider.SupportsSSH() {
+				// Container providers don't need SSH configuration
+				skipStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+				fmt.Printf("%s\n", skipStyle.Render("Container provider detected - skipping SSH configuration"))
+				return nil
+			}
+		}
+	}
+
 	projectPath := target.ProjectPath
 	if target.Provider == "digitalocean" {
 		doConfig, err := target.GetDigitalOceanConfig()
@@ -256,6 +282,7 @@ func configureTarget(target config.TargetConfig, targetName string, force bool) 
 
 			if doConfig.IP == "" && dropletID != "" {
 				if err := recoverIPFromDigitalOcean(&target, targetName, dropletID); err != nil {
+					state.MarkConfigureFailed(targetName, fmt.Sprintf("Failed to recover IP: %v", err))
 					return fmt.Errorf("failed to recover IP: %w", err)
 				}
 			}
@@ -274,6 +301,7 @@ func configureTarget(target config.TargetConfig, targetName string, force bool) 
 
 			if hetznerConfig.IP == "" && serverID != "" {
 				if err := recoverIPFromHetzner(&target, targetName, serverID); err != nil {
+					state.MarkConfigureFailed(targetName, fmt.Sprintf("Failed to recover IP: %v", err))
 					return fmt.Errorf("failed to recover IP: %w", err)
 				}
 			}
@@ -292,6 +320,26 @@ func configureTarget(target config.TargetConfig, targetName string, force bool) 
 
 			if vultrConfig.IP == "" && instanceID != "" {
 				if err := recoverIPFromVultr(&target, targetName, instanceID); err != nil {
+					state.MarkConfigureFailed(targetName, fmt.Sprintf("Failed to recover IP: %v", err))
+					return fmt.Errorf("failed to recover IP: %w", err)
+				}
+			}
+		}
+	}
+
+	if target.Provider == "flyio" {
+		flyioConfig, err := target.GetFlyioConfig()
+		if err == nil {
+			machineID := flyioConfig.MachineID
+			if machineID == "" {
+				if targetState, err := state.LoadState(targetName); err == nil && targetState.ProvisionedID != "" {
+					machineID = targetState.ProvisionedID
+				}
+			}
+
+			if flyioConfig.IP == "" && machineID != "" {
+				if err := recoverIPFromFlyio(&target, targetName, machineID); err != nil {
+					state.MarkConfigureFailed(targetName, fmt.Sprintf("Failed to recover IP: %v", err))
 					return fmt.Errorf("failed to recover IP: %w", err)
 				}
 			}
@@ -338,14 +386,12 @@ func configureTarget(target config.TargetConfig, targetName string, force bool) 
 	defer cancel()
 
 	if err := tui.ShowConfigurationProgressWithOrchestrator(ctx, orchestrator, providerCfg); err != nil {
-		// Mark configuration as failed
 		if markErr := state.MarkConfigureFailed(targetName, err.Error()); markErr != nil {
 			fmt.Printf("Warning: failed to mark configure failure in state: %v\n", markErr)
 		}
 		return fmt.Errorf("configuration failed: %w", err)
 	}
 
-	// Clear any previous failure and mark as configured
 	if err := state.ClearConfigureFailure(targetName); err != nil {
 		fmt.Printf("Warning: failed to clear configure failure in state: %v\n", err)
 	}
@@ -468,6 +514,18 @@ func handleProvisionWithFlags(targetConfig *config.TargetConfig, targetName, pro
 			}
 			targetConfig.Provider = "vultr"
 			targetConfig.SetProviderConfig("vultr", vultrConfig)
+		} else if provider == "flyio" {
+			flyioConfig, err := sequential.RunProvisionFlyioFlow(targetName)
+			if err != nil {
+				return fmt.Errorf("failed to get Fly.io token: %w", err)
+			}
+			tokens, _ = config.LoadTokens()
+			token = tokens.GetToken("flyio")
+			if token == "" {
+				return fmt.Errorf("no Fly.io API token provided")
+			}
+			targetConfig.Provider = "flyio"
+			targetConfig.SetProviderConfig("flyio", flyioConfig)
 		} else {
 			return fmt.Errorf("provider %s not supported yet", provider)
 		}
@@ -533,6 +591,26 @@ func handleProvisionWithFlags(targetConfig *config.TargetConfig, targetName, pro
 				Provisioned: true,
 			}
 			targetConfig.SetProviderConfig("vultr", vultrConfig)
+		case "flyio":
+			targetConfig.Provider = "flyio"
+
+			sshKeyPath := filepath.Join(os.Getenv("HOME"), config.LocalConfigDir, config.LocalKeysDir, "lightfold_ed25519")
+			if _, err := os.Stat(sshKeyPath); os.IsNotExist(err) {
+				publicKeyPath, err := sshpkg.GenerateKeyPair(sshKeyPath)
+				if err != nil {
+					return fmt.Errorf("failed to generate SSH key: %w", err)
+				}
+				_ = publicKeyPath
+			}
+
+			flyioConfig := &config.FlyioConfig{
+				Region:      regionFlag,
+				Size:        sizeFlag,
+				SSHKey:      sshKeyPath,
+				Username:    "root",
+				Provisioned: true,
+			}
+			targetConfig.SetProviderConfig("flyio", flyioConfig)
 		default:
 			return fmt.Errorf("provider %s not supported yet", provider)
 		}
@@ -549,10 +627,12 @@ func handleProvisionWithFlags(targetConfig *config.TargetConfig, targetName, pro
 
 	result, err := orchestrator.Deploy(ctx)
 	if err != nil {
+		state.MarkCreateFailed(targetName, err.Error())
 		return fmt.Errorf("provisioning failed: %w", err)
 	}
 
 	if !result.Success {
+		state.MarkCreateFailed(targetName, result.Message)
 		return fmt.Errorf("provisioning failed: %s", result.Message)
 	}
 
@@ -564,6 +644,7 @@ func handleProvisionWithFlags(targetConfig *config.TargetConfig, targetName, pro
 		if err := state.MarkCreated(targetName, result.Server.ID); err != nil {
 			return fmt.Errorf("failed to update state: %w", err)
 		}
+		state.ClearCreateFailure(targetName)
 	}
 
 	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
@@ -602,7 +683,6 @@ var validateConfigureTargetConfig = func(target config.TargetConfig) error {
 	return nil
 }
 
-// recoverIPFromDigitalOcean fetches the IP address from DigitalOcean API when droplet exists but IP is missing
 var recoverIPFromDigitalOcean = func(target *config.TargetConfig, targetName, dropletID string) error {
 	tokens, err := config.LoadTokens()
 	if err != nil {
@@ -653,7 +733,6 @@ var recoverIPFromDigitalOcean = func(target *config.TargetConfig, targetName, dr
 	return nil
 }
 
-// recoverIPFromHetzner fetches the IP address from Hetzner Cloud API when server exists but IP is missing
 var recoverIPFromHetzner = func(target *config.TargetConfig, targetName, serverID string) error {
 	tokens, err := config.LoadTokens()
 	if err != nil {
@@ -704,7 +783,6 @@ var recoverIPFromHetzner = func(target *config.TargetConfig, targetName, serverI
 	return nil
 }
 
-// recoverIPFromVultr fetches the IP address from Vultr API when instance exists but IP is missing
 var recoverIPFromVultr = func(target *config.TargetConfig, targetName, instanceID string) error {
 	tokens, err := config.LoadTokens()
 	if err != nil {
@@ -738,6 +816,100 @@ var recoverIPFromVultr = func(target *config.TargetConfig, targetName, instanceI
 	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	fmt.Printf("%s %s\n", successStyle.Render("✓"), mutedStyle.Render(fmt.Sprintf("Recovered IP: %s", server.PublicIPv4)))
+
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if err := cfg.SetTarget(targetName, *target); err != nil {
+		return fmt.Errorf("failed to update target config: %w", err)
+	}
+
+	if err := cfg.SaveConfig(); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+
+	return nil
+}
+
+var recoverIPFromFlyio = func(target *config.TargetConfig, targetName, machineID string) error {
+	tokens, err := config.LoadTokens()
+	if err != nil {
+		return fmt.Errorf("failed to load tokens: %w", err)
+	}
+
+	flyioToken := tokens["flyio"]
+	if flyioToken == "" {
+		return fmt.Errorf("Fly.io API token not found")
+	}
+
+	flyioConfig, err := target.GetFlyioConfig()
+	if err != nil {
+		return fmt.Errorf("failed to get Fly.io config: %w", err)
+	}
+
+	if flyioConfig.AppName == "" {
+		return fmt.Errorf("Fly.io app name not found in config. This usually means the app wasn't fully created. Please check Fly.io console or run 'lightfold destroy' and try again")
+	}
+
+	// Get Fly.io client to fetch IP directly via GraphQL
+	provider, err := providers.GetProvider("flyio", flyioToken)
+	if err != nil {
+		return fmt.Errorf("failed to get Fly.io provider: %w", err)
+	}
+
+	flyioClient, ok := provider.(*flyio.Client)
+	if !ok {
+		return fmt.Errorf("failed to get Fly.io client")
+	}
+
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+
+	ipAddress, err := flyioClient.GetAppIP(context.Background(), flyioConfig.AppName)
+	if err != nil {
+		fmt.Println()
+		fmt.Printf("%s %s\n", warningStyle.Render("⚠"), warningStyle.Render("Unable to fetch IP automatically from Fly.io API"))
+		fmt.Printf("  %s\n", mutedStyle.Render("This is a known Fly.io API propagation issue."))
+		fmt.Println()
+		linkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("33")).Underline(true)
+		fmt.Printf("  Please get your app's IP address from:\n")
+		fmt.Printf("  %s\n", linkStyle.Render(fmt.Sprintf("https://fly.io/apps/%s", flyioConfig.AppName)))
+		fmt.Println()
+
+		// Prompt for IP
+		fmt.Printf("  Enter IP address: ")
+		var userIP string
+		if _, scanErr := fmt.Scanln(&userIP); scanErr != nil {
+			return fmt.Errorf("failed to read IP address: %w", scanErr)
+		}
+
+		// Validate IP format (basic check)
+		userIP = strings.TrimSpace(userIP)
+		if userIP == "" {
+			return fmt.Errorf("IP address cannot be empty")
+		}
+
+		// Basic IPv4 validation
+		parts := strings.Split(userIP, ".")
+		if len(parts) != 4 {
+			return fmt.Errorf("invalid IP address format: %s (expected format: xxx.xxx.xxx.xxx)", userIP)
+		}
+
+		ipAddress = userIP
+		fmt.Printf("  %s\n", successStyle.Render(fmt.Sprintf("✓ Using IP: %s", ipAddress)))
+		fmt.Println()
+	}
+
+	flyioConfig.IP = ipAddress
+	flyioConfig.MachineID = machineID
+	target.SetProviderConfig("flyio", flyioConfig)
+
+	if err == nil {
+		fmt.Printf("%s %s\n", successStyle.Render("✓"), mutedStyle.Render(fmt.Sprintf("Recovered IP: %s", ipAddress)))
+	}
 
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -899,7 +1071,6 @@ func extractPortFromTarget(target *config.TargetConfig, projectPath string) int 
 	detection := detector.DetectFramework(projectPath)
 
 	for _, runCmd := range detection.RunPlan {
-
 		if strings.Contains(runCmd, "-port") || strings.Contains(runCmd, "--port") {
 			parts := strings.Fields(runCmd)
 			for i, part := range parts {
@@ -943,29 +1114,23 @@ func extractPortFromTarget(target *config.TargetConfig, projectPath string) int 
 	}
 }
 
-// syncTarget syncs local config/state with actual server state to recover from drift
-// Returns the synced state or an error
 func syncTarget(target config.TargetConfig, targetName string, cfg *config.Config) (*state.TargetState, error) {
 	successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
 
-	// S3 providers don't need syncing (static deployments)
 	if target.Provider == "s3" {
 		fmt.Printf("%s\n", mutedStyle.Render("S3 deployments don't require syncing (static files)"))
 		return nil, nil
 	}
 
-	// Load current state
 	targetState, err := state.LoadState(targetName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load state: %w", err)
 	}
 
-	// Track changes for summary
 	changesDetected := false
 
-	// Step 1: Recover server IP from provider API if missing (for provisioned servers)
 	if target.Provider == "digitalocean" {
 		doConfig, err := target.GetDigitalOceanConfig()
 		if err == nil && doConfig.Provisioned {
@@ -981,7 +1146,6 @@ func syncTarget(target config.TargetConfig, targetName string, cfg *config.Confi
 				if err := recoverIPFromDigitalOcean(&target, targetName, dropletID); err != nil {
 					fmt.Printf("%s Failed to recover IP: %v\n", mutedStyle.Render("  ⚠"), err)
 				} else {
-					// Reload config to get updated IP
 					updatedCfg, _ := config.LoadConfig()
 					if updatedTarget, exists := updatedCfg.GetTarget(targetName); exists {
 						target = updatedTarget
@@ -1010,7 +1174,6 @@ func syncTarget(target config.TargetConfig, targetName string, cfg *config.Confi
 				if err := recoverIPFromHetzner(&target, targetName, serverID); err != nil {
 					fmt.Printf("%s Failed to recover IP: %v\n", mutedStyle.Render("  ⚠"), err)
 				} else {
-					// Reload config to get updated IP
 					updatedCfg, _ := config.LoadConfig()
 					if updatedTarget, exists := updatedCfg.GetTarget(targetName); exists {
 						target = updatedTarget
@@ -1039,7 +1202,6 @@ func syncTarget(target config.TargetConfig, targetName string, cfg *config.Confi
 				if err := recoverIPFromVultr(&target, targetName, instanceID); err != nil {
 					fmt.Printf("%s Failed to recover IP: %v\n", mutedStyle.Render("  ⚠"), err)
 				} else {
-					// Reload config to get updated IP
 					updatedCfg, _ := config.LoadConfig()
 					if updatedTarget, exists := updatedCfg.GetTarget(targetName); exists {
 						target = updatedTarget
@@ -1055,7 +1217,6 @@ func syncTarget(target config.TargetConfig, targetName string, cfg *config.Confi
 		}
 	}
 
-	// Step 2: Establish SSH connection
 	providerCfg, err := target.GetSSHProviderConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get SSH config: %w", err)
@@ -1075,22 +1236,18 @@ func syncTarget(target config.TargetConfig, targetName string, cfg *config.Confi
 
 	fmt.Printf("%s %s\n", successStyle.Render("  ✓"), mutedStyle.Render("SSH connection established"))
 
-	// If we can SSH and have an IP, the server is definitely created
 	if !targetState.Created {
 		targetState.Created = true
 		changesDetected = true
 		fmt.Printf("%s %s\n", successStyle.Render("  ✓"), mutedStyle.Render("Server is created (SSH accessible)"))
 	}
 
-	// Step 3: Sync remote markers to local state
 	fmt.Printf("%s Syncing remote state markers...\n", labelStyle.Render("→"))
 
-	// Check created marker (create it if missing but server is accessible)
 	createdResult := sshExecutor.Execute(fmt.Sprintf("test -f %s/%s && echo 'true' || echo 'false'", config.RemoteLightfoldDir, config.RemoteCreatedMarker))
 	if createdResult.ExitCode == 0 {
 		remoteCreated := strings.TrimSpace(createdResult.Stdout) == "true"
 
-		// If server is accessible but marker doesn't exist, create it
 		if !remoteCreated {
 			markerCmd := fmt.Sprintf("sudo mkdir -p %s && echo 'created' | sudo tee %s/%s > /dev/null", config.RemoteLightfoldDir, config.RemoteLightfoldDir, config.RemoteCreatedMarker)
 			markerResult := sshExecutor.Execute(markerCmd)
@@ -1101,7 +1258,6 @@ func syncTarget(target config.TargetConfig, targetName string, cfg *config.Confi
 		}
 	}
 
-	// Check configured marker
 	configuredResult := sshExecutor.Execute(fmt.Sprintf("test -f %s/%s && echo 'true' || echo 'false'", config.RemoteLightfoldDir, config.RemoteConfiguredMarker))
 	if configuredResult.ExitCode == 0 {
 		remoteConfigured := strings.TrimSpace(configuredResult.Stdout) == "true"
@@ -1112,12 +1268,10 @@ func syncTarget(target config.TargetConfig, targetName string, cfg *config.Confi
 		}
 	}
 
-	// Step 4: Sync deployment information
 	fmt.Printf("%s Syncing deployment information...\n", labelStyle.Render("→"))
 
 	appName := strings.ReplaceAll(targetName, "-", "_")
 
-	// Get current release
 	currentReleaseResult := sshExecutor.Execute(fmt.Sprintf("readlink -f %s/%s/current 2>/dev/null", config.RemoteAppBaseDir, appName))
 	if currentReleaseResult.ExitCode == 0 {
 		currentReleasePath := strings.TrimSpace(currentReleaseResult.Stdout)
@@ -1128,7 +1282,6 @@ func syncTarget(target config.TargetConfig, targetName string, cfg *config.Confi
 				changesDetected = true
 				fmt.Printf("%s %s\n", successStyle.Render("  ✓"), mutedStyle.Render(fmt.Sprintf("Current release: %s", releaseTimestamp)))
 
-				// Try to get git commit from deployed release
 				gitCommitResult := sshExecutor.Execute(fmt.Sprintf("cat %s/.git-commit 2>/dev/null", currentReleasePath))
 				if gitCommitResult.ExitCode == 0 {
 					gitCommit := strings.TrimSpace(gitCommitResult.Stdout)
@@ -1143,9 +1296,7 @@ func syncTarget(target config.TargetConfig, targetName string, cfg *config.Confi
 					}
 				}
 
-				// Update last deploy time if we have a release
 				if !targetState.LastDeploy.IsZero() {
-					// Keep existing last deploy time, but update if missing
 				} else {
 					targetState.LastDeploy = time.Now()
 					changesDetected = true
@@ -1154,14 +1305,11 @@ func syncTarget(target config.TargetConfig, targetName string, cfg *config.Confi
 		}
 	}
 
-	// Check service status (informational only, don't update state)
-	// Only show if service is active to avoid confusion
 	serviceResult := sshExecutor.Execute(fmt.Sprintf("systemctl is-active %s 2>/dev/null", appName))
 	if serviceResult.ExitCode == 0 && strings.TrimSpace(serviceResult.Stdout) == "active" {
 		fmt.Printf("%s %s\n", successStyle.Render("  ✓"), mutedStyle.Render("Service is active"))
 	}
 
-	// Step 5: Save updated state
 	if changesDetected {
 		fmt.Printf("%s Saving synced state...\n", labelStyle.Render("→"))
 		if err := state.SaveState(targetName, targetState); err != nil {

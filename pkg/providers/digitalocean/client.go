@@ -61,6 +61,10 @@ func (c *Client) SupportsBYOS() bool {
 	return true
 }
 
+func (c *Client) SupportsSSH() bool {
+	return true
+}
+
 func (c *Client) ValidateCredentials(ctx context.Context) error {
 	_, _, err := c.client.Account.Get(ctx)
 	if err != nil {

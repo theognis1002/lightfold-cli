@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"lightfold/pkg/config"
+	"lightfold/pkg/flyctl"
 	sshpkg "lightfold/pkg/ssh"
 	"os"
 	"strings"
@@ -49,6 +52,44 @@ Examples:
 			os.Exit(1)
 		}
 
+		// Route to Fly.io logs for container-based deployments
+		if target.Provider == "flyio" {
+			tokens, err := config.LoadTokens()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error loading tokens: %v\n", err)
+				os.Exit(1)
+			}
+
+			token := tokens.GetToken("flyio")
+			if token == "" {
+				fmt.Fprintf(os.Stderr, "Error: Fly.io API token not found\n")
+				fmt.Fprintf(os.Stderr, "Run 'lightfold config set-token flyio' first\n")
+				os.Exit(1)
+			}
+
+			flyioConfig, err := target.GetFlyioConfig()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error getting Fly.io config: %v\n", err)
+				os.Exit(1)
+			}
+
+			fmt.Printf("%s %s\n", logsHeaderStyle.Render("Logs for:"), targetName)
+			fmt.Printf("%s %s\n\n", logsMutedStyle.Render("App:"), flyioConfig.AppName)
+
+			ctx := context.Background()
+			client := flyctl.NewClient(token, flyioConfig.AppName)
+
+			output, err := client.GetLogs(ctx, logsLines, logsTail)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error fetching Fly.io logs: %v\n", err)
+				os.Exit(1)
+			}
+
+			fmt.Println(output)
+			return
+		}
+
+		// SSH-based logs for traditional VPS providers
 		providerCfg, err := target.GetSSHProviderConfig()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)

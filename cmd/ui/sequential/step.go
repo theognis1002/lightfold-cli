@@ -350,7 +350,6 @@ func CreateHetznerAPITokenStep(id string) Step {
 }
 
 func CreateHetznerLocationStep(id string) Step {
-	// Official Hetzner Cloud locations as of 2025 (verified from docs.hetzner.com)
 	locations := []string{"fsn1", "nbg1", "hel1", "ash", "hil", "sin"}
 	locationDescs := []string{
 		"Falkenstein, Germany",
@@ -371,10 +370,6 @@ func CreateHetznerLocationStep(id string) Step {
 }
 
 func CreateHetznerServerTypeStep(id string) Step {
-	// Current Hetzner server types (2025):
-	// - CPX series (AMD EPYC): cpx11, cpx21, cpx31, cpx41, cpx51
-	// - New CX series (Intel): cx22, cx32, cx42, cx52
-	// Old CX series (cx11-cx51) deprecated Sept 2024 but may still appear in API
 	serverTypes := []string{"cpx11", "cpx21", "cpx31", "cpx41", "cx22", "cx32", "cx42", "cx52"}
 	serverTypeDescs := []string{
 		"2 vCPU, 2 GB RAM, 40 GB SSD (AMD)",
@@ -401,16 +396,16 @@ func CreateHetznerLocationStepDynamic(id, token string) Step {
 	ctx := context.Background()
 	provider, err := providers.GetProvider("hetzner", token)
 	if err != nil {
-		return CreateHetznerLocationStep(id) // Fallback to static
+		return CreateHetznerLocationStep(id)
 	}
 
 	regions, err := provider.GetRegions(ctx)
 	if err != nil {
-		return CreateHetznerLocationStep(id) // Fallback to static
+		return CreateHetznerLocationStep(id)
 	}
 
 	if len(regions) == 0 {
-		return CreateHetznerLocationStep(id) // Fallback to static
+		return CreateHetznerLocationStep(id)
 	}
 
 	var locationIDs []string
@@ -434,23 +429,22 @@ func CreateHetznerServerTypeStepDynamic(id, token, location string) Step {
 	ctx := context.Background()
 	provider, err := providers.GetProvider("hetzner", token)
 	if err != nil {
-		return CreateHetznerServerTypeStep(id) // Fallback to static
+		return CreateHetznerServerTypeStep(id)
 	}
 
 	sizes, err := provider.GetSizes(ctx, location)
 	if err != nil {
-		return CreateHetznerServerTypeStep(id) // Fallback to static
+		return CreateHetznerServerTypeStep(id)
 	}
 
 	if len(sizes) == 0 {
-		return CreateHetznerServerTypeStep(id) // Fallback to static
+		return CreateHetznerServerTypeStep(id)
 	}
 
 	var sizeIDs []string
 	var sizeDescs []string
 	for _, size := range sizes {
 		sizeIDs = append(sizeIDs, size.ID)
-		// Format: "cx11 - 1 vCPU, 2 GB RAM, 20 GB SSD"
 		desc := fmt.Sprintf("%d vCPU, %d GB RAM, %d GB SSD", size.VCPUs, size.Memory/1024, size.Disk)
 		if size.PriceMonthly > 0 {
 			desc = fmt.Sprintf("%s (€%.2f/mo)", desc, size.PriceMonthly)
@@ -578,9 +572,6 @@ func (m *FlowModel) UpdateStepWithDynamicSizes(stepID string, provider providers
 	return nil
 }
 
-// Vultr Steps
-
-// CreateVultrAPITokenStep creates API token input step
 func CreateVultrAPITokenStep(id string) Step {
 	return NewStep(id, "Vultr API Token").
 		Type(StepTypePassword).
@@ -645,16 +636,16 @@ func CreateVultrRegionStepDynamic(id, token string) Step {
 	ctx := context.Background()
 	provider, err := providers.GetProvider("vultr", token)
 	if err != nil {
-		return CreateVultrRegionStep(id) // Fallback to static
+		return CreateVultrRegionStep(id)
 	}
 
 	regions, err := provider.GetRegions(ctx)
 	if err != nil {
-		return CreateVultrRegionStep(id) // Fallback to static
+		return CreateVultrRegionStep(id)
 	}
 
 	if len(regions) == 0 {
-		return CreateVultrRegionStep(id) // Fallback to static
+		return CreateVultrRegionStep(id)
 	}
 
 	var regionIDs []string
@@ -678,16 +669,16 @@ func CreateVultrPlanStepDynamic(id, token, region string) Step {
 	ctx := context.Background()
 	provider, err := providers.GetProvider("vultr", token)
 	if err != nil {
-		return CreateVultrPlanStep(id) // Fallback to static
+		return CreateVultrPlanStep(id)
 	}
 
 	sizes, err := provider.GetSizes(ctx, region)
 	if err != nil {
-		return CreateVultrPlanStep(id) // Fallback to static
+		return CreateVultrPlanStep(id)
 	}
 
 	if len(sizes) == 0 {
-		return CreateVultrPlanStep(id) // Fallback to static
+		return CreateVultrPlanStep(id)
 	}
 
 	var planIDs []string
@@ -711,6 +702,148 @@ func CreateVultrPlanStepDynamic(id, token, region string) Step {
 		DefaultValue(defaultValue).
 		Options(planIDs...).
 		OptionDescriptions(planDescs...).
+		Required().
+		Build()
+}
+
+// CreateFlyioAPITokenStep creates an API token step for Fly.io
+func CreateFlyioAPITokenStep(id string) Step {
+	return NewStep(id, "Fly.io API Token").
+		Type(StepTypePassword).
+		Placeholder("Enter your Fly.io API token").
+		Required().
+		Validate(ValidateRequired).
+		Build()
+}
+
+// CreateFlyioRegionStepDynamic creates region step with dynamic API data
+func CreateFlyioRegionStepDynamic(id, token string) Step {
+	ctx := context.Background()
+	provider, err := providers.GetProvider("flyio", token)
+	if err != nil {
+		return createFlyioRegionStepStatic(id)
+	}
+
+	regions, err := provider.GetRegions(ctx)
+	if err != nil || len(regions) == 0 {
+		return createFlyioRegionStepStatic(id)
+	}
+
+	var regionIDs []string
+	var regionDescs []string
+	for _, region := range regions {
+		regionIDs = append(regionIDs, region.ID)
+		regionDescs = append(regionDescs, region.Location)
+	}
+
+	return NewStep(id, "Fly.io Region").
+		Type(StepTypeSelect).
+		DefaultValue(regionIDs[0]).
+		Options(regionIDs...).
+		OptionDescriptions(regionDescs...).
+		Required().
+		Build()
+}
+
+// createFlyioRegionStepStatic creates region step with static fallback data
+func createFlyioRegionStepStatic(id string) Step {
+	regions := []struct {
+		ID       string
+		Location string
+	}{
+		{"sjc", "San Jose, California (SJC)"},
+		{"iad", "Ashburn, Virginia (IAD)"},
+		{"ord", "Chicago, Illinois (ORD)"},
+		{"lhr", "London, United Kingdom (LHR)"},
+		{"fra", "Frankfurt, Germany (FRA)"},
+		{"nrt", "Tokyo, Japan (NRT)"},
+		{"syd", "Sydney, Australia (SYD)"},
+		{"sin", "Singapore (SIN)"},
+	}
+
+	var regionIDs []string
+	var regionDescs []string
+	for _, region := range regions {
+		regionIDs = append(regionIDs, region.ID)
+		regionDescs = append(regionDescs, region.Location)
+	}
+
+	return NewStep(id, "Fly.io Region").
+		Type(StepTypeSelect).
+		DefaultValue(regionIDs[0]).
+		Options(regionIDs...).
+		OptionDescriptions(regionDescs...).
+		Required().
+		Build()
+}
+
+// CreateFlyioSizeStepDynamic creates machine size step with dynamic API data
+func CreateFlyioSizeStepDynamic(id, token, region string) Step {
+	ctx := context.Background()
+	provider, err := providers.GetProvider("flyio", token)
+	if err != nil {
+		return createFlyioSizeStepStatic(id)
+	}
+
+	sizes, err := provider.GetSizes(ctx, region)
+	if err != nil || len(sizes) == 0 {
+		return createFlyioSizeStepStatic(id)
+	}
+
+	var sizeIDs []string
+	var sizeDescs []string
+	for _, size := range sizes {
+		sizeIDs = append(sizeIDs, size.ID)
+		desc := fmt.Sprintf("%d vCPU, %d MB RAM", size.VCPUs, size.Memory)
+		if size.PriceMonthly > 0 {
+			desc = fmt.Sprintf("%s ($%.2f/mo)", desc, size.PriceMonthly)
+		}
+		sizeDescs = append(sizeDescs, desc)
+	}
+
+	defaultValue := "shared-cpu-1x"
+	if len(sizeIDs) > 0 {
+		defaultValue = sizeIDs[0]
+	}
+
+	return NewStep(id, "Machine Size").
+		Type(StepTypeSelect).
+		DefaultValue(defaultValue).
+		Options(sizeIDs...).
+		OptionDescriptions(sizeDescs...).
+		Required().
+		Build()
+}
+
+// createFlyioSizeStepStatic creates machine size step with static fallback data
+func createFlyioSizeStepStatic(id string) Step {
+	sizes := []struct {
+		ID           string
+		Name         string
+		PriceMonthly float64
+	}{
+		{"shared-cpu-1x", "256 MB RAM, 1 vCPU", 5.0},
+		{"shared-cpu-2x", "512 MB RAM, 1 vCPU", 10.0},
+		{"shared-cpu-4x", "1 GB RAM, 2 vCPUs", 20.0},
+		{"shared-cpu-8x", "2 GB RAM, 4 vCPUs", 40.0},
+		{"performance-1x", "2 GB RAM, 1 vCPU", 60.0},
+		{"performance-2x", "4 GB RAM, 2 vCPUs", 120.0},
+		{"performance-4x", "8 GB RAM, 4 vCPUs", 240.0},
+	}
+
+	var sizeIDs []string
+	var sizeDescs []string
+	for _, size := range sizes {
+		sizeIDs = append(sizeIDs, size.ID)
+		desc := fmt.Sprintf("%s ($%.2f/mo)", size.Name, size.PriceMonthly)
+		sizeDescs = append(sizeDescs, desc)
+	}
+
+	return NewStep(id, "Machine Size").
+		Type(StepTypeSelect).
+		DefaultValue(sizeIDs[0]).
+		Options(sizeIDs...).
+		OptionDescriptions(sizeDescs...).
 		Required().
 		Build()
 }

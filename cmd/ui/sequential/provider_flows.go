@@ -16,18 +16,21 @@ func CreateProviderSelectionStep(id string) Step {
 			"digitalocean",
 			"vultr",
 			"hetzner",
+			"flyio",
 			"byos",
 		).
 		OptionLabels(
 			"DigitalOcean",
 			"Vultr",
 			"Hetzner",
+			"Fly.io",
 			"BYOS",
 		).
 		OptionDescriptions(
 			"",
 			"",
 			"",
+			"Container platform with global edge deployment",
 			"Bring your own server",
 		).
 		Required().
@@ -35,14 +38,12 @@ func CreateProviderSelectionStep(id string) Step {
 }
 
 func RunProviderSelectionWithConfigFlow(projectName string) (provider string, cfg interface{}, err error) {
-	// Create a unified flow with provider selection + provider config steps
 	providerStep := CreateProviderSelectionStep("provider")
 	steps := []Step{providerStep}
 
 	flow := NewFlow("Configure Deployment", steps)
 	flow.SetProjectName(projectName)
 
-	// Run the dynamic flow that adds steps based on provider selection
 	p := tea.NewProgram(&DynamicProviderFlow{
 		FlowModel:   flow,
 		ProjectName: projectName,
@@ -55,7 +56,6 @@ func RunProviderSelectionWithConfigFlow(projectName string) (provider string, cf
 
 	final, ok := finalModel.(*DynamicProviderFlow)
 	if !ok {
-		// Fallback to regular flow model
 		regularFinal := finalModel.(FlowModel)
 		if regularFinal.Cancelled {
 			return "", nil, fmt.Errorf("configuration cancelled")
@@ -74,7 +74,6 @@ func RunProviderSelectionWithConfigFlow(projectName string) (provider string, cf
 	results := final.GetResults()
 	selectedProvider := results["provider"]
 
-	// Build config based on provider
 	switch selectedProvider {
 	case "digitalocean":
 		doConfig := buildDigitalOceanConfig(results, final, projectName)
@@ -91,6 +90,10 @@ func RunProviderSelectionWithConfigFlow(projectName string) (provider string, cf
 	case "vultr":
 		vultrConfig := buildVultrConfig(results, final, projectName)
 		return "vultr", vultrConfig, nil
+
+	case "flyio":
+		flyioConfig := buildFlyioConfig(results, final, projectName)
+		return "flyio", flyioConfig, nil
 
 	default:
 		return "", nil, fmt.Errorf("unsupported provider: %s", selectedProvider)
@@ -139,7 +142,6 @@ func RunBYOSConfigurationFlow(projectName string) (*config.DigitalOceanConfig, e
 	}, nil
 }
 
-// DynamicProviderFlow wraps FlowModel and dynamically adds steps based on provider selection
 type DynamicProviderFlow struct {
 	*FlowModel
 	ProjectName        string
@@ -191,6 +193,11 @@ func (m *DynamicProviderFlow) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					newSteps = []Step{
 						CreateVultrRegionStepDynamic("region", token),
 						CreateVultrPlanStepDynamic("plan", token, ""),
+					}
+				case "flyio":
+					newSteps = []Step{
+						CreateFlyioRegionStepDynamic("region", token),
+						CreateFlyioSizeStepDynamic("size", token, ""),
 					}
 				}
 
@@ -300,6 +307,25 @@ func (m *DynamicProviderFlow) addProviderSteps(provider string) error {
 			newSteps = append(newSteps,
 				CreateVultrRegionStepDynamic("region", activeToken),
 				CreateVultrPlanStepDynamic("plan", activeToken, ""),
+			)
+		}
+
+	case "flyio":
+		existingToken := tokens.GetToken("flyio")
+		hasToken := existingToken != ""
+
+		if !hasToken {
+			newSteps = append(newSteps, CreateFlyioAPITokenStep("api_token"))
+		}
+
+		activeToken := existingToken
+		if !hasToken {
+			m.NeedsDynamicSteps = true
+			m.ProviderForDynamic = "flyio"
+		} else {
+			newSteps = append(newSteps,
+				CreateFlyioRegionStepDynamic("region", activeToken),
+				CreateFlyioSizeStepDynamic("size", activeToken, ""),
 			)
 		}
 
@@ -443,6 +469,45 @@ func generateSSHKeyIfNeeded(keyName string) string {
 
 	keysDir, _ := sshpkg.GetKeysDirectory()
 	return filepath.Join(keysDir, keyName)
+}
+
+func buildFlyioConfig(results map[string]string, _ *DynamicProviderFlow, projectName string) *config.FlyioConfig {
+	if token, ok := results["api_token"]; ok && token != "" {
+		tokens, _ := config.LoadTokens()
+		if !tokens.HasToken("flyio") {
+			tokens.SetToken("flyio", token)
+			tokens.SaveTokens()
+		}
+	}
+
+	keyName := sshpkg.GetKeyName(projectName)
+	keyPath := generateSSHKeyIfNeeded(keyName)
+
+	sizeStr, hasSize := results["size"]
+	if !hasSize || sizeStr == "" {
+		sizeStr = "shared-cpu-1x"
+	}
+	sizeID := extractID(sizeStr)
+
+	if sizeID == "" {
+		sizeID = "shared-cpu-1x"
+	}
+
+	regionStr := results["region"]
+	if regionStr == "" {
+		regionStr = "sjc"
+	}
+
+	return &config.FlyioConfig{
+		IP:          "",
+		Username:    "root",
+		SSHKey:      keyPath,
+		SSHKeyName:  keyName,
+		Region:      regionStr,
+		Size:        sizeID,
+		Provisioned: true,
+		AppName:     "", // Will be set after app creation via SDK
+	}
 }
 
 func extractID(str string) string {

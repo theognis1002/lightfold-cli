@@ -106,6 +106,33 @@ var configListCmd = &cobra.Command{
 						fmt.Printf("    Bucket:    %s\n", configValueStyle.Render(s3Config.Bucket))
 						fmt.Printf("    Region:    %s\n", configValueStyle.Render(s3Config.Region))
 					}
+				case "flyio":
+					if flyConfig, err := target.GetFlyioConfig(); err == nil {
+						if flyConfig.AppName != "" {
+							fmt.Printf("    App Name:  %s\n", configValueStyle.Render(flyConfig.AppName))
+						}
+						if flyConfig.IP != "" {
+							fmt.Printf("    IP:        %s\n", configValueStyle.Render(flyConfig.IP))
+						}
+						if flyConfig.Region != "" {
+							fmt.Printf("    Region:    %s\n", configValueStyle.Render(flyConfig.Region))
+						}
+						if flyConfig.Provisioned {
+							fmt.Printf("    Status:    %s\n", configValueStyle.Render("Provisioned"))
+						}
+					}
+				case "vultr":
+					if vultrConfig, err := target.GetVultrConfig(); err == nil {
+						if vultrConfig.IP != "" {
+							fmt.Printf("    IP:        %s\n", configValueStyle.Render(vultrConfig.IP))
+						}
+						if vultrConfig.Region != "" {
+							fmt.Printf("    Region:    %s\n", configValueStyle.Render(vultrConfig.Region))
+						}
+						if vultrConfig.Provisioned {
+							fmt.Printf("    Status:    %s\n", configValueStyle.Render("Provisioned"))
+						}
+					}
 				}
 			}
 		}
@@ -302,10 +329,8 @@ This allows you to customize the deployment plan detected by the framework detec
 			os.Exit(1)
 		}
 
-		// Load detection to get defaults
 		detection := detector.DetectFramework(target.ProjectPath)
 
-		// Get current custom commands or use detection defaults
 		buildCmds := detection.BuildPlan
 		runCmds := detection.RunPlan
 		if target.Deploy != nil {
@@ -317,7 +342,6 @@ This allows you to customize the deployment plan detected by the framework detec
 			}
 		}
 
-		// Show deployment editor
 		wantsDeploy, newBuildCmds, newRunCmds, err := deployment.ShowDeploymentEditor(detection, buildCmds, runCmds)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Error: %v", err)))
@@ -329,7 +353,6 @@ This allows you to customize the deployment plan detected by the framework detec
 			return
 		}
 
-		// Update target config
 		if target.Deploy == nil {
 			target.Deploy = &config.DeploymentOptions{}
 		}
