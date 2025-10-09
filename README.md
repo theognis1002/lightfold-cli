@@ -24,8 +24,6 @@
   <strong><a href="https://lightfold.mintlify.app/" target="_blank">Documentation</a></strong>
 </p>
 
-Deploy any web app to your cloud provider with a single command. No Docker, no YAML, no hassle.
-
 <p align="center">
   <img src="docs/demo.gif" alt="Lightfold CLI Demo" width="800">
 </p>
@@ -44,7 +42,7 @@ lightfold deploy
 
 That's it! Lightfold will:
 - Auto-detect your framework (Next.js, Django, Rails, etc.)
-- Set up a server on your preferred cloud (DigitalOcean, Vultr, Hetzner, etc.)
+- Set up a server on your preferred infra (DigitalOcean, Vultr, Hetzner, etc.)
 - Deploy your app with zero configuration
 
 ## Features
@@ -53,6 +51,7 @@ That's it! Lightfold will:
 - **Deploy Anywhere**: DigitalOcean, Vultr, Hetzner Cloud, or bring your own server
 - **Zero Config**: Automatic framework detection and server setup
 - **Smart Deploys**: Only deploys what changed, skips everything else
+- **Multi-App**: Deploy multiple applications to a single server with automatic port management
 
 ## Installation
 
@@ -93,6 +92,7 @@ For granular control over deployment steps:
 ### Management Commands
 
 - **`lightfold status`** - View deployment status
+- **`lightfold server`** - Manage servers and multi-app deployments
 - **`lightfold logs`** - View application logs
 - **`lightfold rollback`** - Rollback to previous release
 - **`lightfold sync`** - Sync local state with current config
@@ -170,7 +170,7 @@ State per target in `~/.lightfold/state/<target>.json`:
 - [**DigitalOcean**](https://www.digitalocean.com) - Full provisioning support
 - [**Hetzner Cloud**](https://www.hetzner.com/cloud) - Full provisioning support
 - [**Vultr**](https://www.vultr.com) - Full provisioning support
-- [ ] [**Fly.io**](https://fly.io) - Container-based deployment (infrastructure provisioning complete, deployment in progress)
+- [**Fly.io**](https://fly.io) - Container-based deployment only
 - **BYOS** (Bring Your Own Server) - Use any existing server
 
 ### Coming Soon
@@ -178,7 +178,8 @@ State per target in `~/.lightfold/state/<target>.json`:
 - [ ] [AWS EC2](https://aws.amazon.com/ec2)
 - [ ] [Google Cloud](https://cloud.google.com/compute) (Compute Engine)
 - [ ] [Azure](https://azure.microsoft.com/products/virtual-machines) (VMs)
-- [ ] [Traefik](https://traefik.io) / [Caddy](https://caddyserver.com)
+- [ ] [Caddy](https://caddyserver.com)
+- [ ] [Traefik](https://traefik.io)
 
 ## Development
 
@@ -189,6 +190,8 @@ make build && ./lightfold .
 make test
 ```
 
-See [AGENTS.md](AGENTS.md) for architecture details and [docs/RELEASING.md](docs/RELEASING.md) for release instructions.
-
 See <a href="https://lightfold.mintlify.app/" target="_blank">Documentation</a> for complete guides, API reference, and examples.
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=theognis1002/lightfold-cli&type=Date)](https://www.star-history.com/#theognis1002/lightfold-cli&Date)

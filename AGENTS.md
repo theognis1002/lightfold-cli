@@ -46,8 +46,9 @@ Lightfold CLI is a framework detector and deployment tool with composable, idemp
      - `create` - Infrastructure creation (BYOS or auto-provision)
      - `configure` - Server configuration with idempotency checks
      - `push` - Release deployment with health checks
-     - `deploy` - Orchestrator that chains all steps with smart skipping (supports `--builder` flag)
-     - `status` - View deployment state and server status (supports `--json`)
+     - `deploy` - Orchestrator that chains all steps with smart skipping (supports `--builder`, `--server-ip` flags)
+     - `status` - View deployment state and server status (supports `--json`, shows multi-app context)
+     - `server` - Manage servers and multi-app deployments (`list`, `show <ip>`)
      - `logs` - Fetch and display application logs (supports `--tail` and `--lines`)
      - `rollback` - Instant rollback to previous release (with confirmation)
      - `sync` - Sync local state/config with actual server state (drift recovery)
@@ -55,7 +56,7 @@ Lightfold CLI is a framework detector and deployment tool with composable, idemp
      - `domain` - Manage custom domains and SSL (add, remove, show)
      - `keygen` - Generate SSH keypairs
      - `ssh` - Interactive SSH sessions to deployment targets
-     - `destroy` - Destroy VM and remove local configuration
+     - `destroy` - Destroy VM and remove local configuration (unregisters from server state)
    - Target resolution via `resolveTarget()` helper in `cmd/common.go`
    - Builder resolution via `resolveBuilder()` helper with 3-layer priority (flag > config > auto-detect)
    - Clean JSON output with `--json` flag (status command)
@@ -65,10 +66,12 @@ Lightfold CLI is a framework detector and deployment tool with composable, idemp
    - Builder selection with `--builder` flag (native, nixpacks, dockerfile)
 
 5. **State Tracking** (`pkg/state/`):
-   - Local state files per target: `~/.lightfold/state/<target>.json`
+   - **Target State**: Per-target deployment state `~/.lightfold/state/<target>.json`
+   - **Server State**: Multi-app tracking `~/.lightfold/servers/<server-ip>.json`
    - Remote state markers on servers: `/etc/lightfold/{created,configured}`
    - Git commit tracking to skip unchanged deployments
    - Tracks: last commit, last deploy time, last release ID, provision ID, builder, SSL status
+   - Port allocation system (3000-9000 range) with conflict detection
    - Enables idempotent operations and intelligent step skipping
 
 5.5. **SSL Management** (`pkg/ssl/`):
@@ -114,7 +117,8 @@ lightfold/
 │   ├── keygen.go         # SSH key generation
 │   ├── ssh.go            # Interactive SSH sessions
 │   ├── destroy.go        # VM destruction and cleanup
-│   ├── common.go         # Shared helpers (resolveTarget, createTarget, configureTarget)
+│   ├── server.go         # Multi-app server management
+│   ├── common.go         # Shared helpers (resolveTarget, createTarget, configureTarget, multi-app helpers)
 │   └── ui/               # TUI components
 │       ├── detection/    # Detection results display
 │       ├── sequential/   # Token collection flows
@@ -136,7 +140,9 @@ lightfold/
 │   │   ├── config.go     # Target-based config + tokens
 │   │   └── deployment.go # Deployment options processing
 │   ├── state/            # State tracking
-│   │   └── state.go      # Local/remote state management
+│   │   ├── state.go      # Local/remote state management
+│   │   ├── server.go     # Multi-app server state
+│   │   └── ports.go      # Port allocation and conflict detection
 │   ├── deploy/           # Deployment logic
 │   │   ├── orchestrator.go # Multi-provider orchestration
 │   │   ├── executor.go   # Blue/green deployment executor
@@ -926,6 +932,7 @@ This approach provides better test isolation and easier maintenance.
 4. **Provider-Agnostic** - Unified interface across clouds and BYOS
 5. **Release-Based** - Timestamped releases with blue/green deployment and rollback
 6. **Target-Based** - Named deployment targets, not path-based projects
+7. **Multi-App Ready** - Deploy multiple apps to one server with automatic port allocation
 
 ## Quick Reference
 
@@ -968,6 +975,11 @@ lightfold domain add --domain app.com --target myapp  # Add to named target
 lightfold domain remove                # Remove domain from current directory
 lightfold domain show --target myapp   # Show domain config for target
 
+# Multi-App Server Management
+lightfold server list                  # List all servers and their apps
+lightfold server show 192.168.1.100    # Show server details and all deployed apps
+lightfold deploy --server-ip 192.168.1.100  # Deploy new app to existing server
+
 # Utilities
 lightfold ssh --target myapp           # SSH into server
 lightfold destroy --target myapp       # Destroy VM and cleanup
@@ -977,6 +989,7 @@ lightfold destroy --target myapp       # Destroy VM and cleanup
 - Config: `~/.lightfold/config.json` (targets)
 - Tokens: `~/.lightfold/tokens.json` (API tokens, 0600)
 - State: `~/.lightfold/state/<target>.json` (per-target state)
+- Server State: `~/.lightfold/servers/<server-ip>.json` (multi-app tracking)
 - SSH Keys: `~/.lightfold/keys/` (generated keypairs)
 - Remote markers: `/etc/lightfold/{created,configured}` (on server)
 - Releases: `/srv/<app>/releases/<timestamp>/` (on server)
