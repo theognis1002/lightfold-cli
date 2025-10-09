@@ -1,4 +1,4 @@
-.PHONY: build test test-verbose test-cover bench clean install help lint
+.PHONY: build test test-verbose test-cover bench clean install help lint vet pre-commit-check
 
 # Build the binary
 build:
@@ -36,16 +36,26 @@ install: build
 lint:
 	gofmt -w .
 
+# Run go vet
+vet:
+	go vet ./...
+
+# Run all pre-commit checks manually
+pre-commit-check: build lint test vet
+	@echo "All pre-commit checks passed!"
+
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  build       - Build the lightfold binary"
-	@echo "  test        - Run tests"
-	@echo "  test-verbose- Run tests with verbose output"
-	@echo "  test-cover  - Run tests with coverage analysis"
-	@echo "  bench       - Run benchmark tests"
-	@echo "  test-all    - Run all tests (verbose + coverage + bench)"
-	@echo "  clean       - Clean build artifacts"
-	@echo "  install     - Install lightfold to /usr/local/bin"
-	@echo "  lint        - Format Go code using gofmt"
-	@echo "  help        - Show this help message"
+	@echo "  build            - Build the lightfold binary"
+	@echo "  test             - Run tests"
+	@echo "  test-verbose     - Run tests with verbose output"
+	@echo "  test-cover       - Run tests with coverage analysis"
+	@echo "  bench            - Run benchmark tests"
+	@echo "  test-all         - Run all tests (verbose + coverage + bench)"
+	@echo "  clean            - Clean build artifacts"
+	@echo "  install          - Install lightfold to /usr/local/bin"
+	@echo "  lint             - Format Go code using gofmt"
+	@echo "  vet              - Run go vet"
+	@echo "  pre-commit-check - Run all pre-commit checks manually"
+	@echo "  help             - Show this help message"

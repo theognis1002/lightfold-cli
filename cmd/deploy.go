@@ -125,7 +125,7 @@ Examples:
 			fmt.Printf("  %s %s %s\n",
 				deployMutedStyle.Render("Builder:"),
 				deployMutedStyle.Render(builderName),
-				deployMutedStyle.Render("(dockerfile not implemented, using "+builderName+")"))
+				deployMutedStyle.Render("(dockerfile not implemented yet)"))
 		} else {
 			fmt.Printf("  %s %s\n", deployMutedStyle.Render("Builder:"), deployMutedStyle.Render(builderName))
 		}
