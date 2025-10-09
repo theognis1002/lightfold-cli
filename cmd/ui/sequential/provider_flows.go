@@ -154,40 +154,32 @@ func (m *DynamicProviderFlow) Init() tea.Cmd {
 }
 
 func (m *DynamicProviderFlow) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	// Intercept Enter key on provider selection step BEFORE delegating to FlowModel
 	if keyMsg, ok := msg.(tea.KeyMsg); ok && keyMsg.String() == "enter" {
-		// Check if we're on provider selection and haven't added provider steps yet
-		if !m.ProviderSelected && m.CurrentStep == 0 {
+		if m.CurrentStep == 0 {
 			currentStep := m.getCurrentStep()
-			// For Select steps, get the value from the cursor position
 			if currentStep.ID == "provider" && currentStep.Type == StepTypeSelect {
 				if currentStep.Cursor >= 0 && currentStep.Cursor < len(currentStep.Options) {
 					selectedProvider := currentStep.Options[currentStep.Cursor]
-					// Provider was selected, add appropriate steps BEFORE processing Enter
+					m.clearProviderSteps()
 					if err := m.addProviderSteps(selectedProvider); err == nil {
 						m.ProviderSelected = true
-						// Store the token step index if we need to add dynamic steps later
 						if m.NeedsDynamicSteps {
-							m.TokenStepIndex = 1 // The token step is right after provider selection
+							m.TokenStepIndex = 1
 						}
-						// Reset Completed flag to ensure flow continues
 						m.Completed = false
 					}
 				}
 			}
 		}
 
-		// Check if we're on token step and need to add dynamic steps
 		if m.NeedsDynamicSteps && m.CurrentStep == m.TokenStepIndex {
 			currentStep := m.getCurrentStep()
 			if currentStep.Value != "" && currentStep.ID == "api_token" {
 				token := currentStep.Value
-				// Save the token first
 				tokens, _ := config.LoadTokens()
 				tokens.SetToken(m.ProviderForDynamic, token)
 				tokens.SaveTokens()
 
-				// Add dynamic steps based on provider
 				var newSteps []Step
 				switch m.ProviderForDynamic {
 				case "hetzner":
@@ -202,7 +194,6 @@ func (m *DynamicProviderFlow) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 
-				// Add new steps
 				m.Steps = append(m.Steps, newSteps...)
 				for i := len(m.StepStates); i < len(m.Steps); i++ {
 					m.StepStates[i] = m.Steps[i]
@@ -214,7 +205,6 @@ func (m *DynamicProviderFlow) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Delegate to FlowModel's update
 	updatedModel, cmd := m.FlowModel.Update(msg)
 	if flowModel, ok := updatedModel.(FlowModel); ok {
 		*m.FlowModel = flowModel
@@ -225,6 +215,28 @@ func (m *DynamicProviderFlow) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *DynamicProviderFlow) View() string {
 	return m.FlowModel.View()
+}
+
+func (m *DynamicProviderFlow) clearProviderSteps() {
+	if len(m.Steps) > 1 {
+		m.Steps = m.Steps[:1]
+		newStepStates := make(map[int]Step)
+		newSSHHandlers := make(map[int]*SSHKeyHandler)
+		for i := 0; i < len(m.Steps); i++ {
+			if state, exists := m.StepStates[i]; exists {
+				newStepStates[i] = state
+			}
+			if handler, exists := m.SSHHandlers[i]; exists {
+				newSSHHandlers[i] = handler
+			}
+		}
+		m.StepStates = newStepStates
+		m.SSHHandlers = newSSHHandlers
+	}
+	m.ProviderSelected = false
+	m.NeedsDynamicSteps = false
+	m.ProviderForDynamic = ""
+	m.TokenStepIndex = 0
 }
 
 func (m *DynamicProviderFlow) addProviderSteps(provider string) error {
@@ -261,15 +273,11 @@ func (m *DynamicProviderFlow) addProviderSteps(provider string) error {
 			newSteps = append(newSteps, CreateHetznerAPITokenStep("api_token"))
 		}
 
-		// For Hetzner, we need dynamic steps that require API token
-		// We'll add them after the token is collected or use existing token
 		activeToken := existingToken
 		if !hasToken {
-			// Token will be collected in the next step, so we need to defer adding location/server type
 			m.NeedsDynamicSteps = true
 			m.ProviderForDynamic = "hetzner"
 		} else {
-			// We have a token, add dynamic steps now
 			newSteps = append(newSteps,
 				CreateHetznerLocationStepDynamic("location", activeToken),
 				CreateHetznerServerTypeStepDynamic("server_type", activeToken, ""),
@@ -284,14 +292,11 @@ func (m *DynamicProviderFlow) addProviderSteps(provider string) error {
 			newSteps = append(newSteps, CreateVultrAPITokenStep("api_token"))
 		}
 
-		// For Vultr, we need dynamic steps that require API token
 		activeToken := existingToken
 		if !hasToken {
-			// Token will be collected in the next step, so we need to defer adding region/plan
 			m.NeedsDynamicSteps = true
 			m.ProviderForDynamic = "vultr"
 		} else {
-			// We have a token, add dynamic steps now
 			newSteps = append(newSteps,
 				CreateVultrRegionStepDynamic("region", activeToken),
 				CreateVultrPlanStepDynamic("plan", activeToken, ""),
@@ -302,10 +307,8 @@ func (m *DynamicProviderFlow) addProviderSteps(provider string) error {
 		return fmt.Errorf("unsupported provider: %s", provider)
 	}
 
-	// Add new steps to the flow
 	m.Steps = append(m.Steps, newSteps...)
 
-	// Update step states for new steps
 	for i := len(m.StepStates); i < len(m.Steps); i++ {
 		m.StepStates[i] = m.Steps[i]
 		if m.Steps[i].Type == StepTypeSSHKey {
@@ -316,35 +319,28 @@ func (m *DynamicProviderFlow) addProviderSteps(provider string) error {
 	return nil
 }
 
-// Helper functions to build provider configs from results
-func buildDigitalOceanConfig(results map[string]string, flow *DynamicProviderFlow, projectName string) *config.DigitalOceanConfig {
-	// Save token if provided
+func buildDigitalOceanConfig(results map[string]string, _ *DynamicProviderFlow, projectName string) *config.DigitalOceanConfig {
 	if token, ok := results["api_token"]; ok && token != "" {
 		tokens, _ := config.LoadTokens()
 		tokens.SetToken("digitalocean", token)
 		tokens.SaveTokens()
 	}
-
-	// Generate SSH key
 	keyName := sshpkg.GetKeyName(projectName)
 	keyPath := generateSSHKeyIfNeeded(keyName)
 
-	// Extract size ID from "size_id (description)" format
 	sizeStr, hasSize := results["size"]
 	if !hasSize || sizeStr == "" {
-		// Default to smallest size if not provided
 		sizeStr = "s-1vcpu-512mb-10gb"
 	}
 	sizeID := extractID(sizeStr)
 
-	// Validate that we have a non-empty size ID
 	if sizeID == "" {
 		sizeID = "s-1vcpu-512mb-10gb"
 	}
 
 	regionStr := results["region"]
 	if regionStr == "" {
-		regionStr = "nyc1" // Default region
+		regionStr = "nyc1"
 	}
 
 	return &config.DigitalOceanConfig{
@@ -370,8 +366,7 @@ func buildBYOSConfig(results map[string]string, flow *DynamicProviderFlow) *conf
 	}
 }
 
-func buildHetznerConfig(results map[string]string, flow *DynamicProviderFlow, projectName string) *config.HetznerConfig {
-	// Token should already be saved by the dynamic step handler, but double-check
+func buildHetznerConfig(results map[string]string, _ *DynamicProviderFlow, projectName string) *config.HetznerConfig {
 	if token, ok := results["api_token"]; ok && token != "" {
 		tokens, _ := config.LoadTokens()
 		if !tokens.HasToken("hetzner") {
@@ -380,21 +375,18 @@ func buildHetznerConfig(results map[string]string, flow *DynamicProviderFlow, pr
 		}
 	}
 
-	// Generate SSH key
 	keyName := sshpkg.GetKeyName(projectName)
 	keyPath := generateSSHKeyIfNeeded(keyName)
 
-	// Extract server type ID
 	serverTypeStr, hasServerType := results["server_type"]
 	if !hasServerType || serverTypeStr == "" {
-		// This should not happen, but handle gracefully
-		serverTypeStr = "cx11" // Default fallback
+		serverTypeStr = "cx11"
 	}
 	serverTypeID := extractID(serverTypeStr)
 
 	locationStr := results["location"]
 	if locationStr == "" {
-		locationStr = "fsn1" // Default fallback
+		locationStr = "fsn1"
 	}
 
 	return &config.HetznerConfig{
@@ -408,8 +400,7 @@ func buildHetznerConfig(results map[string]string, flow *DynamicProviderFlow, pr
 	}
 }
 
-func buildVultrConfig(results map[string]string, flow *DynamicProviderFlow, projectName string) *config.VultrConfig {
-	// Token should already be saved by the dynamic step handler, but double-check
+func buildVultrConfig(results map[string]string, _ *DynamicProviderFlow, projectName string) *config.VultrConfig {
 	if token, ok := results["api_token"]; ok && token != "" {
 		tokens, _ := config.LoadTokens()
 		if !tokens.HasToken("vultr") {
@@ -418,21 +409,18 @@ func buildVultrConfig(results map[string]string, flow *DynamicProviderFlow, proj
 		}
 	}
 
-	// Generate SSH key
 	keyName := sshpkg.GetKeyName(projectName)
 	keyPath := generateSSHKeyIfNeeded(keyName)
 
-	// Extract plan ID
 	planStr, hasPlan := results["plan"]
 	if !hasPlan || planStr == "" {
-		// This should not happen, but handle gracefully
-		planStr = "vc2-1c-1gb" // Default fallback
+		planStr = "vc2-1c-1gb"
 	}
 	planID := extractID(planStr)
 
 	regionStr := results["region"]
 	if regionStr == "" {
-		regionStr = "ewr" // Default fallback
+		regionStr = "ewr"
 	}
 
 	return &config.VultrConfig{
@@ -458,7 +446,6 @@ func generateSSHKeyIfNeeded(keyName string) string {
 }
 
 func extractID(str string) string {
-	// Extract ID from "id (description)" format
 	for i, r := range str {
 		if r == ' ' && i+1 < len(str) && str[i+1] == '(' {
 			return str[:i]
