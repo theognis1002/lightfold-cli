@@ -73,15 +73,15 @@ func promptDomainConfiguration(target *config.TargetConfig, targetName string) {
 	promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
 	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 
-	fmt.Printf("%s", promptStyle.Render("Want to add a custom domain? (Y/n): "))
+	fmt.Printf("%s", promptStyle.Render("Want to add a custom domain? (y/N): "))
 
 	reader := bufio.NewReader(os.Stdin)
 	response, _ := reader.ReadString('\n')
 	response = strings.TrimSpace(strings.ToLower(response))
 
-	// Default to yes - only skip if user explicitly says no
-	if response == "n" || response == "no" {
-		domainHint := fmt.Sprintf("💡 You can add a domain later with: lightfold domain add --target %s --domain example.com", targetName)
+	// Change the response check to skip by default
+	if response == "" || response == "n" || response == "no" {
+		domainHint := fmt.Sprintf("NOTE: You can add a domain later with: lightfold domain add --target %s --domain example.com", targetName)
 		fmt.Printf("\n%s\n", hintStyle.Render(domainHint))
 		return
 	}

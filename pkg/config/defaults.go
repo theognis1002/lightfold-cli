@@ -13,6 +13,12 @@ const (
 	// DefaultSSHTimeout is the default timeout for SSH connections
 	DefaultSSHTimeout = 30 * time.Second
 
+	// DefaultSSHConnectionTimeout is the timeout for establishing SSH connections
+	DefaultSSHConnectionTimeout = 3 * time.Minute
+
+	// DefaultTarballUploadTimeout is the timeout for uploading tarballs to remote servers
+	DefaultTarballUploadTimeout = 5 * time.Minute
+
 	// DefaultProvisioningTimeout is the timeout for provisioning operations
 	DefaultProvisioningTimeout = 10 * time.Minute
 

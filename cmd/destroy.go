@@ -9,10 +9,13 @@ import (
 	_ "lightfold/pkg/providers/digitalocean"
 	_ "lightfold/pkg/providers/flyio"
 	_ "lightfold/pkg/providers/hetzner"
+	"lightfold/pkg/runtime"
+	sshpkg "lightfold/pkg/ssh"
 	"lightfold/pkg/state"
 	"lightfold/pkg/util"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -110,7 +113,52 @@ Examples:
 
 		fmt.Println()
 
+		// Check if we should destroy the VM
+		// Only destroy if: (1) VM was provisioned by this target AND (2) no other apps on the server
+		shouldDestroyVM := false
+		var otherApps []state.DeployedApp
+
 		if provisionedID != "" && target.Provider != "" && target.Provider != "byos" {
+			// Check if this target provisioned the VM
+			targetProvisionedVM := false
+			if providerCfg != nil {
+				targetProvisionedVM = providerCfg.IsProvisioned()
+			}
+
+			// Check if other apps exist on this server
+			if target.ServerIP != "" {
+				serverState, err := state.GetServerState(target.ServerIP)
+				if err == nil {
+					// Get apps other than the current one
+					for _, app := range serverState.DeployedApps {
+						if app.TargetName != destroyTargetFlag {
+							otherApps = append(otherApps, app)
+						}
+					}
+				}
+			}
+
+			// Decide whether to destroy VM
+			if !targetProvisionedVM {
+				// This target didn't provision the VM (joined existing server)
+				shouldDestroyVM = false
+			} else if len(otherApps) > 0 {
+				// Other apps exist on this server
+				shouldDestroyVM = false
+				fmt.Printf("%s %s\n", destroyWarningStyle.Render("⚠"), destroyWarningStyle.Render("VM will NOT be destroyed - other apps are deployed to this server:"))
+				for _, app := range otherApps {
+					fmt.Printf("  %s %s (port %d)\n", destroyMutedStyle.Render("•"), app.AppName, app.Port)
+				}
+				fmt.Println()
+				fmt.Printf("%s %s\n", destroyMutedStyle.Render("ℹ"), destroyMutedStyle.Render("Only removing this app's configuration and local state"))
+				fmt.Println()
+			} else {
+				// This target provisioned the VM and no other apps exist
+				shouldDestroyVM = true
+			}
+		}
+
+		if shouldDestroyVM {
 			fmt.Printf("%s %s\n", destroyWarningStyle.Render("→"), destroyMutedStyle.Render("Destroying VM..."))
 
 			tokens, err := config.LoadTokens()
@@ -173,6 +221,48 @@ Examples:
 				}
 			} else {
 				fmt.Printf("%s %s\n", destroySuccessStyle.Render("✓"), destroyMutedStyle.Render("VM destroyed successfully"))
+			}
+		}
+
+		// Unregister app from server state if applicable
+		if target.ServerIP != "" {
+			if err := state.UnregisterApp(target.ServerIP, destroyTargetFlag); err != nil {
+				fmt.Printf("%s %s\n", destroyWarningStyle.Render("⚠"), destroyMutedStyle.Render(fmt.Sprintf("Failed to unregister app from server: %v", err)))
+			} else {
+				fmt.Printf("%s %s\n", destroySuccessStyle.Render("✓"), destroyMutedStyle.Render("Unregistered app from server state"))
+
+				// Check if other apps remain on this server
+				serverState, err := state.GetServerState(target.ServerIP)
+				if err == nil {
+					if len(serverState.DeployedApps) > 0 {
+						fmt.Printf("%s %s\n", destroyMutedStyle.Render("ℹ"), destroyMutedStyle.Render(fmt.Sprintf("Server still hosts %d other app(s)", len(serverState.DeployedApps))))
+					}
+				}
+
+				// Clean up unused runtimes if keeping the VM (only makes sense for multi-app servers)
+				if !shouldDestroyVM && len(otherApps) > 0 {
+					// Get provider config to connect via SSH
+					providerCfg, err := target.GetAnyProviderConfig()
+					if err == nil && providerCfg.GetIP() != "" {
+						fmt.Printf("%s %s\n", destroyMutedStyle.Render("→"), destroyMutedStyle.Render("Analyzing runtime dependencies..."))
+
+						// Connect to server via SSH
+						sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
+						if err := sshExecutor.Connect(3, 10*time.Second); err == nil {
+							defer sshExecutor.Disconnect()
+
+							// Cleanup unused runtimes
+							if err := runtime.CleanupUnusedRuntimes(sshExecutor, target.ServerIP, destroyTargetFlag); err != nil {
+								fmt.Printf("%s %s\n", destroyWarningStyle.Render("⚠"), destroyMutedStyle.Render(fmt.Sprintf("Runtime cleanup warning: %v", err)))
+								fmt.Printf("%s %s\n", destroyMutedStyle.Render("  "), destroyMutedStyle.Render("You may manually run: apt-get autoremove -y"))
+							} else {
+								fmt.Printf("%s %s\n", destroySuccessStyle.Render("✓"), destroyMutedStyle.Render("Cleaned up unused runtimes"))
+							}
+						} else {
+							fmt.Printf("%s %s\n", destroyMutedStyle.Render("ℹ"), destroyMutedStyle.Render("Skipping runtime cleanup (SSH connection failed)"))
+						}
+					}
+				}
 			}
 		}
 

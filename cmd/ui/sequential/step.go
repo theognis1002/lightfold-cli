@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"lightfold/pkg/providers"
+	"lightfold/pkg/state"
 	"net"
 	"os"
 	"path/filepath"
@@ -172,6 +173,31 @@ func ValidateAWSRegion(value string) error {
 	matched, err := regexp.MatchString("^[a-z0-9-]+$", value)
 	if err != nil || !matched {
 		return fmt.Errorf("invalid AWS region format")
+	}
+
+	return nil
+}
+
+func ValidatePort(value string) error {
+	// Empty is allowed since port is optional
+	if value == "" {
+		return nil
+	}
+
+	// Try to parse as integer
+	matched, err := regexp.MatchString("^[0-9]+$", value)
+	if err != nil || !matched {
+		return fmt.Errorf("port must be a number")
+	}
+
+	// Check range
+	var port int
+	if _, err := fmt.Sscanf(value, "%d", &port); err != nil {
+		return fmt.Errorf("invalid port number")
+	}
+
+	if port < 3000 || port > 9000 {
+		return fmt.Errorf("port must be between 3000 and 9000")
 	}
 
 	return nil
@@ -846,4 +872,99 @@ func createFlyioSizeStepStatic(id string) Step {
 		OptionDescriptions(sizeDescs...).
 		Required().
 		Build()
+}
+
+// CreateExistingServerStep creates a step for selecting an existing server
+func CreateExistingServerStep(id string) Step {
+	servers, err := state.ListAllServers()
+	if err != nil || len(servers) == 0 {
+		// Return empty step - will be handled by flow
+		return NewStep(id, "Select Server").
+			Type(StepTypeSelect).
+			Options().
+			Required().
+			Build()
+	}
+
+	var serverIPs []string
+	var serverDescs []string
+
+	for _, serverIP := range servers {
+		serverState, err := state.GetServerState(serverIP)
+		if err != nil {
+			// If we can't get state, just show IP
+			serverIPs = append(serverIPs, serverIP)
+			serverDescs = append(serverDescs, "")
+			continue
+		}
+
+		serverIPs = append(serverIPs, serverIP)
+
+		// Format: "provider, N apps"
+		appCount := len(serverState.DeployedApps)
+		appWord := "app"
+		if appCount != 1 {
+			appWord = "apps"
+		}
+
+		desc := fmt.Sprintf("%s, %d %s", serverState.Provider, appCount, appWord)
+		serverDescs = append(serverDescs, desc)
+	}
+
+	return NewStep(id, "Select Server").
+		Type(StepTypeSelect).
+		DefaultValue(serverIPs[0]).
+		Options(serverIPs...).
+		OptionDescriptions(serverDescs...).
+		Required().
+		Build()
+}
+
+// CreatePortStep creates an optional port selection step
+func CreatePortStep(id string) Step {
+	return NewStep(id, "Select Port (optional)").
+		Type(StepTypeText).
+		Placeholder("Leave empty for automatic port allocation").
+		Description("Port range: 3000-9000").
+		Validate(ValidatePort).
+		Build()
+}
+
+// CreatePortStepWithUsedPorts creates a port step with information about used ports on the server
+func CreatePortStepWithUsedPorts(id string, serverIP string) Step {
+	// Get used ports from server state
+	usedPortsDesc := getUsedPortsDescription(serverIP)
+
+	return NewStep(id, "Select Port (optional)").
+		Type(StepTypeText).
+		Placeholder("Leave empty for automatic port allocation").
+		Description(usedPortsDesc).
+		Validate(ValidatePort).
+		Build()
+}
+
+// getUsedPortsDescription builds a description string showing which ports are already in use
+func getUsedPortsDescription(serverIP string) string {
+	baseDesc := "Port range: 3000-9000"
+
+	// Get server state
+	serverState, err := state.GetServerState(serverIP)
+	if err != nil || len(serverState.DeployedApps) == 0 {
+		return baseDesc
+	}
+
+	// Collect used ports
+	var usedPorts []string
+	for _, app := range serverState.DeployedApps {
+		if app.Port > 0 {
+			usedPorts = append(usedPorts, fmt.Sprintf("%d (%s)", app.Port, app.AppName))
+		}
+	}
+
+	if len(usedPorts) == 0 {
+		return baseDesc
+	}
+
+	// Build description with used ports
+	return fmt.Sprintf("%s | Used: %s", baseDesc, strings.Join(usedPorts, ", "))
 }

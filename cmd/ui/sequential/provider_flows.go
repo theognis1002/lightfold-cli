@@ -18,6 +18,7 @@ func CreateProviderSelectionStep(id string) Step {
 			"hetzner",
 			"flyio",
 			"byos",
+			"existing",
 		).
 		OptionLabels(
 			"DigitalOcean",
@@ -25,13 +26,15 @@ func CreateProviderSelectionStep(id string) Step {
 			"Hetzner",
 			"Fly.io",
 			"BYOS",
+			"Existing server",
 		).
 		OptionDescriptions(
 			"",
 			"",
 			"",
-			"Container platform with global edge deployment",
+			"Docker deployment only",
 			"Bring your own server",
+			"Deploy to existing server",
 		).
 		Required().
 		Build()
@@ -94,6 +97,10 @@ func RunProviderSelectionWithConfigFlow(projectName string) (provider string, cf
 	case "flyio":
 		flyioConfig := buildFlyioConfig(results, final, projectName)
 		return "flyio", flyioConfig, nil
+
+	case "existing":
+		existingConfig := buildExistingServerConfig(results)
+		return "existing", existingConfig, nil
 
 	default:
 		return "", nil, fmt.Errorf("unsupported provider: %s", selectedProvider)
@@ -202,6 +209,25 @@ func (m *DynamicProviderFlow) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				m.Steps = append(m.Steps, newSteps...)
+				for i := len(m.StepStates); i < len(m.Steps); i++ {
+					m.StepStates[i] = m.Steps[i]
+				}
+
+				m.NeedsDynamicSteps = false
+				m.Completed = false
+			}
+		}
+
+		// Handle existing server flow - add port step after server selection
+		if m.NeedsDynamicSteps && m.ProviderForDynamic == "existing" && m.CurrentStep == m.TokenStepIndex {
+			currentStep := m.getCurrentStep()
+			if currentStep.Value != "" && currentStep.ID == "server_ip" {
+				serverIP := currentStep.Value
+
+				// Create port step with used ports information
+				portStep := CreatePortStepWithUsedPorts("port", serverIP)
+
+				m.Steps = append(m.Steps, portStep)
 				for i := len(m.StepStates); i < len(m.Steps); i++ {
 					m.StepStates[i] = m.Steps[i]
 				}
@@ -328,6 +354,14 @@ func (m *DynamicProviderFlow) addProviderSteps(provider string) error {
 				CreateFlyioSizeStepDynamic("size", activeToken, ""),
 			)
 		}
+
+	case "existing":
+		newSteps = []Step{
+			CreateExistingServerStep("server_ip"),
+			// Port step will be added dynamically after server selection
+		}
+		m.NeedsDynamicSteps = true
+		m.ProviderForDynamic = "existing"
 
 	default:
 		return fmt.Errorf("unsupported provider: %s", provider)
@@ -508,6 +542,21 @@ func buildFlyioConfig(results map[string]string, _ *DynamicProviderFlow, project
 		Provisioned: true,
 		AppName:     "", // Will be set after app creation via SDK
 	}
+}
+
+func buildExistingServerConfig(results map[string]string) map[string]string {
+	// Return server IP and optional port from results
+	// The actual setup will be done in createTarget() using setupTargetWithExistingServer()
+	config := map[string]string{
+		"server_ip": results["server_ip"],
+	}
+
+	// Add port if provided
+	if port, ok := results["port"]; ok && port != "" {
+		config["port"] = port
+	}
+
+	return config
 }
 
 func extractID(str string) string {

@@ -116,7 +116,10 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 		}
 
 		provider = selectedProvider
-		targetConfig.Provider = provider
+		// Don't set targetConfig.Provider yet for "existing" - setupTargetWithExistingServer will set it
+		if provider != "existing" {
+			targetConfig.Provider = provider
+		}
 		switch provider {
 		case "digitalocean":
 			if doConfig, ok := providerConfig.(*config.DigitalOceanConfig); ok {
@@ -148,6 +151,28 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 			} else {
 				return config.TargetConfig{}, fmt.Errorf("invalid BYOS configuration")
 			}
+		case "existing":
+			if configMap, ok := providerConfig.(map[string]string); ok {
+				serverIP := configMap["server_ip"]
+				if serverIP == "" {
+					return config.TargetConfig{}, fmt.Errorf("server IP is required")
+				}
+
+				var userPort int
+				if portStr, ok := configMap["port"]; ok && portStr != "" {
+					var err error
+					userPort, err = strconv.Atoi(portStr)
+					if err != nil {
+						return config.TargetConfig{}, fmt.Errorf("invalid port number: %w", err)
+					}
+				}
+
+				if err := setupTargetWithExistingServer(&targetConfig, serverIP, userPort); err != nil {
+					return config.TargetConfig{}, fmt.Errorf("failed to setup target with existing server: %w", err)
+				}
+			} else {
+				return config.TargetConfig{}, fmt.Errorf("invalid existing server configuration")
+			}
 		default:
 			return config.TargetConfig{}, fmt.Errorf("unsupported provider: %s", provider)
 		}
@@ -159,7 +184,7 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 			return config.TargetConfig{}, fmt.Errorf("failed to save config: %w", err)
 		}
 
-		if provider == "byos" {
+		if provider == "byos" || provider == "existing" {
 			byosConfig, err := targetConfig.GetSSHProviderConfig()
 			if err != nil {
 				return config.TargetConfig{}, fmt.Errorf("failed to get BYOS config: %w", err)
@@ -167,6 +192,10 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 
 			sshExecutor := sshpkg.NewExecutor(byosConfig.GetIP(), "22", byosConfig.GetUsername(), byosConfig.GetSSHKey())
 			defer sshExecutor.Disconnect()
+
+			if err := sshExecutor.Connect(3, 2*time.Second); err != nil {
+				return config.TargetConfig{}, fmt.Errorf("SSH connection failed: %w", err)
+			}
 
 			result := sshExecutor.Execute("echo 'SSH connection successful'")
 			if result.Error != nil || result.ExitCode != 0 {
@@ -176,6 +205,11 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 			successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
 			mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 			fmt.Printf("%s %s\n", successStyle.Render("✓"), mutedStyle.Render("SSH connection validated"))
+
+			// Show port allocation for existing servers
+			if targetConfig.Port > 0 {
+				fmt.Printf("%s %s\n", successStyle.Render("✓"), mutedStyle.Render(fmt.Sprintf("Allocated to port %d", targetConfig.Port)))
+			}
 
 			markerCmd := fmt.Sprintf("sudo mkdir -p %s && echo 'created' | sudo tee %s/%s > /dev/null", config.RemoteLightfoldDir, config.RemoteLightfoldDir, config.RemoteCreatedMarker)
 			result = sshExecutor.Execute(markerCmd)
@@ -349,6 +383,8 @@ func configureTarget(target config.TargetConfig, targetName string, force bool) 
 	if err := validateConfigureTargetConfig(target); err != nil {
 		return fmt.Errorf("invalid target configuration: %w", err)
 	}
+
+	// Check if server is already configured
 	if !force {
 		providerCfg, err := target.GetSSHProviderConfig()
 		if err != nil {
@@ -358,15 +394,25 @@ func configureTarget(target config.TargetConfig, targetName string, force bool) 
 		sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
 		if err := sshExecutor.Connect(3, 2*time.Second); err == nil {
 			result := sshExecutor.Execute(fmt.Sprintf("test -f %s/%s && echo 'configured'", config.RemoteLightfoldDir, config.RemoteConfiguredMarker))
-			sshExecutor.Disconnect()
 
 			if result.ExitCode == 0 && strings.TrimSpace(result.Stdout) == "configured" {
-				if err := state.MarkConfigured(targetName); err != nil {
-					fmt.Printf("Warning: failed to update local state: %v\n", err)
+				// Server is configured, but check if we need to install a new runtime for multi-app scenario
+				needsRuntimeInstall := checkIfRuntimeNeeded(sshExecutor, projectPath)
+				sshExecutor.Disconnect()
+
+				if !needsRuntimeInstall {
+					if err := state.MarkConfigured(targetName); err != nil {
+						fmt.Printf("Warning: failed to update local state: %v\n", err)
+					}
+					skipStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+					fmt.Printf("%s\n", skipStyle.Render("Server already configured (skipping)"))
+					return nil
 				}
-				skipStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
-				fmt.Printf("%s\n", skipStyle.Render("Server already configured (skipping)"))
-				return nil
+				// Runtime needed for new app - continue to configuration
+				mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+				fmt.Printf("%s\n", mutedStyle.Render("Server configured, but installing runtime for this app..."))
+			} else {
+				sshExecutor.Disconnect()
 			}
 		}
 	}
@@ -991,7 +1037,11 @@ func configureDomainAndSSL(target *config.TargetConfig, targetName string, domai
 		nginxMgr.SetExecutor(sshExecutor)
 	}
 
-	port := extractPortFromTarget(target, target.ProjectPath)
+	// Get or allocate port for this app
+	port := target.Port
+	if port == 0 {
+		port = extractPortFromTarget(target, target.ProjectPath)
+	}
 
 	appName := targetName
 
@@ -1321,4 +1371,300 @@ func syncTarget(target config.TargetConfig, targetName string, cfg *config.Confi
 	}
 
 	return targetState, nil
+}
+
+// getOrAllocatePort gets the port for a target, allocating one if necessary
+func getOrAllocatePort(target *config.TargetConfig, targetName string) (int, error) {
+	// If port is already set in target config, use it
+	if target.Port > 0 {
+		return target.Port, nil
+	}
+
+	// If ServerIP is set, use server state for port allocation
+	if target.ServerIP != "" {
+		// Check if app is already registered with a port
+		app, err := state.GetAppFromServer(target.ServerIP, targetName)
+		if err == nil && app.Port > 0 {
+			return app.Port, nil
+		}
+
+		// Allocate a new port
+		port, err := state.AllocatePort(target.ServerIP)
+		if err != nil {
+			return 0, fmt.Errorf("failed to allocate port: %w", err)
+		}
+		return port, nil
+	}
+
+	// Fallback to default port detection
+	return extractPortFromTarget(target, target.ProjectPath), nil
+}
+
+// registerAppWithServer registers an app in the server state
+func registerAppWithServer(target *config.TargetConfig, targetName string, port int, framework string) error {
+	if target.ServerIP == "" {
+		return nil // Not using server state
+	}
+
+	app := state.DeployedApp{
+		TargetName: targetName,
+		AppName:    targetName,
+		Port:       port,
+		Framework:  framework,
+		LastDeploy: time.Now(),
+	}
+
+	// Add domain if configured
+	if target.Domain != nil && target.Domain.Domain != "" {
+		app.Domain = target.Domain.Domain
+	}
+
+	return state.RegisterApp(target.ServerIP, app)
+}
+
+// updateServerStateFromTarget ensures server state is initialized from target config
+func updateServerStateFromTarget(target *config.TargetConfig, targetName string) error {
+	providerCfg, err := target.GetSSHProviderConfig()
+	if err != nil {
+		return nil // Not an SSH provider
+	}
+
+	serverIP := providerCfg.GetIP()
+	if serverIP == "" {
+		return nil // No IP yet
+	}
+
+	// Update target's ServerIP if not set
+	if target.ServerIP == "" {
+		target.ServerIP = serverIP
+	}
+
+	// Get or create server state
+	serverState, err := state.GetServerState(serverIP)
+	if err != nil {
+		return fmt.Errorf("failed to get server state: %w", err)
+	}
+
+	// Update server state metadata if empty
+	if serverState.Provider == "" {
+		serverState.Provider = target.Provider
+		serverState.ServerID = providerCfg.GetServerID()
+
+		// Determine proxy type from domain config or default
+		if target.Domain != nil && target.Domain.ProxyType != "" {
+			serverState.ProxyType = target.Domain.ProxyType
+		} else {
+			serverState.ProxyType = "nginx" // Default
+		}
+
+		// Set root domain if available
+		if target.Domain != nil && target.Domain.RootDomain != "" {
+			serverState.RootDomain = target.Domain.RootDomain
+		}
+
+		if err := state.SaveServerState(serverState); err != nil {
+			return fmt.Errorf("failed to save server state: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// setupTargetWithExistingServer configures a target to use an existing server
+// checkIfRuntimeNeeded determines if a runtime needs to be installed for the current app
+// Returns true if the runtime is missing and needs installation
+func checkIfRuntimeNeeded(sshExecutor *sshpkg.Executor, projectPath string) bool {
+	detection := detector.DetectFramework(projectPath)
+
+	switch detection.Language {
+	case "JavaScript/TypeScript":
+		// Check if Node.js is installed
+		result := sshExecutor.Execute("/usr/bin/node --version 2>/dev/null || /usr/local/bin/node --version 2>/dev/null || echo 'not-found'")
+		nodeVersion := strings.TrimSpace(result.Stdout)
+		if nodeVersion == "not-found" || nodeVersion == "" {
+			return true // Node.js not installed
+		}
+
+		// Check if package manager is installed (if not npm)
+		if pm, ok := detection.Meta["package_manager"]; ok && pm != "npm" {
+			switch pm {
+			case "bun":
+				result := sshExecutor.Execute("command -v bun >/dev/null 2>&1 && echo 'found' || echo 'not-found'")
+				if strings.TrimSpace(result.Stdout) == "not-found" {
+					return true
+				}
+			case "pnpm":
+				result := sshExecutor.Execute("command -v pnpm >/dev/null 2>&1 && echo 'found' || echo 'not-found'")
+				if strings.TrimSpace(result.Stdout) == "not-found" {
+					return true
+				}
+			case "yarn":
+				result := sshExecutor.Execute("command -v yarn >/dev/null 2>&1 && echo 'found' || echo 'not-found'")
+				if strings.TrimSpace(result.Stdout) == "not-found" {
+					return true
+				}
+			}
+		}
+		return false // Node.js and package manager are installed
+
+	case "Python":
+		// Check if Python is installed
+		result := sshExecutor.Execute("python3 --version 2>/dev/null || echo 'not-found'")
+		pythonVersion := strings.TrimSpace(result.Stdout)
+		if pythonVersion == "not-found" || pythonVersion == "" {
+			return true // Python not installed
+		}
+
+		// Check if package manager is installed (if not pip)
+		if pm, ok := detection.Meta["package_manager"]; ok && pm != "pip" {
+			switch pm {
+			case "poetry":
+				result := sshExecutor.Execute("command -v poetry >/dev/null 2>&1 && echo 'found' || echo 'not-found'")
+				if strings.TrimSpace(result.Stdout) == "not-found" {
+					return true
+				}
+			case "pipenv":
+				result := sshExecutor.Execute("command -v pipenv >/dev/null 2>&1 && echo 'found' || echo 'not-found'")
+				if strings.TrimSpace(result.Stdout) == "not-found" {
+					return true
+				}
+			case "uv":
+				result := sshExecutor.Execute("command -v uv >/dev/null 2>&1 && echo 'found' || echo 'not-found'")
+				if strings.TrimSpace(result.Stdout) == "not-found" {
+					return true
+				}
+			}
+		}
+		return false // Python and package manager are installed
+
+	case "Go":
+		result := sshExecutor.Execute("go version 2>/dev/null || echo 'not-found'")
+		goVersion := strings.TrimSpace(result.Stdout)
+		return goVersion == "not-found" || goVersion == ""
+
+	case "PHP":
+		result := sshExecutor.Execute("php --version 2>/dev/null || echo 'not-found'")
+		phpVersion := strings.TrimSpace(result.Stdout)
+		return phpVersion == "not-found" || phpVersion == ""
+
+	case "Ruby":
+		result := sshExecutor.Execute("ruby --version 2>/dev/null || echo 'not-found'")
+		rubyVersion := strings.TrimSpace(result.Stdout)
+		return rubyVersion == "not-found" || rubyVersion == ""
+
+	default:
+		// Unknown language, assume runtime is needed
+		return true
+	}
+}
+
+func setupTargetWithExistingServer(target *config.TargetConfig, serverIP string, userPort int) error {
+	// Verify server exists
+	if !state.ServerStateExists(serverIP) {
+		return fmt.Errorf("server %s not found. Run 'lightfold server list' to see available servers", serverIP)
+	}
+
+	// Get server state
+	serverState, err := state.GetServerState(serverIP)
+	if err != nil {
+		return fmt.Errorf("failed to get server state: %w", err)
+	}
+
+	// Get SSH key from existing target on this server
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	targetsOnServer := cfg.GetTargetsByServerIP(serverIP)
+	var sshKey string
+	for _, existingTarget := range targetsOnServer {
+		existingProviderCfg, err := existingTarget.GetSSHProviderConfig()
+		if err == nil && existingProviderCfg.GetSSHKey() != "" {
+			sshKey = existingProviderCfg.GetSSHKey()
+			break
+		}
+	}
+
+	if sshKey == "" {
+		// Default SSH key path
+		homeDir, err := os.UserHomeDir()
+		if err == nil {
+			defaultKeyPath := filepath.Join(homeDir, config.LocalConfigDir, config.LocalKeysDir, "lightfold_ed25519")
+			if _, err := os.Stat(defaultKeyPath); err == nil {
+				sshKey = defaultKeyPath
+			}
+		}
+
+		if sshKey == "" {
+			return fmt.Errorf("no SSH key found for server %s. Deploy another app to this server first, or use 'lightfold create' with full provisioning", serverIP)
+		}
+	}
+
+	// Set target's ServerIP
+	target.ServerIP = serverIP
+
+	// Set user-provided port if specified
+	if userPort > 0 {
+		target.Port = userPort
+	}
+
+	// Adopt server's provider configuration if not already set
+	if target.Provider == "" || target.Provider == serverState.Provider {
+		target.Provider = serverState.Provider
+
+		// Create a basic provider config based on server state
+		// This allows the target to deploy without needing full provisioning
+		switch serverState.Provider {
+		case "digitalocean":
+			doConfig := &config.DigitalOceanConfig{
+				IP:          serverIP,
+				DropletID:   serverState.ServerID,
+				SSHKey:      sshKey,
+				Username:    "deploy",
+				Provisioned: false, // Not provisioned by this target
+			}
+			target.SetProviderConfig("digitalocean", doConfig)
+		case "hetzner":
+			hetznerConfig := &config.HetznerConfig{
+				IP:          serverIP,
+				ServerID:    serverState.ServerID,
+				SSHKey:      sshKey,
+				Username:    "deploy",
+				Provisioned: false,
+			}
+			target.SetProviderConfig("hetzner", hetznerConfig)
+		case "vultr":
+			vultrConfig := &config.VultrConfig{
+				IP:          serverIP,
+				InstanceID:  serverState.ServerID,
+				SSHKey:      sshKey,
+				Username:    "deploy",
+				Provisioned: false,
+			}
+			target.SetProviderConfig("vultr", vultrConfig)
+		case "byos":
+			// For BYOS, use the SSH key we found
+			doConfig := &config.DigitalOceanConfig{
+				IP:          serverIP,
+				SSHKey:      sshKey,
+				Username:    "deploy",
+				Provisioned: false,
+			}
+			target.SetProviderConfig("byos", doConfig)
+		default:
+			return fmt.Errorf("unsupported provider: %s", serverState.Provider)
+		}
+	}
+
+	// Copy domain configuration if server has a root domain
+	if serverState.RootDomain != "" && (target.Domain == nil || target.Domain.RootDomain == "") {
+		if target.Domain == nil {
+			target.Domain = &config.DomainConfig{}
+		}
+		target.Domain.RootDomain = serverState.RootDomain
+		target.Domain.ProxyType = serverState.ProxyType
+	}
+
+	return nil
 }

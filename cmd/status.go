@@ -292,6 +292,32 @@ func showTargetDetail(cfg *config.Config, targetName string) {
 		fmt.Printf("  IP:        %s\n", statusValueStyle.Render(providerCfg.GetIP()))
 		fmt.Printf("  Username:  %s\n", statusValueStyle.Render(providerCfg.GetUsername()))
 
+		// Show server context if available
+		if target.ServerIP != "" {
+			serverState, err := state.GetServerState(target.ServerIP)
+			if err == nil && len(serverState.DeployedApps) > 1 {
+				fmt.Printf("\n  %s\n", statusHeaderStyle.Render("Server Context:"))
+				fmt.Printf("  This server hosts %s\n", statusValueStyle.Render(fmt.Sprintf("%d applications", len(serverState.DeployedApps))))
+
+				// List other apps on same server
+				otherApps := []string{}
+				for _, app := range serverState.DeployedApps {
+					if app.TargetName != targetName {
+						otherApps = append(otherApps, app.TargetName)
+					}
+				}
+				if len(otherApps) > 0 {
+					fmt.Printf("  Other apps: %s\n", statusMutedStyle.Render(strings.Join(otherApps, ", ")))
+				}
+
+				// Show port allocation
+				if target.Port > 0 {
+					fmt.Printf("  This app's port: %s\n", statusValueStyle.Render(fmt.Sprintf("%d", target.Port)))
+				}
+			}
+		}
+
+		fmt.Println()
 		if providerCfg.GetIP() != "" {
 			sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
 			defer sshExecutor.Disconnect()

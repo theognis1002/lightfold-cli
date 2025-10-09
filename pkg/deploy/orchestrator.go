@@ -409,6 +409,35 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 			return nil, fmt.Errorf("failed to install packages: %w", err)
 		}
 
+		// Register runtime in server state for tracking
+		if detection.Language != "" {
+			// Import runtime package types locally to avoid global import
+			runtimeType := state.Runtime(detection.Language)
+			// Convert language to runtime identifier
+			switch detection.Language {
+			case "JavaScript/TypeScript":
+				runtimeType = "nodejs"
+			case "Python":
+				runtimeType = "python"
+			case "Go":
+				runtimeType = "go"
+			case "PHP":
+				runtimeType = "php"
+			case "Ruby":
+				runtimeType = "ruby"
+			case "Java":
+				runtimeType = "java"
+			default:
+				runtimeType = "unknown"
+			}
+			if runtimeType != "unknown" {
+				if err := state.RegisterRuntime(providerCfg.GetIP(), runtimeType); err != nil {
+					// Log warning but don't fail deployment
+					fmt.Printf("Warning: failed to register runtime in server state: %v\n", err)
+				}
+			}
+		}
+
 		o.notifyProgress(DeploymentStep{
 			Name:        "setup_directories",
 			Description: "Setting up deployment directories...",
@@ -421,12 +450,43 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 	} else {
 		o.notifyProgress(DeploymentStep{
 			Name:        "verify_runtimes",
-			Description: "Verifying runtime versions...",
+			Description: "Verifying runtime dependencies...",
 			Progress:    20,
 		})
 
+		// Multi-app support: ensure runtime for THIS app is installed
+		// Server may have been configured for a different language (e.g., Python first, then JS)
+		// This will only install if the runtime is missing (checked inside InstallBasePackages)
 		if err := executor.InstallBasePackages(); err != nil {
-			return nil, fmt.Errorf("failed to update packages: %w", err)
+			return nil, fmt.Errorf("failed to install runtime dependencies: %w", err)
+		}
+
+		// Register runtime in server state for tracking
+		if detection.Language != "" {
+			runtimeType := state.Runtime(detection.Language)
+			// Convert language to runtime identifier
+			switch detection.Language {
+			case "JavaScript/TypeScript":
+				runtimeType = "nodejs"
+			case "Python":
+				runtimeType = "python"
+			case "Go":
+				runtimeType = "go"
+			case "PHP":
+				runtimeType = "php"
+			case "Ruby":
+				runtimeType = "ruby"
+			case "Java":
+				runtimeType = "java"
+			default:
+				runtimeType = "unknown"
+			}
+			if runtimeType != "unknown" {
+				if err := state.RegisterRuntime(providerCfg.GetIP(), runtimeType); err != nil {
+					// Log warning but don't fail deployment
+					fmt.Printf("Warning: failed to register runtime in server state: %v\n", err)
+				}
+			}
 		}
 
 		o.notifyProgress(DeploymentStep{

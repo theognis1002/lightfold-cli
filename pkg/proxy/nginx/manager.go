@@ -153,6 +153,89 @@ func (m *Manager) Reload() error {
 	return nil
 }
 
+// ConfigureMultiApp sets up nginx configuration for multiple applications at once
+func (m *Manager) ConfigureMultiApp(configs []proxy.ProxyConfig) error {
+	if m.executor == nil {
+		return fmt.Errorf("SSH executor not configured")
+	}
+
+	// Check if nginx is available
+	available, err := m.IsAvailable()
+	if err != nil {
+		return fmt.Errorf("failed to check nginx availability: %w", err)
+	}
+	if !available {
+		return fmt.Errorf("nginx is not installed on the server")
+	}
+
+	// Configure each app
+	for _, config := range configs {
+		// Validate config
+		if config.AppName == "" {
+			return fmt.Errorf("app name cannot be empty")
+		}
+		if config.Port == 0 {
+			return fmt.Errorf("port cannot be zero for app %s", config.AppName)
+		}
+
+		// Generate nginx configuration
+		var nginxConfig string
+		if config.SSLEnabled && config.Domain != "" {
+			nginxConfig = m.generateSSLConfig(config)
+		} else {
+			nginxConfig = m.generateHTTPConfig(config)
+		}
+
+		// Write configuration to file
+		configPath := m.GetConfigPath(config.AppName)
+		tmpFile := fmt.Sprintf("/tmp/nginx-%s.conf", config.AppName)
+		escapedConfig := strings.ReplaceAll(nginxConfig, "'", "'\"'\"'")
+
+		// Write to temp file
+		writeTmpCmd := fmt.Sprintf("echo '%s' > %s", escapedConfig, tmpFile)
+		result := m.executor.Execute(writeTmpCmd)
+		if result.Error != nil {
+			return fmt.Errorf("failed to write temp config for %s: %w", config.AppName, result.Error)
+		}
+		if result.ExitCode != 0 {
+			return fmt.Errorf("failed to write temp config for %s (exit code %d): %s", config.AppName, result.ExitCode, result.Stderr)
+		}
+
+		// Move temp file to final location with sudo
+		moveCmd := fmt.Sprintf("mv %s %s", tmpFile, configPath)
+		result = m.executor.ExecuteSudo(moveCmd)
+		if result.Error != nil {
+			return fmt.Errorf("failed to write nginx config for %s: %w", config.AppName, result.Error)
+		}
+		if result.ExitCode != 0 {
+			return fmt.Errorf("failed to write nginx config for %s (exit code %d): %s", config.AppName, result.ExitCode, result.Stderr)
+		}
+
+		// Create symlink to enable the site
+		symlinkCmd := fmt.Sprintf(
+			"ln -sf %s /etc/nginx/sites-enabled/%s.conf",
+			configPath,
+			config.AppName,
+		)
+		result = m.executor.ExecuteSudo(symlinkCmd)
+		if result.Error != nil {
+			return fmt.Errorf("failed to enable nginx site for %s: %w", config.AppName, result.Error)
+		}
+	}
+
+	// Test nginx configuration once for all apps
+	result := m.executor.ExecuteSudo("nginx -t")
+	if result.Error != nil {
+		return fmt.Errorf("nginx config test failed: %w", result.Error)
+	}
+	if result.ExitCode != 0 {
+		return fmt.Errorf("nginx config test failed: %s", result.Stderr)
+	}
+
+	// Reload nginx once for all apps
+	return m.Reload()
+}
+
 // Remove removes the nginx configuration for an application
 func (m *Manager) Remove(appName string) error {
 	if m.executor == nil {

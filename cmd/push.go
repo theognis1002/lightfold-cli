@@ -187,6 +187,29 @@ Examples:
 			os.Exit(1)
 		}
 
+		// Ensure server state is initialized
+		if err := updateServerStateFromTarget(&target, targetNameResolved); err != nil {
+			fmt.Printf("Warning: failed to update server state: %v\n", err)
+		}
+
+		// Allocate port if not already set
+		if target.Port == 0 {
+			port, err := getOrAllocatePort(&target, targetNameResolved)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error allocating port: %v\n", err)
+				os.Exit(1)
+			}
+			target.Port = port
+
+			// Save port to config
+			if err := cfg.SetTarget(targetNameResolved, target); err != nil {
+				fmt.Printf("Warning: failed to save port to config: %v\n", err)
+			}
+			if err := cfg.SaveConfig(); err != nil {
+				fmt.Printf("Warning: failed to save config: %v\n", err)
+			}
+		}
+
 		detection := detector.DetectFramework(target.ProjectPath)
 
 		sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
@@ -257,6 +280,11 @@ Examples:
 		}
 		if err := state.UpdateDeployment(targetNameResolved, currentCommit, releaseTimestamp); err != nil {
 			fmt.Printf("Warning: failed to update state: %v\n", err)
+		}
+
+		// Register app with server state
+		if err := registerAppWithServer(&target, targetNameResolved, target.Port, target.Framework); err != nil {
+			fmt.Printf("Warning: failed to register app with server: %v\n", err)
 		}
 
 		fmt.Println()

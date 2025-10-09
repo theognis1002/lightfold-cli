@@ -96,7 +96,6 @@ func detectRuntimeVersion(fs *FSReader, language string) string {
 		}
 		if fs.Has("runtime.txt") {
 			content := strings.TrimSpace(fs.Read("runtime.txt"))
-			// Parse "python-3.11.0" format
 			return strings.TrimPrefix(content, "python-")
 		}
 	case "Ruby":

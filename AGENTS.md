@@ -72,16 +72,48 @@ Lightfold CLI is a framework detector and deployment tool with composable, idemp
    - Git commit tracking to skip unchanged deployments
    - Tracks: last commit, last deploy time, last release ID, provision ID, builder, SSL status
    - Port allocation system (3000-9000 range) with conflict detection
+   - Port selection UI shows used ports: "Port range: 3000-9000 | Used: 3000 (app1), 5000 (app2)"
+   - Port output after SSH validation: "✓ Allocated to port 3001" (cmd/common.go:210-212)
    - Enables idempotent operations and intelligent step skipping
+   - **Runtime Tracking**: `InstalledRuntimes []Runtime` in ServerState tracks installed language runtimes
 
-5.5. **SSL Management** (`pkg/ssl/`):
+5.5. **Runtime Cleanup System** (`pkg/runtime/`):
+   - **Automatic runtime cleanup** when destroying apps on multi-app servers
+   - **Smart dependency analysis**: Only removes runtimes not needed by remaining apps
+   - **Registry pattern**: Consistent with SSL/proxy/builder architecture
+   - **Runtime Types**: nodejs, python, go, php, ruby, java
+   - **Key Components**:
+     - `GetRuntimeFromLanguage()` - Maps language to runtime (JavaScript/TypeScript → nodejs)
+     - `GetRuntimeInfo()` - Returns cleanup info (packages, directories, commands)
+     - `GetLanguageFromFramework()` - Maps framework to language (Next.js → JavaScript/TypeScript)
+     - `GetRequiredRuntimesForApps()` - Analyzes remaining apps, returns required runtimes
+     - `CleanupUnusedRuntimes()` - Orchestrates cleanup (non-blocking, graceful failure)
+   - **Integration Points**:
+     - `pkg/deploy/orchestrator.go`: Registers runtimes after `InstallBasePackages()`
+     - `cmd/destroy.go`: Calls cleanup after unregistering app from server state
+   - **Cleanup Operations**:
+     - Remove APT packages (e.g., `apt-get remove -y nodejs npm`)
+     - Delete user directories (e.g., `/home/deploy/.bun`, `/home/deploy/.npm`)
+     - Run additional commands (e.g., cleanup symlinks)
+     - Update server state to reflect removed runtimes
+   - **Safety**: Never removes nginx or system infrastructure, only language runtimes
+   - **Non-blocking**: Cleanup failures log warnings but don't fail destroy operation
+   - **Example Flow**:
+     - Server has: JS app + Python app + Go app
+     - Destroy Python app
+     - System analyzes: JS still needed, Go still needed, Python NOT needed
+     - Removes: python3-pip, python3-venv, /home/deploy/.local/lib/python*, poetry, uv, pipenv
+     - Keeps: nodejs, npm, golang-go
+   - **State Updates**: `state.RegisterRuntime()` during deploy, automatic cleanup during destroy
+
+5.6. **SSL Management** (`pkg/ssl/`):
    - Pluggable SSL manager system with registry pattern
    - **Certbot Manager**: Let's Encrypt integration via certbot
    - Interface: `IsAvailable()`, `IssueCertificate(domain, email)`, `RenewCertificate(domain)`, `EnableAutoRenewal()`
    - Auto-renewal setup via systemd timer
    - Certificate paths: `/etc/letsencrypt/live/{domain}/`
 
-5.6. **Reverse Proxy Management** (`pkg/proxy/`):
+5.7. **Reverse Proxy Management** (`pkg/proxy/`):
    - Pluggable proxy manager system with registry pattern
    - **Nginx Manager**: HTTP and HTTPS configuration with auto-redirect
    - Interface: `Configure(ProxyConfig)`, `Reload()`, `Remove(appName)`, `IsAvailable()`
@@ -143,6 +175,9 @@ lightfold/
 │   │   ├── state.go      # Local/remote state management
 │   │   ├── server.go     # Multi-app server state
 │   │   └── ports.go      # Port allocation and conflict detection
+│   ├── runtime/          # Runtime cleanup system
+│   │   ├── types.go      # Runtime types and info
+│   │   └── cleaner.go    # Cleanup orchestration
 │   ├── deploy/           # Deployment logic
 │   │   ├── orchestrator.go # Multi-provider orchestration
 │   │   ├── executor.go   # Blue/green deployment executor
@@ -166,6 +201,7 @@ lightfold/
 │   ├── ssh/              # SSH tests
 │   ├── providers/        # Provider tests
 │   ├── cloudinit/        # Cloud-init tests
+│   ├── runtime/          # Runtime cleanup tests
 │   └── fixtures/         # Test fixtures for frameworks
 ├── go.mod                # Go dependencies
 ├── Makefile              # Build targets

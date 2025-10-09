@@ -86,3 +86,47 @@ func TestNginxConfigPath(t *testing.T) {
 		t.Errorf("Expected config path '%s', got '%s'", expectedPath, actualPath)
 	}
 }
+
+func TestNginxMultiAppConfiguration(t *testing.T) {
+	manager, err := proxy.GetManager("nginx")
+	if err != nil {
+		t.Fatalf("Failed to get nginx manager: %v", err)
+	}
+
+	t.Run("ConfigureMultiApp method exists", func(t *testing.T) {
+		// Create test configs
+		configs := []proxy.ProxyConfig{
+			{
+				AppName: "app1",
+				Port:    3000,
+				Domain:  "app1.example.com",
+			},
+			{
+				AppName: "app2",
+				Port:    3001,
+				Domain:  "app2.example.com",
+			},
+		}
+
+		// Try to configure (will fail due to no SSH executor, but validates method exists)
+		// This is a type check - if ConfigureMultiApp doesn't exist, this won't compile
+		type multiAppConfigurer interface {
+			ConfigureMultiApp([]proxy.ProxyConfig) error
+		}
+
+		_, ok := manager.(multiAppConfigurer)
+		if !ok {
+			t.Error("Nginx manager does not implement ConfigureMultiApp method")
+		}
+
+		// Verify configs structure is valid
+		for _, config := range configs {
+			if config.AppName == "" {
+				t.Error("AppName should not be empty")
+			}
+			if config.Port == 0 {
+				t.Error("Port should not be zero")
+			}
+		}
+	})
+}

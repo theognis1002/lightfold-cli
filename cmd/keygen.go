@@ -39,7 +39,6 @@ If no key name is provided, a random name will be generated.`,
 			keyName = args[0]
 		}
 
-		// Check if key already exists
 		exists, err := ssh.KeyExists(keyName)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error checking key existence: %v\n", err)
@@ -51,7 +50,6 @@ If no key name is provided, a random name will be generated.`,
 			os.Exit(1)
 		}
 
-		// Generate the key pair
 		fmt.Printf("Generating Ed25519 SSH key pair: %s\n", keyName)
 		keyPair, err := ssh.GenerateKeyPair(keyName)
 		if err != nil {
@@ -59,7 +57,6 @@ If no key name is provided, a random name will be generated.`,
 			os.Exit(1)
 		}
 
-		// Display success information
 		fmt.Println("\n✓ SSH key pair generated successfully")
 		fmt.Println()
 		fmt.Printf("Private key: %s\n", keyPair.PrivateKeyPath)

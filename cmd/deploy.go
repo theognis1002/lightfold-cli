@@ -25,6 +25,7 @@ var (
 	deployForceFlag   bool
 	deployDryRun      bool
 	deployBuilderFlag string
+	deployServerIP    string
 
 	deployStepHeaderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Bold(true)
 	deploySuccessStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
@@ -137,10 +138,67 @@ Examples:
 
 		fmt.Printf("\n%s\n", deployStepHeaderStyle.Render("Step 2/4: Create infra"))
 		var err error
-		target, err = createTarget(targetName, projectPath, cfg)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error creating infrastructure: %v\n", err)
-			os.Exit(1)
+
+		// If server-ip is provided, setup target with existing server
+		if deployServerIP != "" {
+			if exists {
+				// Target already exists, just update ServerIP
+				if err := setupTargetWithExistingServer(&target, deployServerIP, 0); err != nil {
+					fmt.Fprintf(os.Stderr, "Error configuring target for existing server: %v\n", err)
+					os.Exit(1)
+				}
+				if err := cfg.SetTarget(targetName, target); err != nil {
+					fmt.Fprintf(os.Stderr, "Error saving target config: %v\n", err)
+					os.Exit(1)
+				}
+				if err := cfg.SaveConfig(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+					os.Exit(1)
+				}
+
+				// Mark as created since we're using existing server
+				if err := state.MarkCreated(targetName, ""); err != nil {
+					fmt.Printf("Warning: failed to update state: %v\n", err)
+				}
+
+				skipStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+				fmt.Printf("  %s\n", skipStyle.Render(fmt.Sprintf("Using existing server %s (skipping provisioning)", deployServerIP)))
+			} else {
+				// Create new target configured for existing server
+				target = config.TargetConfig{
+					ProjectPath: projectPath,
+					Framework:   detection.Framework,
+				}
+
+				if err := setupTargetWithExistingServer(&target, deployServerIP, 0); err != nil {
+					fmt.Fprintf(os.Stderr, "Error configuring target for existing server: %v\n", err)
+					os.Exit(1)
+				}
+
+				if err := cfg.SetTarget(targetName, target); err != nil {
+					fmt.Fprintf(os.Stderr, "Error saving target config: %v\n", err)
+					os.Exit(1)
+				}
+				if err := cfg.SaveConfig(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+					os.Exit(1)
+				}
+
+				// Mark as created since we're using existing server
+				if err := state.MarkCreated(targetName, ""); err != nil {
+					fmt.Printf("Warning: failed to update state: %v\n", err)
+				}
+
+				skipStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+				fmt.Printf("  %s\n", skipStyle.Render(fmt.Sprintf("Using existing server %s (skipping provisioning)", deployServerIP)))
+			}
+		} else {
+			// Normal flow - create infrastructure
+			target, err = createTarget(targetName, projectPath, cfg)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error creating infrastructure: %v\n", err)
+				os.Exit(1)
+			}
 		}
 
 		cfg = loadConfigOrExit()
@@ -192,6 +250,29 @@ Examples:
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
+		}
+
+		// Ensure server state is initialized
+		if err := updateServerStateFromTarget(&target, targetName); err != nil {
+			fmt.Printf("Warning: failed to update server state: %v\n", err)
+		}
+
+		// Allocate port if not already set
+		if target.Port == 0 {
+			port, err := getOrAllocatePort(&target, targetName)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error allocating port: %v\n", err)
+				os.Exit(1)
+			}
+			target.Port = port
+
+			// Save port to config
+			if err := cfg.SetTarget(targetName, target); err != nil {
+				fmt.Printf("Warning: failed to save port to config: %v\n", err)
+			}
+			if err := cfg.SaveConfig(); err != nil {
+				fmt.Printf("Warning: failed to save config: %v\n", err)
+			}
 		}
 
 		sshExecutor := sshpkg.NewExecutor(sshProviderCfg.GetIP(), "22", sshProviderCfg.GetUsername(), sshProviderCfg.GetSSHKey())
@@ -265,6 +346,11 @@ Examples:
 			fmt.Printf("Warning: failed to update state: %v\n", err)
 		}
 
+		// Register app with server state
+		if err := registerAppWithServer(&target, targetName, target.Port, target.Framework); err != nil {
+			fmt.Printf("Warning: failed to register app with server: %v\n", err)
+		}
+
 		fmt.Println()
 
 		successBox := lipgloss.NewStyle().
@@ -296,6 +382,7 @@ func init() {
 	rootCmd.AddCommand(deployCmd)
 
 	deployCmd.Flags().StringVar(&deployTargetFlag, "target", "", "Target name (defaults to current directory)")
+	deployCmd.Flags().StringVar(&deployServerIP, "server-ip", "", "Deploy to an existing server (skips server provisioning)")
 	deployCmd.Flags().BoolVar(&deployForceFlag, "force", false, "Force rerun all steps")
 	deployCmd.Flags().BoolVar(&deployDryRun, "dry-run", false, "Show deployment plan without executing")
 	deployCmd.Flags().StringVar(&deployBuilderFlag, "builder", "", "Builder to use: native, nixpacks, or dockerfile (auto-detected if not specified)")

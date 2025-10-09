@@ -198,9 +198,13 @@ func (e *Executor) UploadBytes(content []byte, remotePath string, mode os.FileMo
 		return fmt.Errorf("failed to create remote directory: %v", mkdirResult.Error)
 	}
 
+	// Create error channel for goroutine communication
+	errChan := make(chan error, 1)
+
 	go func() {
 		stdin, err := session.StdinPipe()
 		if err != nil {
+			errChan <- fmt.Errorf("failed to get stdin pipe: %w", err)
 			return
 		}
 		defer stdin.Close()
@@ -208,13 +212,36 @@ func (e *Executor) UploadBytes(content []byte, remotePath string, mode os.FileMo
 		fmt.Fprintf(stdin, "C%04o %d %s\n", mode.Perm(), len(content), filename)
 		stdin.Write(content)
 		fmt.Fprint(stdin, "\x00")
+		errChan <- nil
 	}()
 
-	if err := session.Run(fmt.Sprintf("scp -t %s", remotePath)); err != nil {
-		return fmt.Errorf("scp failed: %w", err)
-	}
+	// Run SCP with timeout
+	scpDone := make(chan error, 1)
+	go func() {
+		scpDone <- session.Run(fmt.Sprintf("scp -t %s", remotePath))
+	}()
 
-	return nil
+	// Wait for SCP to complete or timeout (5 minutes)
+	uploadTimeout := 5 * time.Minute
+	select {
+	case err := <-scpDone:
+		if err != nil {
+			return fmt.Errorf("scp failed: %w", err)
+		}
+		// Also check if stdin write had errors
+		select {
+		case stdinErr := <-errChan:
+			if stdinErr != nil {
+				return stdinErr
+			}
+		default:
+		}
+		return nil
+	case <-time.After(uploadTimeout):
+		// Kill the session on timeout
+		session.Close()
+		return fmt.Errorf("upload timed out after %v (file size: %d bytes)", uploadTimeout, len(content))
+	}
 }
 
 func (e *Executor) WriteRemoteFile(remotePath, content string, mode os.FileMode) error {

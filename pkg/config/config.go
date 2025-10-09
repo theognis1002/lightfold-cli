@@ -110,7 +110,9 @@ type DeploymentOptions struct {
 }
 
 type DomainConfig struct {
-	Domain     string `json:"domain,omitempty"`
+	Domain     string `json:"domain,omitempty"`      // Full domain: app.example.com
+	RootDomain string `json:"root_domain,omitempty"` // Root domain: example.com
+	Subdomain  string `json:"subdomain,omitempty"`   // Subdomain: app
 	SSLEnabled bool   `json:"ssl_enabled,omitempty"`
 	SSLManager string `json:"ssl_manager,omitempty"` // "certbot", "caddy", etc.
 	ProxyType  string `json:"proxy_type,omitempty"`  // "nginx", "caddy", etc.
@@ -122,6 +124,8 @@ type TargetConfig struct {
 	Framework      string                     `json:"framework"`
 	Provider       string                     `json:"provider"`
 	Builder        string                     `json:"builder,omitempty"`
+	ServerIP       string                     `json:"server_ip,omitempty"` // Track which server this target is on
+	Port           int                        `json:"port,omitempty"`      // Assigned port for this app
 	ProviderConfig map[string]json.RawMessage `json:"provider_config"`
 	Deploy         *DeploymentOptions         `json:"deploy,omitempty"`
 	Domain         *DomainConfig              `json:"domain,omitempty"`
@@ -356,6 +360,17 @@ func (c *Config) FindTargetByPath(projectPath string) (string, TargetConfig, boo
 		}
 	}
 	return "", TargetConfig{}, false
+}
+
+// GetTargetsByServerIP returns all targets deployed to a specific server
+func (c *Config) GetTargetsByServerIP(serverIP string) map[string]TargetConfig {
+	targets := make(map[string]TargetConfig)
+	for name, target := range c.Targets {
+		if target.ServerIP == serverIP {
+			targets[name] = target
+		}
+	}
+	return targets
 }
 
 type TokenConfig map[string]string

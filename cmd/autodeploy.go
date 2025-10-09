@@ -60,14 +60,12 @@ Examples:
 		target, targetName := resolveTarget(cfg, autoDeployTarget, pathArg)
 		projectPath := target.ProjectPath
 
-		// Validate it's a Git repository
 		if !util.IsGitRepository(projectPath) {
 			fmt.Fprintf(os.Stderr, "%s\n", autoDeployErrorStyle.Render("Error: Not a git repository"))
 			fmt.Fprintf(os.Stderr, "Initialize git first: git init\n")
 			os.Exit(1)
 		}
 
-		// Get GitHub org/repo
 		org, repo, err := util.GetGitHubRepo(projectPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", autoDeployErrorStyle.Render("Error: Not a GitHub repository"))
@@ -76,7 +74,6 @@ Examples:
 			os.Exit(1)
 		}
 
-		// Check if workflow already exists
 		workflowPath := filepath.Join(projectPath, ".github", "workflows", "lightfold-deploy.yml")
 		if _, err := os.Stat(workflowPath); err == nil {
 			if !autoDeployNoConfirm {
@@ -91,25 +88,21 @@ Examples:
 			}
 		}
 
-		// Render the template
 		rendered := githubWorkflowTemplate
 		rendered = strings.ReplaceAll(rendered, "{{BRANCH}}", autoDeployBranch)
 		rendered = strings.ReplaceAll(rendered, "{{TARGET_NAME}}", targetName)
 
-		// Create .github/workflows directory if it doesn't exist
 		workflowDir := filepath.Join(projectPath, ".github", "workflows")
 		if err := os.MkdirAll(workflowDir, 0755); err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", autoDeployErrorStyle.Render(fmt.Sprintf("Error creating workflow directory: %v", err)))
 			os.Exit(1)
 		}
 
-		// Write the workflow file
 		if err := os.WriteFile(workflowPath, []byte(rendered), 0644); err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", autoDeployErrorStyle.Render(fmt.Sprintf("Error writing workflow file: %v", err)))
 			os.Exit(1)
 		}
 
-		// Get the provider token for display
 		tokens, err := config.LoadTokens()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", autoDeployErrorStyle.Render(fmt.Sprintf("Warning: Could not load tokens: %v", err)))
@@ -121,7 +114,6 @@ Examples:
 			providerToken = tokens.GetToken(providerName)
 		}
 
-		// Display success message
 		fmt.Printf("\n%s\n\n", autoDeploySuccessStyle.Render("✓ GitHub Actions workflow created!"))
 
 		fmt.Printf("%s %s\n", autoDeployMutedStyle.Render("Location:"), autoDeployValueStyle.Render(workflowPath))
@@ -129,7 +121,6 @@ Examples:
 		fmt.Printf("%s %s\n", autoDeployMutedStyle.Render("Target:"), autoDeployValueStyle.Render(targetName))
 		fmt.Printf("%s %s/%s\n\n", autoDeployMutedStyle.Render("GitHub:"), autoDeployValueStyle.Render(org), autoDeployValueStyle.Render(repo))
 
-		// Display next steps
 		fmt.Println(autoDeployLabelStyle.Render("Next steps:"))
 		fmt.Println()
 

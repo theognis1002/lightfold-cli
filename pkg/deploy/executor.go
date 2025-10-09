@@ -709,7 +709,7 @@ func (e *Executor) adjustBuildCommand(cmd string, _ string) string {
 		switch pm {
 		case "bun":
 			if strings.Contains(cmd, "bun") {
-				return "(command -v bun >/dev/null 2>&1 || (curl -fsSL https://bun.sh/install | bash && ln -sf ~/.bun/bin/bun /usr/local/bin/bun)) && " + cmd
+				return "(command -v bun >/dev/null 2>&1 || curl -fsSL https://bun.sh/install | bash) && " + cmd
 			}
 		case "pnpm":
 			if strings.Contains(cmd, "pnpm") {
@@ -748,7 +748,7 @@ func (e *Executor) adjustBuildCommand(cmd string, _ string) string {
 			return "npm install -g pnpm && " + cmd
 		}
 		if strings.Contains(cmd, "bun install") {
-			return "(command -v bun >/dev/null 2>&1 || (curl -fsSL https://bun.sh/install | bash && ln -sf ~/.bun/bin/bun /usr/local/bin/bun)) && " + cmd
+			return "(command -v bun >/dev/null 2>&1 || curl -fsSL https://bun.sh/install | bash) && " + cmd
 		}
 		if strings.Contains(cmd, "npm install") || strings.Contains(cmd, "yarn install") {
 			return cmd
