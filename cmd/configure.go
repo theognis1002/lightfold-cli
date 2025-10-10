@@ -51,6 +51,15 @@ Examples:
 
 		// Prompt for optional domain configuration
 		promptDomainConfiguration(&target, targetName)
+
+		// Remind user to push their code (only if not called from deploy command)
+		if !isCalledFromDeploy {
+			fmt.Println()
+			hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86")).Bold(true)
+			mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+			fmt.Printf("%s\n", hintStyle.Render("Next step:"))
+			fmt.Printf("%s\n", mutedStyle.Render(fmt.Sprintf("  Run 'lightfold push --target %s' to deploy your application", targetName)))
+		}
 	},
 }
 

@@ -62,6 +62,39 @@ func (n *NixpacksBuilder) Build(ctx context.Context, opts *builders.BuildOptions
 	ssh := opts.SSHExecutor
 	var buildLog strings.Builder
 
+	// CRITICAL: Ensure python symlink exists BEFORE nixpacks plan generation
+	// Nixpacks may need 'python' command for Python projects (not just 'python3')
+	// This defensive check must run before plan generation, not after
+	pythonCheck := ssh.Execute("python --version 2>/dev/null")
+	if pythonCheck.ExitCode != 0 {
+		python3Check := ssh.Execute("python3 --version 2>/dev/null")
+		if python3Check.ExitCode == 0 {
+			buildLog.WriteString("==> Creating python symlink for nixpacks...\n")
+			symlinkResult := ssh.ExecuteSudo("ln -sf /usr/bin/python3 /usr/bin/python")
+			if symlinkResult.ExitCode != 0 {
+				buildLog.WriteString(symlinkResult.Stderr)
+				return &builders.BuildResult{
+					Success:  false,
+					BuildLog: buildLog.String(),
+				}, fmt.Errorf("failed to create python symlink: %s", symlinkResult.Stderr)
+			}
+			pipSymlinkResult := ssh.ExecuteSudo("ln -sf /usr/bin/pip3 /usr/bin/pip")
+			if pipSymlinkResult.ExitCode != 0 {
+				buildLog.WriteString(pipSymlinkResult.Stderr)
+			}
+			// Verify the symlink works
+			verifyResult := ssh.Execute("python --version")
+			if verifyResult.ExitCode != 0 {
+				buildLog.WriteString(verifyResult.Stderr)
+				return &builders.BuildResult{
+					Success:  false,
+					BuildLog: buildLog.String(),
+				}, fmt.Errorf("python symlink verification failed")
+			}
+			buildLog.WriteString(fmt.Sprintf("    ✓ Python symlink created: %s\n", strings.TrimSpace(verifyResult.Stdout)))
+		}
+	}
+
 	buildLog.WriteString("==> Checking nixpacks installation...\n")
 	checkResult := ssh.Execute("which nixpacks")
 	if checkResult.ExitCode != 0 {
@@ -122,6 +155,21 @@ func (n *NixpacksBuilder) Build(ctx context.Context, opts *builders.BuildOptions
 
 	if plan.Phases.Install != nil && len(plan.Phases.Install.Commands) > 0 {
 		buildLog.WriteString("==> Running install commands...\n")
+
+		// CRITICAL: Double-check python symlink exists before running install commands
+		// This is a workaround for potential SSH session PATH issues
+		preInstallPythonCheck := ssh.Execute("command -v python || which python || echo 'not-found'")
+		if strings.Contains(preInstallPythonCheck.Stdout, "not-found") || preInstallPythonCheck.ExitCode != 0 {
+			buildLog.WriteString("    ! Python command not found, creating symlink...\n")
+			ssh.ExecuteSudo("ln -sf /usr/bin/python3 /usr/bin/python")
+			ssh.ExecuteSudo("ln -sf /usr/bin/pip3 /usr/bin/pip")
+			// Verify it worked
+			verifyCmd := ssh.Execute("python --version")
+			if verifyCmd.ExitCode == 0 {
+				buildLog.WriteString(fmt.Sprintf("    ✓ Python symlink verified: %s\n", strings.TrimSpace(verifyCmd.Stdout)))
+			}
+		}
+
 		for _, cmd := range plan.Phases.Install.Commands {
 			fullCmd := fmt.Sprintf("cd %s && %s", opts.ReleasePath, cmd)
 			result := ssh.Execute(fullCmd)

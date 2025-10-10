@@ -15,6 +15,7 @@ import (
 	_ "lightfold/pkg/providers/flyio"        // Register Fly.io provider
 	_ "lightfold/pkg/providers/hetzner"      // Register Hetzner provider
 	_ "lightfold/pkg/providers/vultr"        // Register Vultr provider
+	runtimepkg "lightfold/pkg/runtime"
 	sshpkg "lightfold/pkg/ssh"
 	"lightfold/pkg/state"
 	"lightfold/pkg/util"
@@ -388,136 +389,15 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		}
 	})
 
-	o.notifyProgress(DeploymentStep{
-		Name:        "wait_cloud_init",
-		Description: "Initializing server...",
-		Progress:    15,
-	})
-
-	if err := executor.WaitForAptLock(30, 10*time.Second); err != nil {
-		return nil, fmt.Errorf("failed to acquire apt lock: %w", err)
+	if err := o.prepareBaseSystem(executor, providerCfg, &detection, isConfigured); err != nil {
+		return nil, err
 	}
 
-	if !isConfigured {
-		o.notifyProgress(DeploymentStep{
-			Name:        "install_packages",
-			Description: "Installing web server, system packages, and runtimes...",
-			Progress:    20,
-		})
-
-		if err := executor.InstallBasePackages(); err != nil {
-			return nil, fmt.Errorf("failed to install packages: %w", err)
-		}
-
-		// Register runtime in server state for tracking
-		if detection.Language != "" {
-			// Import runtime package types locally to avoid global import
-			runtimeType := state.Runtime(detection.Language)
-			// Convert language to runtime identifier
-			switch detection.Language {
-			case "JavaScript/TypeScript":
-				runtimeType = "nodejs"
-			case "Python":
-				runtimeType = "python"
-			case "Go":
-				runtimeType = "go"
-			case "PHP":
-				runtimeType = "php"
-			case "Ruby":
-				runtimeType = "ruby"
-			case "Java":
-				runtimeType = "java"
-			default:
-				runtimeType = "unknown"
-			}
-			if runtimeType != "unknown" {
-				if err := state.RegisterRuntime(providerCfg.GetIP(), runtimeType); err != nil {
-					// Log warning but don't fail deployment
-					fmt.Printf("Warning: failed to register runtime in server state: %v\n", err)
-				}
-			}
-		}
-
-		o.notifyProgress(DeploymentStep{
-			Name:        "setup_directories",
-			Description: "Setting up deployment directories...",
-			Progress:    30,
-		})
-
-		if err := executor.SetupDirectoryStructure(); err != nil {
-			return nil, fmt.Errorf("failed to setup directories: %w", err)
-		}
-	} else {
-		o.notifyProgress(DeploymentStep{
-			Name:        "verify_runtimes",
-			Description: "Verifying runtime dependencies...",
-			Progress:    20,
-		})
-
-		// Multi-app support: ensure runtime for THIS app is installed
-		// Server may have been configured for a different language (e.g., Python first, then JS)
-		// This will only install if the runtime is missing (checked inside InstallBasePackages)
-		if err := executor.InstallBasePackages(); err != nil {
-			return nil, fmt.Errorf("failed to install runtime dependencies: %w", err)
-		}
-
-		// Register runtime in server state for tracking
-		if detection.Language != "" {
-			runtimeType := state.Runtime(detection.Language)
-			// Convert language to runtime identifier
-			switch detection.Language {
-			case "JavaScript/TypeScript":
-				runtimeType = "nodejs"
-			case "Python":
-				runtimeType = "python"
-			case "Go":
-				runtimeType = "go"
-			case "PHP":
-				runtimeType = "php"
-			case "Ruby":
-				runtimeType = "ruby"
-			case "Java":
-				runtimeType = "java"
-			default:
-				runtimeType = "unknown"
-			}
-			if runtimeType != "unknown" {
-				if err := state.RegisterRuntime(providerCfg.GetIP(), runtimeType); err != nil {
-					// Log warning but don't fail deployment
-					fmt.Printf("Warning: failed to register runtime in server state: %v\n", err)
-				}
-			}
-		}
-
-		o.notifyProgress(DeploymentStep{
-			Name:        "skip_initial_setup",
-			Description: "Server already configured...",
-			Progress:    30,
-		})
-	}
-
-	o.notifyProgress(DeploymentStep{
-		Name:        "create_tarball",
-		Description: "Creating release tarball...",
-		Progress:    40,
-	})
-
-	tmpTarball := fmt.Sprintf("/tmp/lightfold-%s-release.tar.gz", o.projectName)
-	if err := executor.CreateReleaseTarball(tmpTarball); err != nil {
-		return nil, fmt.Errorf("failed to create tarball: %w", err)
+	tmpTarball, releasePath, err := o.prepareReleaseArtifacts(executor)
+	if err != nil {
+		return nil, err
 	}
 	defer os.Remove(tmpTarball)
-
-	o.notifyProgress(DeploymentStep{
-		Name:        "upload_release",
-		Description: "Uploading release to server...",
-		Progress:    50,
-	})
-
-	releasePath, err := executor.UploadRelease(tmpTarball)
-	if err != nil {
-		return nil, fmt.Errorf("failed to upload release: %w", err)
-	}
 
 	envVars := make(map[string]string)
 	if o.config.Deploy != nil && o.config.Deploy.EnvVars != nil {
@@ -534,42 +414,175 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		return nil, fmt.Errorf("failed to get builder %s: %w", builderName, err)
 	}
 
-	var buildResult *builders.BuildResult
 	skipBuild := o.config.Deploy != nil && o.config.Deploy.SkipBuild
-	if !skipBuild {
-		o.notifyProgress(DeploymentStep{
-			Name:        "build_release",
-			Description: fmt.Sprintf("Building with %s...", builder.Name()),
-			Progress:    60,
-		})
-
-		var err error
-		buildResult, err = builder.Build(ctx, &builders.BuildOptions{
-			ProjectPath: o.projectPath,
-			Detection:   &detection,
-			ReleasePath: releasePath,
-			EnvVars:     envVars,
-			SSHExecutor: sshExecutor,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("build failed: %w", err)
-		}
-
-		if !buildResult.Success {
-			return nil, fmt.Errorf("build failed")
-		}
-
-		if buildResult.StartCommand != "" {
-			executor.SetStartCommand(buildResult.StartCommand)
-		} else if len(detection.RunPlan) > 0 {
-			executor.SetStartCommand(detection.RunPlan[0])
-		}
-
-		if err := state.UpdateBuilder(o.targetName, builder.Name()); err != nil {
-			fmt.Printf("Warning: failed to update builder in state: %v\n", err)
-		}
+	if err := o.runBuildPhase(ctx, executor, &detection, releasePath, envVars, builder, skipBuild); err != nil {
+		return nil, err
 	}
 
+	if err := o.configureProcessPhase(executor, releasePath, envVars, builder, &detection); err != nil {
+		return nil, err
+	}
+
+	if err := o.deployPhase(executor, releasePath, isConfigured); err != nil {
+		return nil, err
+	}
+
+	result.Success = true
+	result.Message = fmt.Sprintf("Successfully configured %s on %s", o.projectName, providerCfg.GetIP())
+
+	return result, nil
+}
+
+func registerRuntimeForServer(providerCfg config.ProviderConfig, detection *detector.Detection) {
+	if detection == nil || detection.Language == "" {
+		return
+	}
+
+	runtimeType := runtimepkg.GetRuntimeFromLanguage(detection.Language)
+	if runtimeType == runtimepkg.RuntimeUnknown {
+		return
+	}
+
+	if err := state.RegisterRuntime(providerCfg.GetIP(), state.Runtime(runtimeType)); err != nil {
+		fmt.Printf("Warning: failed to register runtime in server state: %v\n", err)
+	}
+}
+
+func (o *Orchestrator) prepareBaseSystem(executor *Executor, providerCfg config.ProviderConfig, detection *detector.Detection, isConfigured bool) error {
+	o.notifyProgress(DeploymentStep{
+		Name:        "wait_cloud_init",
+		Description: "Initializing server...",
+		Progress:    15,
+	})
+
+	if err := executor.WaitForAptLock(30, 10*time.Second); err != nil {
+		return fmt.Errorf("failed to acquire apt lock: %w", err)
+	}
+
+	if !isConfigured {
+		o.notifyProgress(DeploymentStep{
+			Name:        "install_packages",
+			Description: "Installing web server, system packages, and runtimes...",
+			Progress:    20,
+		})
+
+		if err := executor.InstallBasePackages(); err != nil {
+			return fmt.Errorf("failed to install packages: %w", err)
+		}
+
+		registerRuntimeForServer(providerCfg, detection)
+
+		o.notifyProgress(DeploymentStep{
+			Name:        "setup_directories",
+			Description: "Setting up deployment directories...",
+			Progress:    30,
+		})
+
+		if err := executor.SetupDirectoryStructure(); err != nil {
+			return fmt.Errorf("failed to setup directories: %w", err)
+		}
+		return nil
+	}
+
+	o.notifyProgress(DeploymentStep{
+		Name:        "verify_runtimes",
+		Description: "Verifying runtime dependencies...",
+		Progress:    20,
+	})
+
+	if err := executor.InstallBasePackages(); err != nil {
+		return fmt.Errorf("failed to install runtime dependencies: %w", err)
+	}
+
+	registerRuntimeForServer(providerCfg, detection)
+
+	o.notifyProgress(DeploymentStep{
+		Name:        "skip_initial_setup",
+		Description: "Server already configured...",
+		Progress:    30,
+	})
+
+	return nil
+}
+
+func (o *Orchestrator) prepareReleaseArtifacts(executor *Executor) (string, string, error) {
+	o.notifyProgress(DeploymentStep{
+		Name:        "create_tarball",
+		Description: "Creating release tarball...",
+		Progress:    40,
+	})
+
+	tmpTarball := fmt.Sprintf("/tmp/lightfold-%s-release.tar.gz", o.projectName)
+	if err := executor.CreateReleaseTarball(tmpTarball); err != nil {
+		return "", "", fmt.Errorf("failed to create tarball: %w", err)
+	}
+
+	o.notifyProgress(DeploymentStep{
+		Name:        "upload_release",
+		Description: "Uploading release to server...",
+		Progress:    50,
+	})
+
+	releasePath, err := executor.UploadRelease(tmpTarball)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to upload release: %w", err)
+	}
+
+	return tmpTarball, releasePath, nil
+}
+
+func (o *Orchestrator) runBuildPhase(ctx context.Context, executor *Executor, detection *detector.Detection, releasePath string, envVars map[string]string, builder builders.Builder, skipBuild bool) error {
+	if skipBuild {
+		return nil
+	}
+
+	o.notifyProgress(DeploymentStep{
+		Name:        "build_release",
+		Description: fmt.Sprintf("Building with %s...", builder.Name()),
+		Progress:    60,
+	})
+
+	buildResult, err := builder.Build(ctx, &builders.BuildOptions{
+		ProjectPath: o.projectPath,
+		Detection:   detection,
+		ReleasePath: releasePath,
+		EnvVars:     envVars,
+		SSHExecutor: executor.ssh,
+	})
+
+	// ALWAYS write build log for debugging, even if no error
+	debugMsg := fmt.Sprintf("Build completed: err=%v, result=%v", err != nil, buildResult != nil)
+	if buildResult != nil {
+		debugMsg += fmt.Sprintf(", success=%v, logLen=%d", buildResult.Success, len(buildResult.BuildLog))
+		if buildResult.BuildLog != "" {
+			os.WriteFile("/tmp/lightfold-build.log", []byte(buildResult.BuildLog), 0644)
+			fmt.Fprintf(os.Stderr, "\n=== Build Log (saved to /tmp/lightfold-build.log) ===\n%s\n=================\n\n", buildResult.BuildLog)
+		}
+	}
+	os.WriteFile("/tmp/lightfold-debug.log", []byte(debugMsg), 0644)
+
+	if err != nil {
+		return fmt.Errorf("build failed: %w", err)
+	}
+
+	if !buildResult.Success {
+		return fmt.Errorf("build failed")
+	}
+
+	if buildResult.StartCommand != "" {
+		executor.SetStartCommand(buildResult.StartCommand)
+	} else if detection != nil && len(detection.RunPlan) > 0 {
+		executor.SetStartCommand(detection.RunPlan[0])
+	}
+
+	if err := state.UpdateBuilder(o.targetName, builder.Name()); err != nil {
+		fmt.Printf("Warning: failed to update builder in state: %v\n", err)
+	}
+
+	return nil
+}
+
+func (o *Orchestrator) configureProcessPhase(executor *Executor, releasePath string, envVars map[string]string, builder builders.Builder, detection *detector.Detection) error {
 	o.notifyProgress(DeploymentStep{
 		Name:        "write_env",
 		Description: "Configuring environment variables...",
@@ -577,7 +590,7 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 	})
 
 	if err := executor.WriteEnvironmentFile(envVars); err != nil {
-		return nil, fmt.Errorf("failed to write environment: %w", err)
+		return fmt.Errorf("failed to write environment: %w", err)
 	}
 
 	o.notifyProgress(DeploymentStep{
@@ -587,11 +600,11 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 	})
 
 	if err := executor.GenerateSystemdUnit(releasePath); err != nil {
-		return nil, fmt.Errorf("failed to generate systemd unit: %w", err)
+		return fmt.Errorf("failed to generate systemd unit: %w", err)
 	}
 
 	if err := executor.EnableService(); err != nil {
-		return nil, fmt.Errorf("failed to enable service: %w", err)
+		return fmt.Errorf("failed to enable service: %w", err)
 	}
 
 	if builder.NeedsNginx() {
@@ -602,15 +615,15 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		})
 
 		if err := executor.GenerateNginxConfig(); err != nil {
-			return nil, fmt.Errorf("failed to generate nginx config: %w", err)
+			return fmt.Errorf("failed to generate nginx config: %w", err)
 		}
 
 		if err := executor.TestNginxConfig(); err != nil {
-			return nil, fmt.Errorf("nginx config test failed: %w", err)
+			return fmt.Errorf("nginx config test failed: %w", err)
 		}
 
 		if err := executor.ReloadNginx(); err != nil {
-			return nil, fmt.Errorf("failed to reload nginx: %w", err)
+			return fmt.Errorf("failed to reload nginx: %w", err)
 		}
 	} else {
 		o.notifyProgress(DeploymentStep{
@@ -620,6 +633,10 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		})
 	}
 
+	return nil
+}
+
+func (o *Orchestrator) deployPhase(executor *Executor, releasePath string, isConfigured bool) error {
 	o.notifyProgress(DeploymentStep{
 		Name:        "deploy_app",
 		Description: "Deploying application with health check...",
@@ -627,7 +644,7 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 	})
 
 	if err := executor.DeployWithHealthCheck(releasePath, config.DefaultHealthCheckMaxRetries, config.DefaultHealthCheckRetryDelay); err != nil {
-		return nil, fmt.Errorf("deployment failed: %w", err)
+		return fmt.Errorf("deployment failed: %w", err)
 	}
 
 	o.notifyProgress(DeploymentStep{
@@ -653,13 +670,13 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 	})
 
 	if !isConfigured {
-		sshExecutor.Execute(fmt.Sprintf("sudo mkdir -p %s", config.RemoteLightfoldDir))
-		markerResult := sshExecutor.Execute(fmt.Sprintf("echo 'configured' | sudo tee %s/%s > /dev/null", config.RemoteLightfoldDir, config.RemoteConfiguredMarker))
+		executor.ssh.Execute(fmt.Sprintf("sudo mkdir -p %s", config.RemoteLightfoldDir))
+		markerResult := executor.ssh.Execute(fmt.Sprintf("echo 'configured' | sudo tee %s/%s > /dev/null", config.RemoteLightfoldDir, config.RemoteConfiguredMarker))
 		if markerResult.Error != nil {
-			return nil, fmt.Errorf("failed to write configured marker: %w", markerResult.Error)
+			return fmt.Errorf("failed to write configured marker: %w", markerResult.Error)
 		}
 		if markerResult.ExitCode != 0 {
-			return nil, fmt.Errorf("failed to write configured marker: command exited with code %d, stderr: %s", markerResult.ExitCode, markerResult.Stderr)
+			return fmt.Errorf("failed to write configured marker: command exited with code %d, stderr: %s", markerResult.ExitCode, markerResult.Stderr)
 		}
 
 		o.notifyProgress(DeploymentStep{
@@ -668,13 +685,10 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 			Progress:    98,
 		})
 		updateCmd := fmt.Sprintf("nohup bash -c 'apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" && shutdown -r +%d' > /var/log/lightfold-update.log 2>&1 &", config.DefaultRebootDelayMinutes)
-		sshExecutor.ExecuteSudo(updateCmd)
+		executor.ssh.ExecuteSudo(updateCmd)
 	}
 
-	result.Success = true
-	result.Message = fmt.Sprintf("Successfully configured %s on %s", o.projectName, providerCfg.GetIP())
-
-	return result, nil
+	return nil
 }
 
 func (o *Orchestrator) deployToServer(ctx context.Context, providerCfg config.ProviderConfig) (*DeploymentResult, error) {

@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"fmt"
+	"lightfold/cmd/utils"
 	"lightfold/pkg/config"
 	"lightfold/pkg/deploy"
 	"lightfold/pkg/detector"
@@ -143,7 +144,7 @@ Examples:
 		if deployServerIP != "" {
 			if exists {
 				// Target already exists, just update ServerIP
-				if err := setupTargetWithExistingServer(&target, deployServerIP, 0); err != nil {
+				if err := utils.SetupTargetWithExistingServer(&target, deployServerIP, 0); err != nil {
 					fmt.Fprintf(os.Stderr, "Error configuring target for existing server: %v\n", err)
 					os.Exit(1)
 				}
@@ -170,7 +171,7 @@ Examples:
 					Framework:   detection.Framework,
 				}
 
-				if err := setupTargetWithExistingServer(&target, deployServerIP, 0); err != nil {
+				if err := utils.SetupTargetWithExistingServer(&target, deployServerIP, 0); err != nil {
 					fmt.Fprintf(os.Stderr, "Error configuring target for existing server: %v\n", err)
 					os.Exit(1)
 				}
@@ -215,10 +216,12 @@ Examples:
 		}
 
 		fmt.Printf("\n%s\n", deployStepHeaderStyle.Render("Step 3/4: Configure server"))
+		isCalledFromDeploy = true
 		if err := configureTarget(target, targetName, deployForceFlag); err != nil {
 			fmt.Fprintf(os.Stderr, "Error configuring server: %v\n", err)
 			os.Exit(1)
 		}
+		isCalledFromDeploy = false
 
 		cfg = loadConfigOrExit()
 		target = loadTargetOrExit(cfg, targetName)

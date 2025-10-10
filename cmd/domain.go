@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"lightfold/cmd/utils"
 	"lightfold/pkg/config"
 	"lightfold/pkg/proxy"
 	sshpkg "lightfold/pkg/ssh"
@@ -349,7 +350,7 @@ func revertToIPBasedNginx(target *config.TargetConfig, targetName string, sshExe
 		nginxMgr.SetExecutor(sshExecutor)
 	}
 
-	port := extractPortFromTarget(target, target.ProjectPath)
+	port := utils.ExtractPortFromTarget(target, target.ProjectPath)
 
 	appName := targetName
 

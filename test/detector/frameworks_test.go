@@ -414,7 +414,7 @@ export default {
 				"src/views/Home.vue":            `<template><div>Home</div></template>`,
 			},
 			expectedFramework: "Vue.js",
-			expectedSignals:   []string{"vue/vite config", "Vue CLI or Nuxt", ".vue files"},
+			expectedSignals:   []string{"vue/vite config", "Vue CLI", ".vue files"},
 		},
 	}
 

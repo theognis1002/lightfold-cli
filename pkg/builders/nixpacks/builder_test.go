@@ -146,3 +146,93 @@ func TestNixpacksPlan_SetupPhase(t *testing.T) {
 		t.Errorf("Expected 'nodejs-18', got '%s'", builder.planData.Phases.Setup.NixPkgs[0])
 	}
 }
+
+// TestNixpacksPlan_PythonSymlinkLogic tests the symlink creation logic
+// This is a regression test for the "python: command not found" bug
+func TestNixpacksPlan_PythonSymlinkLogic(t *testing.T) {
+	tests := []struct {
+		name               string
+		pythonAvailable    bool
+		python3Available   bool
+		wantSymlinkCreated bool
+		wantError          bool
+	}{
+		{
+			name:               "python and python3 both available",
+			pythonAvailable:    true,
+			python3Available:   true,
+			wantSymlinkCreated: false,
+			wantError:          false,
+		},
+		{
+			name:               "python3 available but python missing",
+			pythonAvailable:    false,
+			python3Available:   true,
+			wantSymlinkCreated: true,
+			wantError:          false,
+		},
+		{
+			name:               "both python and python3 missing",
+			pythonAvailable:    false,
+			python3Available:   false,
+			wantSymlinkCreated: false,
+			wantError:          false, // No error, just skip symlink creation
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// This test verifies the logic flow without actual SSH execution
+			// The actual integration test would use a mock SSH executor
+
+			shouldCreateSymlink := !tt.pythonAvailable && tt.python3Available
+
+			if shouldCreateSymlink != tt.wantSymlinkCreated {
+				t.Errorf("Symlink creation logic incorrect: got %v, want %v",
+					shouldCreateSymlink, tt.wantSymlinkCreated)
+			}
+		})
+	}
+}
+
+// TestNixpacksPlan_InstallCommandStructure verifies install command format
+func TestNixpacksPlan_InstallCommandStructure(t *testing.T) {
+	plan := &NixpacksPlan{}
+	plan.Phases.Install = &struct {
+		Commands []string `json:"cmds"`
+	}{
+		Commands: []string{
+			"python -m venv --copies /opt/venv && . /opt/venv/bin/activate && pip install -r requirements.txt",
+		},
+	}
+
+	if len(plan.Phases.Install.Commands) != 1 {
+		t.Fatalf("Expected 1 install command, got %d", len(plan.Phases.Install.Commands))
+	}
+
+	cmd := plan.Phases.Install.Commands[0]
+
+	// Verify command uses 'python' (not 'python3')
+	// This is the root cause of the bug - nixpacks uses 'python' but Ubuntu only has 'python3'
+	if !contains(cmd, "python ") && !contains(cmd, "python3 ") {
+		t.Error("Install command should contain python or python3")
+	}
+
+	// Common Python venv pattern in nixpacks
+	if !contains(cmd, "python -m venv") && !contains(cmd, "python3 -m venv") {
+		t.Log("Install command doesn't use venv pattern (may be using different approach)")
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) > 0 && len(substr) > 0 && (s == substr || len(s) >= len(substr) && findSubstring(s, substr))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

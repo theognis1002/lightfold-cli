@@ -2,8 +2,6 @@ package detectors
 
 import (
 	"fmt"
-	"strings"
-
 	"lightfold/pkg/detector/plans"
 )
 
@@ -42,39 +40,22 @@ func DetectGo(fs FSReader, allFiles []string) []Candidate {
 }
 
 func detectGoFramework(fs FSReader, allFiles []string, frameworkName string, importPath string, planFunc any) Candidate {
-	builder := NewDetectionBuilder(frameworkName, "Go", fs).
-		CheckContent("go.mod", importPath, ScoreLockfile, fmt.Sprintf("%s in go.mod", importPath))
-
-	if fs.ContainsExt(allFiles, ".go") {
-		for _, f := range allFiles {
-			if strings.HasSuffix(f, ".go") {
-				content := strings.ToLower(fs.Read(f))
-				if strings.Contains(content, `"`+importPath) {
-					builder.score += ScoreLockfile
-					builder.signals = append(builder.signals, fmt.Sprintf("%s import in .go files", frameworkName))
-					break
-				}
-			}
-		}
-	}
-
-	return builder.Build(planFunc)
+	return NewDetectionBuilder(frameworkName, "Go", fs).
+		CheckContent("go.mod", importPath, ScoreLockfile, fmt.Sprintf("%s in go.mod", importPath)).
+		CheckContentInFiles(allFiles, ".go", `"`+importPath, ScoreLockfile, fmt.Sprintf("%s import in .go files", frameworkName)).
+		Build(planFunc)
 }
 
 func detectHugo(fs FSReader) Candidate {
-	hasContentDir := fs.DirExists("content")
+	builder := NewDetectionBuilder("Hugo", "Go", fs).
+		CheckAnyPath([]string{"hugo.toml", "hugo.yaml", "hugo.json"}, ScoreConfigFile, "hugo config file")
+
+	// Check for generic config files only if no Hugo-specific config exists
 	hasHugoConfig := fs.Has("hugo.toml") || fs.Has("hugo.yaml") || fs.Has("hugo.json")
-	hasGenericConfig := fs.Has("config.toml") || fs.Has("config.yaml")
-
-	builder := NewDetectionBuilder("Hugo", "Go", fs)
-
-	if hasHugoConfig {
-		builder.score += ScoreConfigFile
-		builder.signals = append(builder.signals, "hugo config file")
-	}
-	if hasGenericConfig && !hasHugoConfig && hasContentDir {
-		builder.score += ScoreConfigFile
-		builder.signals = append(builder.signals, "hugo config file")
+	if !hasHugoConfig {
+		hasContentDir := fs.DirExists("content")
+		hasGenericConfig := fs.Has("config.toml") || fs.Has("config.yaml")
+		builder = builder.CheckCondition(hasGenericConfig && hasContentDir, ScoreConfigFile, "hugo config file")
 	}
 
 	return builder.

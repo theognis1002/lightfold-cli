@@ -123,6 +123,71 @@ func (b *DetectionBuilder) CheckCondition(condition bool, score float64, signal 
 	return b
 }
 
+// DependencyCheck represents a dependency to check with its score/signal
+type DependencyCheck struct {
+	Dependency string
+	Score      float64
+	Signal     string
+}
+
+// CheckDependencyPriority checks for dependencies with priority fallback
+// Checks dependencies in order and applies the first match
+func (b *DetectionBuilder) CheckDependencyPriority(filePath string, checks []DependencyCheck) *DetectionBuilder {
+	if !b.fs.Has(filePath) {
+		return b
+	}
+
+	content := strings.ToLower(b.fs.Read(filePath))
+	for _, check := range checks {
+		if strings.Contains(content, strings.ToLower(check.Dependency)) {
+			b.score += check.Score
+			b.signals = append(b.signals, check.Signal)
+			return b // Return after first match
+		}
+	}
+	return b
+}
+
+// CheckContentInFiles checks if any file in the list contains the substring
+// Adds score/signal only once if found in any file
+func (b *DetectionBuilder) CheckContentInFiles(allFiles []string, ext string, substring string, score float64, signal string) *DetectionBuilder {
+	if !b.fs.ContainsExt(allFiles, ext) {
+		return b
+	}
+
+	for _, f := range allFiles {
+		if strings.HasSuffix(f, ext) {
+			content := strings.ToLower(b.fs.Read(f))
+			if strings.Contains(content, strings.ToLower(substring)) {
+				b.score += score
+				b.signals = append(b.signals, signal)
+				return b
+			}
+		}
+	}
+	return b
+}
+
+// CheckAnyPath checks if any of the provided paths exist (files or directories)
+// Adds score/signal if any path is found
+func (b *DetectionBuilder) CheckAnyPath(paths []string, score float64, signal string) *DetectionBuilder {
+	for _, path := range paths {
+		// Try as file first
+		if b.fs.Has(path) {
+			b.score += score
+			b.signals = append(b.signals, signal)
+			return b
+		}
+		// Try as directory
+		if b.fs.DirExists(path) {
+			b.score += score
+			b.signals = append(b.signals, signal)
+			return b
+		}
+	}
+	return b
+}
+
 // Build finalizes the builder and returns a Candidate
 func (b *DetectionBuilder) Build(plan any) Candidate {
 	return Candidate{

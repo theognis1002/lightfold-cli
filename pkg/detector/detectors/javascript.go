@@ -1,8 +1,6 @@
 package detectors
 
 import (
-	"strings"
-
 	"lightfold/pkg/detector/plans"
 )
 
@@ -113,41 +111,24 @@ func detectGatsby(fs FSReader) Candidate {
 }
 
 func detectSvelte(fs FSReader) Candidate {
-	builder := NewDetectionBuilder("Svelte", "JavaScript/TypeScript", fs).
-		CheckAnyFile([]string{"svelte.config.js", "svelte.config.ts"}, ScoreConfigFile, "svelte.config")
-
-	if fs.Has("package.json") {
-		pj := strings.ToLower(fs.Read("package.json"))
-		if strings.Contains(pj, `"@sveltejs/kit"`) {
-			builder.score += ScoreConfigFile
-			builder.signals = append(builder.signals, "package.json has @sveltejs/kit")
-		} else if strings.Contains(pj, `"svelte"`) {
-			builder.score += ScoreDependency
-			builder.signals = append(builder.signals, "package.json has svelte")
-		}
-	}
-
-	return builder.
+	return NewDetectionBuilder("Svelte", "JavaScript/TypeScript", fs).
+		CheckAnyFile([]string{"svelte.config.js", "svelte.config.ts"}, ScoreConfigFile, "svelte.config").
+		CheckDependencyPriority("package.json", []DependencyCheck{
+			{Dependency: `"@sveltejs/kit"`, Score: ScoreConfigFile, Signal: "package.json has @sveltejs/kit"},
+			{Dependency: `"svelte"`, Score: ScoreDependency, Signal: "package.json has svelte"},
+		}).
 		CheckDir("src/routes", ScoreStructure, "src/routes/ folder (SvelteKit)").
 		Build(plans.SveltePlan)
 }
 
 func detectVue(fs FSReader, allFiles []string) Candidate {
-	builder := NewDetectionBuilder("Vue.js", "JavaScript/TypeScript", fs).
-		CheckAnyFile([]string{"vue.config.js", "vite.config.js", "vite.config.ts"}, ScoreLockfile, "vue/vite config")
-
-	if fs.Has("package.json") {
-		pj := strings.ToLower(fs.Read("package.json"))
-		if strings.Contains(pj, `"@vue/cli"`) || strings.Contains(pj, `"nuxt"`) {
-			builder.score += ScoreConfigFile
-			builder.signals = append(builder.signals, "Vue CLI or Nuxt")
-		} else if strings.Contains(pj, `"vue"`) {
-			builder.score += ScoreDependency
-			builder.signals = append(builder.signals, "package.json has vue")
-		}
-	}
-
-	return builder.
+	return NewDetectionBuilder("Vue.js", "JavaScript/TypeScript", fs).
+		CheckAnyFile([]string{"vue.config.js", "vite.config.js", "vite.config.ts"}, ScoreLockfile, "vue/vite config").
+		CheckDependencyPriority("package.json", []DependencyCheck{
+			{Dependency: `"@vue/cli"`, Score: ScoreConfigFile, Signal: "Vue CLI"},
+			{Dependency: `"nuxt"`, Score: ScoreConfigFile, Signal: "Nuxt"},
+			{Dependency: `"vue"`, Score: ScoreDependency, Signal: "package.json has vue"},
+		}).
 		CheckExtension(allFiles, ".vue", ScoreFilePattern, ".vue files").
 		Build(plans.VuePlan)
 }
@@ -170,21 +151,13 @@ func detectNestJS(fs FSReader) Candidate {
 }
 
 func detectTRPC(fs FSReader) Candidate {
-	builder := NewDetectionBuilder("tRPC", "TypeScript", fs).
+	return NewDetectionBuilder("tRPC", "TypeScript", fs).
 		CheckDependency("package.json", `"@trpc/server"`, ScoreConfigFile, "package.json has @trpc/server").
 		CheckDependency("package.json", `"@trpc/client"`, ScoreLockfile, "package.json has @trpc/client").
 		CheckDependency("package.json", `"zod"`, ScoreStructure, "zod validation").
-		CheckDependency("package.json", `"@trpc/server/adapters/standalone"`, ScoreMinorIndicator, "standalone adapter")
-
-	if fs.DirExists("server/routers") || fs.DirExists("src/server/routers") {
-		builder.score += ScoreBuildTool
-		builder.signals = append(builder.signals, "tRPC router directory")
-	} else if fs.Has("server/trpc.ts") || fs.Has("src/server/trpc.ts") || fs.Has("server/router.ts") || fs.Has("src/server/router.ts") {
-		builder.score += ScoreBuildTool
-		builder.signals = append(builder.signals, "tRPC router files")
-	}
-
-	return builder.
+		CheckDependency("package.json", `"@trpc/server/adapters/standalone"`, ScoreMinorIndicator, "standalone adapter").
+		CheckAnyPath([]string{"server/routers", "src/server/routers"}, ScoreBuildTool, "tRPC router directory").
+		CheckAnyPath([]string{"server/trpc.ts", "src/server/trpc.ts", "server/router.ts", "src/server/router.ts"}, ScoreBuildTool, "tRPC router files").
 		CheckFile("tsconfig.json", ScoreMinorIndicator, "TypeScript config").
 		Build(plans.TRPCPlan)
 }

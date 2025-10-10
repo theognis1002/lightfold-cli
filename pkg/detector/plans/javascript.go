@@ -50,9 +50,7 @@ func NextPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[st
 		meta["export"] = "static"
 	}
 
-	if monorepoType := helpers.DetectMonorepoType(fs); monorepoType != "none" {
-		meta["monorepo"] = monorepoType
-	}
+	AddMonorepoMeta(fs, meta)
 
 	return build, run, health, env, meta
 }
@@ -91,9 +89,7 @@ func RemixPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[s
 		"adapter":         adapter.Type,
 	}
 
-	if monorepoType := helpers.DetectMonorepoType(fs); monorepoType != "none" {
-		meta["monorepo"] = monorepoType
-	}
+	AddMonorepoMeta(fs, meta)
 
 	return build, run, health, env, meta
 }
@@ -149,9 +145,7 @@ func AstroPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[s
 		"run_mode":        adapter.RunMode,
 	}
 
-	if monorepoType := helpers.DetectMonorepoType(fs); monorepoType != "none" {
-		meta["monorepo"] = monorepoType
-	}
+	AddMonorepoMeta(fs, meta)
 
 	return build, run, health, env, meta
 }
@@ -207,9 +201,7 @@ func SveltePlan(fs FSReader) ([]string, []string, map[string]any, []string, map[
 		"run_mode":        adapter.RunMode,
 	}
 
-	if monorepoType := helpers.DetectMonorepoType(fs); monorepoType != "none" {
-		meta["monorepo"] = monorepoType
-	}
+	AddMonorepoMeta(fs, meta)
 
 	return build, run, health, env, meta
 }
@@ -244,9 +236,7 @@ func VuePlan(fs FSReader) ([]string, []string, map[string]any, []string, map[str
 		}
 	}
 
-	if monorepoType := helpers.DetectMonorepoType(fs); monorepoType != "none" {
-		meta["monorepo"] = monorepoType
-	}
+	AddMonorepoMeta(fs, meta)
 
 	return build, run, health, env, meta
 }
@@ -342,9 +332,7 @@ func TRPCPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[st
 		"build_output":    "dist/",
 	}
 
-	if monorepoType := helpers.DetectMonorepoType(fs); monorepoType != "none" {
-		meta["monorepo"] = monorepoType
-	}
+	AddMonorepoMeta(fs, meta)
 
 	return build, run, health, env, meta
 }

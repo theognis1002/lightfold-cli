@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"lightfold/pkg/config"
 	"lightfold/pkg/detector"
+	installers "lightfold/pkg/runtime/installers"
 	sshpkg "lightfold/pkg/ssh"
 	"os"
 	"path/filepath"
@@ -178,145 +179,31 @@ func (e *Executor) InstallBasePackages() error {
 		return formatSSHError("failed to update package lists after retries", result)
 	}
 
-	result = e.ssh.ExecuteSudo("apt-get install -y nginx")
+	result = e.ssh.ExecuteSudo("DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=\"--force-confdef\" -o Dpkg::Options::=\"--force-confold\" nginx")
 	e.sendOutput(result.Stdout, 3)
 	if result.Error != nil || result.ExitCode != 0 {
 		return formatSSHError("failed to install nginx", result)
 	}
 
 	if e.detection != nil {
-		switch e.detection.Language {
-		case "JavaScript/TypeScript":
-			result = e.ssh.Execute("/usr/local/bin/node --version 2>/dev/null || /usr/bin/node --version 2>/dev/null || echo 'not-found'")
-			existingVersion := strings.TrimSpace(result.Stdout)
-
-			if strings.HasPrefix(existingVersion, "v20.") {
-				if e.outputCallback != nil {
-					e.outputCallback(fmt.Sprintf("  Node.js already installed: %s", existingVersion))
-				}
-				e.ssh.ExecuteSudo("ln -sf /usr/local/bin/node /usr/bin/node")
-				e.ssh.ExecuteSudo("ln -sf /usr/local/bin/npm /usr/bin/npm")
-				e.ssh.ExecuteSudo("ln -sf /usr/local/bin/npx /usr/bin/npx")
-			} else {
-				if e.outputCallback != nil {
-					e.outputCallback("  Installing Node.js v20.11.1...")
-				}
-
-				e.ssh.ExecuteSudo("apt-get remove -y nodejs npm libnode-dev libnode72 2>/dev/null || true")
-				e.ssh.ExecuteSudo("apt-get purge -y nodejs npm libnode-dev libnode72 2>/dev/null || true")
-				e.ssh.ExecuteSudo("apt-get autoremove -y 2>/dev/null || true")
-
-				e.ssh.ExecuteSudo("rm -f /usr/bin/node /usr/bin/npm /usr/bin/npx 2>/dev/null || true")
-				e.ssh.ExecuteSudo("rm -rf /usr/lib/node_modules 2>/dev/null || true")
-				e.ssh.ExecuteSudo("rm -f /etc/apt/sources.list.d/nodesource.list 2>/dev/null || true")
-
-				result = e.ssh.ExecuteSudo("curl -fsSL https://nodejs.org/dist/v20.11.1/node-v20.11.1-linux-x64.tar.xz -o /tmp/node.tar.xz")
-				if result.Error != nil || result.ExitCode != 0 {
-					return formatSSHError("failed to download Node.js", result)
-				}
-
-				result = e.ssh.ExecuteSudo("tar -xf /tmp/node.tar.xz -C /tmp")
-				if result.Error != nil || result.ExitCode != 0 {
-					return formatSSHError("failed to extract Node.js", result)
-				}
-
-				result = e.ssh.ExecuteSudo("cp -r /tmp/node-v20.11.1-linux-x64/* /usr/local/")
-				if result.Error != nil || result.ExitCode != 0 {
-					return formatSSHError("failed to install Node.js to /usr/local", result)
-				}
-
-				e.ssh.ExecuteSudo("ln -sf /usr/local/bin/node /usr/bin/node")
-				e.ssh.ExecuteSudo("ln -sf /usr/local/bin/npm /usr/bin/npm")
-				e.ssh.ExecuteSudo("ln -sf /usr/local/bin/npx /usr/bin/npx")
-
-				e.ssh.ExecuteSudo("rm -rf /tmp/node-v20.11.1-linux-x64 /tmp/node.tar.xz")
-
-				result = e.ssh.Execute("/usr/bin/node --version")
-				nodeVersion := strings.TrimSpace(result.Stdout)
-				if e.outputCallback != nil {
-					e.outputCallback(fmt.Sprintf("  Node.js installed: %s at /usr/bin/node", nodeVersion))
-				}
-
-				if !strings.HasPrefix(nodeVersion, "v1") && !strings.HasPrefix(nodeVersion, "v2") {
-					return fmt.Errorf("failed to install modern Node.js, got version: %s", nodeVersion)
+		var tailFn func(result *sshpkg.CommandResult, lastN int)
+		if e.outputCallback != nil {
+			tailFn = func(result *sshpkg.CommandResult, lastN int) {
+				if result != nil {
+					e.sendOutput(result.Stdout, lastN)
 				}
 			}
+		}
 
-			if pm, ok := e.detection.Meta["package_manager"]; ok && pm != "npm" {
-				switch pm {
-				case "bun":
-					result = e.ssh.Execute("curl -fsSL https://bun.sh/install | bash")
-					e.sendOutput(result.Stdout, 3)
-					if result.Error != nil || result.ExitCode != 0 {
-						return formatSSHError("failed to install bun", result)
-					}
-				case "pnpm":
-					result = e.ssh.ExecuteSudo("npm install -g pnpm")
-					e.sendOutput(result.Stdout, 3)
-					if result.Error != nil || result.ExitCode != 0 {
-						return formatSSHError("failed to install pnpm", result)
-					}
-				case "yarn":
-					result = e.ssh.ExecuteSudo("npm install -g yarn")
-					e.sendOutput(result.Stdout, 3)
-					if result.Error != nil || result.ExitCode != 0 {
-						return formatSSHError("failed to install yarn", result)
-					}
-				}
-			}
+		ctx := &installers.Context{
+			SSH:       e.ssh,
+			Detection: e.detection,
+			Output:    e.outputCallback,
+			Tail:      tailFn,
+		}
 
-		case "Python":
-			result = e.ssh.ExecuteSudo("apt-get install -y python3 python3-pip python3-venv")
-			e.sendOutput(result.Stdout, 3)
-			if result.Error != nil || result.ExitCode != 0 {
-				return formatSSHError("failed to install Python", result)
-			}
-
-			// Create python symlink for compatibility (nixpacks uses 'python' not 'python3')
-			e.ssh.ExecuteSudo("ln -sf /usr/bin/python3 /usr/bin/python")
-			e.ssh.ExecuteSudo("ln -sf /usr/bin/pip3 /usr/bin/pip")
-
-			if pm, ok := e.detection.Meta["package_manager"]; ok && pm != "pip" {
-				switch pm {
-				case "poetry":
-					result = e.ssh.Execute("curl -sSL https://install.python-poetry.org | python3 -")
-					e.sendOutput(result.Stdout, 3)
-					if result.Error != nil || result.ExitCode != 0 {
-						return formatSSHError("failed to install poetry", result)
-					}
-				case "pipenv":
-					result = e.ssh.Execute("pip3 install --user pipenv")
-					e.sendOutput(result.Stdout, 3)
-					if result.Error != nil || result.ExitCode != 0 {
-						return formatSSHError("failed to install pipenv", result)
-					}
-				case "uv":
-					result = e.ssh.Execute("curl -LsSf https://astral.sh/uv/install.sh | sh")
-					e.sendOutput(result.Stdout, 3)
-					if result.Error != nil || result.ExitCode != 0 {
-						return formatSSHError("failed to install uv", result)
-					}
-				}
-			}
-
-		case "Go":
-			result = e.ssh.ExecuteSudo("apt-get install -y golang-go")
-			e.sendOutput(result.Stdout, 3)
-			if result.Error != nil || result.ExitCode != 0 {
-				return formatSSHError("failed to install Go", result)
-			}
-
-		case "PHP":
-			result = e.ssh.ExecuteSudo("apt-get install -y php php-fpm php-mysql php-xml php-mbstring")
-			if result.Error != nil || result.ExitCode != 0 {
-				return formatSSHError("failed to install PHP", result)
-			}
-
-		case "Ruby":
-			result = e.ssh.ExecuteSudo("apt-get install -y ruby-full")
-			if result.Error != nil || result.ExitCode != 0 {
-				return formatSSHError("failed to install Ruby", result)
-			}
+		if err := installers.EnsureRuntimeInstalled(ctx); err != nil {
+			return err
 		}
 	}
 

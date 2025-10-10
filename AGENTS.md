@@ -142,26 +142,73 @@ lightfold/
 │   ├── configure.go      # Server configuration (idempotent)
 │   ├── push.go           # Release deployment
 │   ├── deploy.go         # Orchestrator (chains all steps)
+│   ├── autodeploy.go     # Auto-deployment workflow
 │   ├── status.go         # Deployment status viewer (with health checks)
 │   ├── logs.go           # Application log viewer
 │   ├── rollback.go       # Release rollback
+│   ├── sync.go           # State synchronization
 │   ├── config.go         # Config/token management
 │   ├── keygen.go         # SSH key generation
 │   ├── ssh.go            # Interactive SSH sessions
 │   ├── destroy.go        # VM destruction and cleanup
 │   ├── server.go         # Multi-app server management
-│   ├── common.go         # Shared helpers (resolveTarget, createTarget, configureTarget, multi-app helpers)
+│   ├── domain.go         # Custom domain and SSL management
+│   ├── common.go         # Shared command helpers and wrapper functions
+│   ├── provider_bootstrap.go  # Provider registry and configuration
+│   ├── provider_state.go      # Provider state handlers for IP recovery
+│   ├── utils/            # Refactored shared utilities
+│   │   ├── target_resolution.go   # Target resolution logic
+│   │   ├── server_setup.go        # Server creation and configuration helpers
+│   │   ├── provider_recovery.go   # Generic IP recovery from providers
+│   │   └── port_allocation.go     # Multi-app port allocation
+│   ├── templates/        # Command templates
 │   └── ui/               # TUI components
 │       ├── detection/    # Detection results display
+│       ├── deployment/   # Deployment UI components
 │       ├── sequential/   # Token collection flows
 │       ├── spinner/      # Loading animations
 │       ├── progress.go   # Deployment progress bars
 │       └── animation.go  # Shared animations
 ├── pkg/
 │   ├── detector/         # Framework detection engine
-│   │   ├── detector.go   # Core detection logic
-│   │   ├── plans.go      # Build/run plans
-│   │   └── exports.go    # Test helpers
+│   │   ├── detector.go   # Core detection orchestrator
+│   │   ├── fsreader.go   # Filesystem reader abstraction
+│   │   ├── helpers.go    # Shared detection helpers
+│   │   ├── types.go      # Core detection types
+│   │   ├── exports.go    # Test helpers
+│   │   ├── detectors/    # Framework-specific detectors
+│   │   │   ├── types.go        # Detector types and interfaces
+│   │   │   ├── scoring.go      # Scoring system
+│   │   │   ├── builder.go      # Detector registry builder
+│   │   │   ├── javascript.go   # JS/TS frameworks (Next.js, Astro, SvelteKit, etc.)
+│   │   │   ├── python.go       # Python frameworks (Django, Flask, FastAPI)
+│   │   │   ├── go.go           # Go frameworks
+│   │   │   ├── php.go          # PHP frameworks
+│   │   │   ├── ruby.go         # Ruby frameworks
+│   │   │   ├── rust.go         # Rust frameworks
+│   │   │   ├── java.go         # Java frameworks
+│   │   │   ├── csharp.go       # C# frameworks
+│   │   │   ├── elixir.go       # Elixir frameworks
+│   │   │   └── docker.go       # Dockerfile detection
+│   │   ├── packagemanagers/  # Package manager detection
+│   │   │   ├── javascript.go # JS package managers (npm, yarn, pnpm, bun)
+│   │   │   └── python.go     # Python package managers (pip, poetry, uv, pipenv)
+│   │   ├── helpers/      # Framework-specific helper utilities
+│   │   │   └── javascript.go # JS framework detection helpers
+│   │   └── plans/        # Build/run plan generators
+│   │       ├── types.go        # Plan function type
+│   │       ├── common.go       # Shared plan helpers
+│   │       ├── helpers.go      # Plan utility functions
+│   │       ├── javascript.go   # JS framework plans
+│   │       ├── python.go       # Python framework plans
+│   │       ├── go.go           # Go framework plans
+│   │       ├── php.go          # PHP framework plans
+│   │       ├── ruby.go         # Ruby framework plans
+│   │       ├── rust.go         # Rust framework plans
+│   │       ├── java.go         # Java framework plans
+│   │       ├── csharp.go       # C# framework plans
+│   │       ├── elixir.go       # Elixir framework plans
+│   │       └── docker.go       # Docker-based plans
 │   ├── builders/         # Build system registry
 │   │   ├── builder.go    # Builder interface
 │   │   ├── registry.go   # Builder factory + auto-selection
@@ -175,9 +222,17 @@ lightfold/
 │   │   ├── state.go      # Local/remote state management
 │   │   ├── server.go     # Multi-app server state
 │   │   └── ports.go      # Port allocation and conflict detection
-│   ├── runtime/          # Runtime cleanup system
+│   ├── runtime/          # Runtime management system
 │   │   ├── types.go      # Runtime types and info
-│   │   └── cleaner.go    # Cleanup orchestration
+│   │   ├── cleaner.go    # Cleanup orchestration
+│   │   └── installers/   # Runtime installer registry
+│   │       ├── registry.go  # Installer interface and registry
+│   │       ├── helpers.go   # Shared installer utilities
+│   │       ├── node.go      # Node.js runtime installer
+│   │       ├── python.go    # Python runtime installer
+│   │       ├── go.go        # Go runtime installer
+│   │       ├── php.go       # PHP runtime installer
+│   │       └── ruby.go      # Ruby runtime installer
 │   ├── deploy/           # Deployment logic
 │   │   ├── orchestrator.go # Multi-provider orchestration
 │   │   ├── executor.go   # Blue/green deployment executor
@@ -185,15 +240,26 @@ lightfold/
 │   ├── ssh/              # SSH operations
 │   │   ├── executor.go   # SSH command execution
 │   │   └── keygen.go     # SSH key generation
+│   ├── ssl/              # SSL certificate management
+│   │   ├── manager.go    # SSL manager interface + registry
+│   │   ├── certbot/      # Certbot (Let's Encrypt) manager
+│   │   └── caddy/        # Caddy manager (future)
+│   ├── proxy/            # Reverse proxy management
+│   │   ├── proxy.go      # Proxy manager interface + registry
+│   │   ├── nginx/        # Nginx manager
+│   │   └── caddy/        # Caddy manager (future)
 │   ├── util/             # Shared utilities
 │   │   ├── env.go        # .env file parsing
-│   │   └── project.go    # Project path validation
+│   │   └── git.go        # Git operations
+│   ├── flyctl/           # Fly.io CLI wrapper
+│   │   └── flyctl.go     # flyctl command execution
 │   └── providers/        # Cloud provider registry
 │       ├── provider.go   # Provider interface
 │       ├── registry.go   # Provider factory
 │       ├── digitalocean/ # DigitalOcean implementation
 │       ├── vultr/        # Vultr implementation
 │       ├── hetzner/      # Hetzner implementation
+│       ├── flyio/        # Fly.io implementation
 │       └── cloudinit/    # Cloud-init template generation
 ├── test/
 │   ├── detector/         # Detection test suite
@@ -899,16 +965,6 @@ Generates cloud-init user data for server provisioning:
 3. Add appropriate plan functions
 4. Update documentation
 
-## Testing Checklist
-
-### Framework Detection
-- [ ] Framework detection accuracy
-- [ ] Package manager detection
-- [ ] Build command generation
-- [ ] JSON output format
-- [ ] Edge case handling
-- [ ] Performance with large projects
-
 ### Composable Commands
 - [ ] `create` - BYOS and provision modes, 3 invocation patterns
 - [ ] `configure` - Idempotency and force flag, 3 invocation patterns
@@ -1036,12 +1092,17 @@ lightfold destroy --target myapp       # Destroy VM and cleanup
 - **Unified command pattern**: All commands support 3 invocation methods (current dir, path arg, --target flag)
 - State tracking is dual: local JSON files + remote markers on servers
 - Idempotency is critical - commands check state first, then execute, then update state
-- **Code reuse pattern**: Core logic extracted to `cmd/common.go`
+- **Code reuse pattern**: Core logic extracted to `cmd/common.go` and refactored utilities
   - `resolveTarget()` - Unified target resolution from 3 input patterns (DRY principle)
   - `createTarget()` and `configureTarget()` - Reusable deployment logic
   - Cobra commands are thin wrappers that call these shared functions
   - `deploy` orchestrator calls these reusable functions directly
   - Single source of truth for all deployment logic
+- **Provider-agnostic refactoring**: Registry patterns for extensibility
+  - `cmd/provider_bootstrap.go` - Provider registration with O(1) lookup, SSH key generation
+  - `cmd/provider_state.go` - Unified IP recovery handlers for all providers
+  - `pkg/runtime/installers/` - Pluggable runtime installer system with auto-registration
+  - Adding new providers/runtimes requires only one new entry, zero changes to core logic
 - **New convenience commands**:
   - `logs` - View application logs via journalctl (supports --tail and --lines)
   - `rollback` - Standalone rollback command (removed from deploy --rollback)

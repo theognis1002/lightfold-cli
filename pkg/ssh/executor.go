@@ -195,7 +195,7 @@ func (e *Executor) UploadBytes(content []byte, remotePath string, mode os.FileMo
 
 	mkdirResult := e.Execute(fmt.Sprintf("mkdir -p %s", remoteDir))
 	if mkdirResult.Error != nil || mkdirResult.ExitCode != 0 {
-		return fmt.Errorf("failed to create remote directory: %v", mkdirResult.Error)
+		return fmt.Errorf("failed to create remote directory: %w", mkdirResult.Error)
 	}
 
 	// Create error channel for goroutine communication

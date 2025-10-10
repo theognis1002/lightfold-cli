@@ -125,7 +125,7 @@ func ValidateSSHKeyPath(value string) error {
 
 	content, err := os.ReadFile(value)
 	if err != nil {
-		return fmt.Errorf("cannot read SSH key file: %v", err)
+		return fmt.Errorf("cannot read SSH key file: %w", err)
 	}
 
 	contentStr := string(content)
