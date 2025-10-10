@@ -18,17 +18,21 @@ func NextPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[st
 	}
 
 	var run []string
+	var health map[string]any
+
 	switch nextConfig.OutputMode {
 	case "standalone":
 		run = []string{"node .next/standalone/server.js"}
+		health = map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	case "export":
-		run = []string{"# Static export - serve with nginx or CDN"}
+		run = []string{"# Static export - serve with nginx"}
+		health = nil // No health check needed for static exports
 	default:
 		startScript := helpers.GetProductionStartScript(pkg)
 		run = []string{packagemanagers.GetRunCommand(pm, startScript)}
+		health = map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	}
 
-	health := map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"NEXT_PUBLIC_*, any server-only envs"}
 
 	meta := map[string]string{
@@ -48,6 +52,7 @@ func NextPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[st
 
 	if nextConfig.OutputMode == "export" {
 		meta["export"] = "static"
+		meta["deployment_type"] = "static"
 	}
 
 	AddMonorepoMeta(fs, meta)
@@ -122,20 +127,24 @@ func AstroPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[s
 	}
 
 	var run []string
+	var health map[string]any
 	startScript := helpers.GetProductionStartScript(pkg)
 
 	switch adapter.Type {
 	case "static":
-		run = []string{"# Static site - serve dist/ with nginx or CDN"}
+		run = []string{"# Static site - serve dist/ with nginx"}
+		health = nil // No health check needed for static sites
 	case "node":
 		run = []string{"node dist/server/entry.mjs"}
+		health = map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	case "vercel", "netlify", "cloudflare":
 		run = []string{"# Deploy to " + adapter.Type}
+		health = map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	default:
 		run = []string{packagemanagers.GetRunCommand(pm, startScript)}
+		health = map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	}
 
-	health := map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"PUBLIC_*, any server-only envs for SSR"}
 
 	meta := map[string]string{
@@ -143,6 +152,11 @@ func AstroPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[s
 		"build_output":    "dist/",
 		"adapter":         adapter.Type,
 		"run_mode":        adapter.RunMode,
+	}
+
+	// Mark static sites explicitly for deployment logic
+	if adapter.RunMode == "static" {
+		meta["deployment_type"] = "static"
 	}
 
 	AddMonorepoMeta(fs, meta)
@@ -178,20 +192,24 @@ func SveltePlan(fs FSReader) ([]string, []string, map[string]any, []string, map[
 	}
 
 	var run []string
+	var health map[string]any
 	startScript := helpers.GetProductionStartScript(pkg)
 
 	switch adapter.Type {
 	case "static":
-		run = []string{"# Static site - serve build/ with nginx or CDN"}
+		run = []string{"# Static site - serve build/ with nginx"}
+		health = nil // No health check needed for static sites
 	case "node":
 		run = []string{"node build"}
+		health = map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	case "vercel", "netlify", "cloudflare":
 		run = []string{"# Deploy to " + adapter.Type}
+		health = map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	default:
 		run = []string{packagemanagers.GetRunCommand(pm, startScript)}
+		health = map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	}
 
-	health := map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"PUBLIC_*, any server-only envs for SvelteKit SSR"}
 
 	meta := map[string]string{
@@ -199,6 +217,11 @@ func SveltePlan(fs FSReader) ([]string, []string, map[string]any, []string, map[
 		"build_output":    "build/",
 		"adapter":         adapter.Type,
 		"run_mode":        adapter.RunMode,
+	}
+
+	// Mark static sites explicitly for deployment logic
+	if adapter.RunMode == "static" {
+		meta["deployment_type"] = "static"
 	}
 
 	AddMonorepoMeta(fs, meta)

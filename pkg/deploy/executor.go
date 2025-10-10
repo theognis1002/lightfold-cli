@@ -23,6 +23,9 @@ var systemdTemplate string
 //go:embed templates/nginx.conf.tmpl
 var nginxTemplate string
 
+//go:embed templates/nginx-static.conf.tmpl
+var nginxStaticTemplate string
+
 // OutputCallback is called with streaming output from commands
 type OutputCallback func(line string)
 
@@ -394,6 +397,15 @@ func (e *Executor) getRunPlan() []string {
 	return nil
 }
 
+// isStaticSite returns true if the detected app is a static site (no server process needed)
+func (e *Executor) isStaticSite() bool {
+	if e.detection == nil || e.detection.Meta == nil {
+		return false
+	}
+	deploymentType, ok := e.detection.Meta["deployment_type"]
+	return ok && deploymentType == "static"
+}
+
 func (e *Executor) BuildReleaseWithEnv(releasePath string, envVars map[string]string) error {
 	buildPlan := e.getBuildPlan()
 	if len(buildPlan) == 0 {
@@ -731,6 +743,11 @@ func (e *Executor) CleanupOldReleases(keepCount int) error {
 }
 
 func (e *Executor) GenerateSystemdUnit(releasePath string) error {
+	// Static sites don't need a systemd service (nginx serves files directly)
+	if e.isStaticSite() {
+		return nil
+	}
+
 	execStart := e.getExecStartCommand()
 
 	data := map[string]string{
@@ -857,14 +874,28 @@ func (e *Executor) getExecStartCommand() string {
 	return "/usr/bin/true"
 }
 
-// GenerateNginxConfig creates an nginx reverse proxy configuration
+// GenerateNginxConfig creates an nginx configuration (reverse proxy for SSR or static file server for static sites)
 func (e *Executor) GenerateNginxConfig() error {
 	data := map[string]string{
 		"APP_NAME": e.appName,
 	}
 
+	// Use different templates for static vs SSR sites
+	template := nginxTemplate
+	if e.isStaticSite() {
+		template = nginxStaticTemplate
+		// Get build output directory from detection metadata
+		buildOutput := "dist/"
+		if e.detection != nil && e.detection.Meta != nil {
+			if output, ok := e.detection.Meta["build_output"]; ok {
+				buildOutput = output
+			}
+		}
+		data["BUILD_OUTPUT"] = buildOutput
+	}
+
 	tmpPath := fmt.Sprintf("/tmp/nginx-%s.conf", e.appName)
-	if err := e.ssh.RenderAndWriteTemplate(nginxTemplate, data, tmpPath, config.PermConfigFile); err != nil {
+	if err := e.ssh.RenderAndWriteTemplate(template, data, tmpPath, config.PermConfigFile); err != nil {
 		return fmt.Errorf("failed to write nginx config to temp: %w", err)
 	}
 
@@ -902,6 +933,11 @@ func (e *Executor) ReloadNginx() error {
 }
 
 func (e *Executor) EnableService() error {
+	// Static sites don't have a systemd service
+	if e.isStaticSite() {
+		return nil
+	}
+
 	result := e.ssh.ExecuteSudo(fmt.Sprintf("systemctl enable %s", e.appName))
 	if result.Error != nil || result.ExitCode != 0 {
 		return fmt.Errorf("failed to enable service: %s", result.Stderr)
@@ -1070,6 +1106,13 @@ func (e *Executor) DeployWithHealthCheck(releasePath string, healthCheckRetries 
 		return fmt.Errorf("failed to switch release: %w", err)
 	}
 
+	// Static sites don't need systemd services or health checks
+	if e.isStaticSite() {
+		// Just reload nginx to pick up the new release
+		return e.ReloadNginx()
+	}
+
+	// For SSR apps, manage systemd service and health checks
 	isFirstDeploy := currentRelease == ""
 	if isFirstDeploy {
 		if err := e.StartService(); err != nil {

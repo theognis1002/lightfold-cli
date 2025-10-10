@@ -1,0 +1,25 @@
+server {
+  listen 80;
+  server_name _;
+
+  access_log /var/log/nginx/{{APP_NAME}}_access.log;
+  error_log  /var/log/nginx/{{APP_NAME}}_error.log;
+
+  root /srv/{{APP_NAME}}/current/{{BUILD_OUTPUT}};
+  index index.html;
+
+  # Try files first, fallback to index.html for SPA routing
+  location / {
+    try_files $uri $uri/ /index.html =404;
+  }
+
+  # Optional: Add caching headers for static assets
+  location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {
+    expires 1y;
+    add_header Cache-Control "public, immutable";
+  }
+
+  # Serve shared static and media files
+  location /static/ { alias /srv/{{APP_NAME}}/shared/static/; }
+  location /media/  { alias /srv/{{APP_NAME}}/shared/media/; }
+}
