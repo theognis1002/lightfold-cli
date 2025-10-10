@@ -14,6 +14,7 @@ lightfold-*.exe
 *.a
 *.so
 *.dylib
+.gocache/
 
 # Test binary, built with `go test -c`
 *.test
