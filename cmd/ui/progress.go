@@ -214,13 +214,10 @@ func (m progressModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m progressModel) View() string {
 	var s strings.Builder
 
-	s.WriteString("\n")
-
 	if !m.completed {
 	} else {
-		var headerStyle lipgloss.Style
 		if m.err != nil {
-			headerStyle = lipgloss.NewStyle().
+			headerStyle := lipgloss.NewStyle().
 				Bold(true).
 				Foreground(lipgloss.Color("196"))
 			s.WriteString(headerStyle.Render("Deployment failed!"))
@@ -229,24 +226,15 @@ func (m progressModel) View() string {
 				Foreground(lipgloss.Color("203"))
 			s.WriteString(errorStyle.Render(fmt.Sprintf("Error: %v", m.err)))
 			s.WriteString("\n\n")
-		} else {
-			headerStyle = lipgloss.NewStyle().
-				Bold(true).
-				Foreground(lipgloss.Color("82"))
-			completionMsg := "Deployment complete!"
-			if m.completionMessage != "" {
-				completionMsg = m.completionMessage
-			}
-			s.WriteString(headerStyle.Render(completionMsg))
-			s.WriteString("\n\n")
 		}
+		// Don't show completion message for successful completions
 	}
 
 	if len(m.stepHistory) > 0 {
 		successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
 		inProgressStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226"))
 		errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
-		descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+		mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 
 		for _, step := range m.stepHistory {
 			if !m.completed && step.status == "success" {
@@ -254,20 +242,20 @@ func (m progressModel) View() string {
 			}
 
 			var icon string
-			var style lipgloss.Style
+			var iconStyle lipgloss.Style
 			switch step.status {
 			case "success":
 				icon = "✓"
-				style = successStyle
+				iconStyle = successStyle
 			case "in_progress":
 				icon = m.spinner.View()
-				style = inProgressStyle
+				iconStyle = inProgressStyle
 			case "error":
 				icon = "✗"
-				style = errorStyle
+				iconStyle = errorStyle
 			}
-			s.WriteString(style.Render(fmt.Sprintf("%s ", icon)))
-			s.WriteString(descStyle.Render(step.description))
+			s.WriteString(iconStyle.Render(fmt.Sprintf("%s ", icon)))
+			s.WriteString(mutedStyle.Render(step.description))
 			s.WriteString("\n")
 		}
 		s.WriteString("\n")
@@ -418,7 +406,7 @@ func ShowConfigurationProgressWithOrchestrator(ctx context.Context, orchestrator
 		ctx:               ctx,
 		spinner:           s,
 		skipInit:          true,
-		completionMessage: "Configuration complete!",
+		completionMessage: "",
 	}
 
 	p := tea.NewProgram(m)
@@ -460,7 +448,7 @@ func ShowProvisioningProgressWithOrchestrator(ctx context.Context, orchestrator 
 		ctx:               ctx,
 		spinner:           s,
 		skipInit:          true,
-		completionMessage: "Provisioning complete!",
+		completionMessage: "",
 	}
 
 	p := tea.NewProgram(m)

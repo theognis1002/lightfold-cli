@@ -72,7 +72,7 @@ func promptDomainConfiguration(target *config.TargetConfig, targetName string) {
 		return
 	}
 
-	// Skip domain configuration for non-SSH providers (e.g., Fly.io)
+	// Skip domain configuration for non-SSH providers (e.g., fly.io)
 	// These providers handle domains differently via their own platform
 	if !target.RequiresSSHDeployment() {
 		return

@@ -101,9 +101,9 @@ func GenerateFlyToml(detection *detector.Detection, appName, region, machineSize
 	return buf.String(), nil
 }
 
-// parseMachineSize converts Fly.io machine size ID to memory (MB) and CPU count
+// parseMachineSize converts fly.io machine size ID to memory (MB) and CPU count
 func parseMachineSize(sizeID string) (memoryMB int, cpus int) {
-	// Map of Fly.io machine sizes to their specs
+	// Map of fly.io machine sizes to their specs
 	// Format: "shared-cpu-1x" -> 256MB RAM, 1 vCPU
 	sizeMap := map[string]struct{ memory, cpus int }{
 		"shared-cpu-1x":  {256, 1},

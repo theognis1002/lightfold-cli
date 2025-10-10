@@ -132,10 +132,10 @@ var providerBootstraps = []*providerBootstrap{
 		},
 		flagConfigurator: func(opts provisionInputs, sshKeyPath, sshKeyName string) (config.ProviderConfig, error) {
 			if opts.Region == "" {
-				return nil, fmt.Errorf("region is required for Fly.io provisioning")
+				return nil, fmt.Errorf("region is required for fly.io provisioning")
 			}
 			if opts.Size == "" {
-				return nil, fmt.Errorf("size is required for Fly.io provisioning")
+				return nil, fmt.Errorf("size is required for fly.io provisioning")
 			}
 			return &config.FlyioConfig{
 				Region:      opts.Region,

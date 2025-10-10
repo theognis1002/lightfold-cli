@@ -52,7 +52,7 @@ Examples:
 			os.Exit(1)
 		}
 
-		// Route to Fly.io logs for container-based deployments
+		// Route to fly.io logs for container-based deployments
 		if target.Provider == "flyio" {
 			tokens, err := config.LoadTokens()
 			if err != nil {
@@ -62,14 +62,14 @@ Examples:
 
 			token := tokens.GetToken("flyio")
 			if token == "" {
-				fmt.Fprintf(os.Stderr, "Error: Fly.io API token not found\n")
+				fmt.Fprintf(os.Stderr, "Error: fly.io API token not found\n")
 				fmt.Fprintf(os.Stderr, "Run 'lightfold config set-token flyio' first\n")
 				os.Exit(1)
 			}
 
 			flyioConfig, err := target.GetFlyioConfig()
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error getting Fly.io config: %v\n", err)
+				fmt.Fprintf(os.Stderr, "Error getting fly.io config: %v\n", err)
 				os.Exit(1)
 			}
 
@@ -81,7 +81,7 @@ Examples:
 
 			output, err := client.GetLogs(ctx, logsLines, logsTail)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error fetching Fly.io logs: %v\n", err)
+				fmt.Fprintf(os.Stderr, "Error fetching fly.io logs: %v\n", err)
 				os.Exit(1)
 			}
 

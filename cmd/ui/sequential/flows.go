@@ -434,11 +434,11 @@ func RunProvisionFlyioFlow(projectName string) (*config.FlyioConfig, error) {
 
 	final := finalModel.(FlowModel)
 	if final.Cancelled {
-		return nil, fmt.Errorf("Fly.io configuration cancelled")
+		return nil, fmt.Errorf("fly.io configuration cancelled")
 	}
 
 	if !final.Completed {
-		return nil, fmt.Errorf("Fly.io configuration not completed")
+		return nil, fmt.Errorf("fly.io configuration not completed")
 	}
 
 	results := final.GetResults()
@@ -497,7 +497,7 @@ func CreateProvisionFlyioFlow(projectName string) *FlowModel {
 		)
 	}
 
-	flow := NewFlow("Configure Fly.io Deployment", steps)
+	flow := NewFlow("Configure fly.io Deployment", steps)
 	flow.SetProjectName(projectName)
 	return flow
 }

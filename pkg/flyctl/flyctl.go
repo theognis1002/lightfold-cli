@@ -65,9 +65,9 @@ func AuthenticateWithToken(token string) error {
 type DeployOptions struct {
 	ProjectPath string            // Local project directory
 	Secrets     map[string]string // Environment variables/secrets
-	Region      string            // Fly.io region
+	Region      string            // fly.io region
 	RemoteOnly  bool              // Use remote builder (default: true)
-	UseNixpacks bool              // Use Fly.io's native nixpacks builder (recommended)
+	UseNixpacks bool              // Use fly.io's native nixpacks builder (recommended)
 }
 
 // Deploy runs flyctl deploy with remote builder
@@ -79,7 +79,7 @@ func (c *Client) Deploy(ctx context.Context, opts DeployOptions) (string, error)
 	// Build command
 	args := []string{"deploy"}
 
-	// Use Fly.io's native nixpacks builder (recommended)
+	// Use fly.io's native nixpacks builder (recommended)
 	if opts.UseNixpacks {
 		args = append(args, "--nixpacks")
 	}

@@ -11,10 +11,10 @@ import (
 	"lightfold/pkg/detector"
 	"lightfold/pkg/providers"
 	"lightfold/pkg/providers/cloudinit"
-	_ "lightfold/pkg/providers/digitalocean" // Register DigitalOcean provider
-	_ "lightfold/pkg/providers/flyio"        // Register Fly.io provider
-	_ "lightfold/pkg/providers/hetzner"      // Register Hetzner provider
-	_ "lightfold/pkg/providers/vultr"        // Register Vultr provider
+	_ "lightfold/pkg/providers/digitalocean"
+	_ "lightfold/pkg/providers/flyio"
+	_ "lightfold/pkg/providers/hetzner"
+	_ "lightfold/pkg/providers/vultr"
 	runtimepkg "lightfold/pkg/runtime"
 	sshpkg "lightfold/pkg/ssh"
 	"lightfold/pkg/state"
@@ -28,7 +28,7 @@ import (
 type DeploymentStep struct {
 	Name        string
 	Description string
-	Progress    int // 0-100
+	Progress    int
 }
 
 // DeploymentResult contains the result of a deployment operation
@@ -112,7 +112,7 @@ func (o *Orchestrator) deployWithProvider(ctx context.Context) (*DeploymentResul
 		return o.deployS3(ctx)
 	}
 
-	// Check if this is a container provider (Fly.io)
+	// Check if this is a container provider (fly.io)
 	if o.config.Provider == "flyio" {
 		// Check if app needs to be created first
 		flyioConfig, err := o.config.GetFlyioConfig()
@@ -656,10 +656,10 @@ func (o *Orchestrator) deployPhase(executor *Executor, releasePath string, isCon
 	cfg, err := config.LoadConfig()
 	if err != nil {
 		fmt.Printf("Warning: failed to load config for cleanup: %v\n", err)
-		cfg = &config.Config{KeepReleases: config.DefaultKeepReleases}
+		cfg = &config.Config{NumReleases: config.DefaultNumReleases}
 	}
 
-	if err := executor.CleanupOldReleases(cfg.KeepReleases); err != nil {
+	if err := executor.CleanupOldReleases(cfg.NumReleases); err != nil {
 		fmt.Printf("Warning: failed to cleanup old releases: %v\n", err)
 	}
 
@@ -740,7 +740,7 @@ func (o *Orchestrator) getProvisioningParams() (region, size, sshKeyPath, userna
 	case "flyio":
 		flyioConfig, e := o.config.GetFlyioConfig()
 		if e != nil {
-			err = fmt.Errorf("failed to get Fly.io config: %w", e)
+			err = fmt.Errorf("failed to get fly.io config: %w", e)
 			return
 		}
 		region = flyioConfig.Region
@@ -808,14 +808,14 @@ func (o *Orchestrator) deployFlyio(ctx context.Context, token string) (*Deployme
 
 	o.notifyProgress(DeploymentStep{
 		Name:        "start_flyio_deploy",
-		Description: "Starting Fly.io container deployment...",
+		Description: "Starting fly.io container deployment...",
 		Progress:    5,
 	})
 
-	// Get Fly.io config
+	// Get fly.io config
 	flyioConfig, err := o.config.GetFlyioConfig()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get Fly.io config: %w", err)
+		return nil, fmt.Errorf("failed to get fly.io config: %w", err)
 	}
 
 	// Detect framework
@@ -827,23 +827,22 @@ func (o *Orchestrator) deployFlyio(ctx context.Context, token string) (*Deployme
 
 	detection := detector.DetectFramework(o.projectPath)
 
-	// Create Fly.io deployer
+	// Create fly.io deployer
 	deployer := NewFlyioDeployer(o.projectName, o.projectPath, o.targetName, &detection, flyioConfig, token)
 	deployer.SetProgressCallback(o.progressCallback)
 
 	// Get deployment options
 	deployOpts := o.config.Deploy
 
-	// Execute deployment
 	if err := deployer.Deploy(ctx, deployOpts); err != nil {
 		result.Success = false
 		result.Error = err
-		result.Message = fmt.Sprintf("Fly.io deployment failed: %v", err)
+		result.Message = fmt.Sprintf("fly.io deployment failed: %v", err)
 		return result, err
 	}
 
 	result.Success = true
-	result.Message = "Successfully deployed to Fly.io"
+	result.Message = "Successfully deployed to fly.io"
 
 	return result, nil
 }
