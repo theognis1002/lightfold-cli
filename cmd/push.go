@@ -68,7 +68,7 @@ Examples:
 			os.Exit(1)
 		}
 
-		// Skip configuration check for container providers (Fly.io)
+		// Skip configuration check for container providers (fly.io)
 		if target.Provider != "flyio" && !state.IsConfigured(targetNameResolved) {
 			fmt.Fprintf(os.Stderr, "Error: Target '%s' has not been configured\n", targetNameResolved)
 			fmt.Fprintf(os.Stderr, "Run 'lightfold configure --target %s' first\n", targetNameResolved)
@@ -106,7 +106,7 @@ Examples:
 			if target.Provider == "flyio" {
 				fmt.Println("1. Generate fly.toml configuration")
 				fmt.Println("2. Set secrets via flyctl")
-				fmt.Println("3. Deploy with Fly.io nixpacks (remote build)")
+				fmt.Println("3. Deploy with fly.io nixpacks (remote build)")
 				fmt.Println("4. Wait for health checks")
 			} else {
 				fmt.Println("1. Create release tarball")
@@ -118,7 +118,7 @@ Examples:
 			return
 		}
 
-		// Route to Fly.io deployer for container-based deployments
+		// Route to fly.io deployer for container-based deployments
 		if target.Provider == "flyio" {
 			ctx := context.Background()
 			tokens, err := config.LoadTokens()
@@ -129,14 +129,14 @@ Examples:
 
 			token := tokens.GetToken("flyio")
 			if token == "" {
-				fmt.Fprintf(os.Stderr, "Error: Fly.io API token not found\n")
+				fmt.Fprintf(os.Stderr, "Error: fly.io API token not found\n")
 				fmt.Fprintf(os.Stderr, "Run 'lightfold config set-token flyio' first\n")
 				os.Exit(1)
 			}
 
 			flyioConfig, err := target.GetFlyioConfig()
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error getting Fly.io config: %v\n", err)
+				fmt.Fprintf(os.Stderr, "Error getting fly.io config: %v\n", err)
 				os.Exit(1)
 			}
 
@@ -145,10 +145,10 @@ Examples:
 
 			deployer := deploy.NewFlyioDeployer(projectName, target.ProjectPath, targetNameResolved, &detection, flyioConfig, token)
 
-			fmt.Printf("%s %s\n", pushMutedStyle.Render("→"), pushMutedStyle.Render("Starting Fly.io deployment..."))
+			fmt.Printf("%s %s\n", pushMutedStyle.Render("→"), pushMutedStyle.Render("Starting fly.io deployment..."))
 
 			if err := deployer.Deploy(ctx, target.Deploy); err != nil {
-				state.MarkPushFailed(targetNameResolved, fmt.Sprintf("Fly.io deployment failed: %v", err))
+				state.MarkPushFailed(targetNameResolved, fmt.Sprintf("fly.io deployment failed: %v", err))
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
@@ -169,7 +169,7 @@ Examples:
 				Render(
 					lipgloss.JoinVertical(
 						lipgloss.Left,
-						pushSuccessStyle.Render(fmt.Sprintf("✓ Successfully deployed '%s' to Fly.io", targetNameResolved)),
+						pushSuccessStyle.Render(fmt.Sprintf("✓ Successfully deployed '%s' to fly.io", targetNameResolved)),
 						"",
 						fmt.Sprintf("%s %s", pushMutedStyle.Render("App:"), pushValueStyle.Render(flyioConfig.AppName)),
 						fmt.Sprintf("%s %s", pushMutedStyle.Render("Region:"), pushValueStyle.Render(flyioConfig.Region)),
@@ -274,7 +274,7 @@ Examples:
 		}
 		fmt.Printf("%s %s\n", pushSuccessStyle.Render("✓"), pushMutedStyle.Render("Deploying and running health checks..."))
 
-		if err := executor.CleanupOldReleases(cfg.KeepReleases); err != nil {
+		if err := executor.CleanupOldReleases(cfg.NumReleases); err != nil {
 			fmt.Printf("Warning: failed to cleanup old releases: %v\n", err)
 		}
 		fmt.Printf("%s %s\n", pushSuccessStyle.Render("✓"), pushMutedStyle.Render("Cleaning up old releases..."))

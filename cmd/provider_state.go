@@ -41,7 +41,7 @@ var providerStateHandlers = map[string]providerStateHandler{
 		},
 	},
 	"flyio": {
-		displayName: "Fly.io",
+		displayName: "fly.io",
 		cfgAccessor: func(target *config.TargetConfig) (config.ProviderConfig, error) {
 			return target.GetFlyioConfig()
 		},

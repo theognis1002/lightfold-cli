@@ -147,7 +147,7 @@ var configListCmd = &cobra.Command{
 		}
 
 		fmt.Printf("\n%s\n", configStyle.Render("Global Settings:"))
-		fmt.Printf("  %s: %s\n", configLabelStyle.Render("Keep Releases"), configValueStyle.Render(fmt.Sprintf("%d", cfg.KeepReleases)))
+		fmt.Printf("  %s: %s\n", configLabelStyle.Render("Keep Releases"), configValueStyle.Render(fmt.Sprintf("%d", cfg.NumReleases)))
 		fmt.Println()
 	},
 }
@@ -264,7 +264,7 @@ var configDeleteTokenCmd = &cobra.Command{
 	},
 }
 
-var configSetKeepReleasesCmd = &cobra.Command{
+var configSetNumReleasesCmd = &cobra.Command{
 	Use:   "set-keep-releases <count>",
 	Short: "Set the number of releases to keep during cleanup",
 	Long: `Set the number of releases to keep during cleanup (default: 5).
@@ -289,7 +289,7 @@ Old releases beyond this count will be automatically deleted after each deployme
 			os.Exit(1)
 		}
 
-		cfg.KeepReleases = count
+		cfg.NumReleases = count
 
 		if err := cfg.SaveConfig(); err != nil {
 			fmt.Fprintf(os.Stderr, "%s\n", configErrorStyle.Render(fmt.Sprintf("Error saving config: %v", err)))
@@ -376,7 +376,7 @@ func init() {
 	configCmd.AddCommand(configSetTokenCmd)
 	configCmd.AddCommand(configGetTokenCmd)
 	configCmd.AddCommand(configDeleteTokenCmd)
-	configCmd.AddCommand(configSetKeepReleasesCmd)
+	configCmd.AddCommand(configSetNumReleasesCmd)
 	configCmd.AddCommand(configEditDeploymentCmd)
 
 	configEditDeploymentCmd.Flags().String("target", "", "Target name to edit")

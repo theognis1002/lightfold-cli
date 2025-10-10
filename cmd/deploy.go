@@ -137,13 +137,12 @@ Examples:
 			target.Builder = builderName
 		}
 
-		fmt.Printf("\n%s\n", deployStepHeaderStyle.Render("Step 2/4: Create infra"))
+		fmt.Printf("\n%s\n", deployStepHeaderStyle.Render("Step 2/4: Creating infrastructure"))
 		var err error
 
 		// If server-ip is provided, setup target with existing server
 		if deployServerIP != "" {
 			if exists {
-				// Target already exists, just update ServerIP
 				if err := utils.SetupTargetWithExistingServer(&target, deployServerIP, 0); err != nil {
 					fmt.Fprintf(os.Stderr, "Error configuring target for existing server: %v\n", err)
 					os.Exit(1)
@@ -157,7 +156,6 @@ Examples:
 					os.Exit(1)
 				}
 
-				// Mark as created since we're using existing server
 				if err := state.MarkCreated(targetName, ""); err != nil {
 					fmt.Printf("Warning: failed to update state: %v\n", err)
 				}
@@ -165,7 +163,6 @@ Examples:
 				skipStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 				fmt.Printf("  %s\n", skipStyle.Render(fmt.Sprintf("Using existing server %s (skipping provisioning)", deployServerIP)))
 			} else {
-				// Create new target configured for existing server
 				target = config.TargetConfig{
 					ProjectPath: projectPath,
 					Framework:   detection.Framework,
@@ -185,7 +182,6 @@ Examples:
 					os.Exit(1)
 				}
 
-				// Mark as created since we're using existing server
 				if err := state.MarkCreated(targetName, ""); err != nil {
 					fmt.Printf("Warning: failed to update state: %v\n", err)
 				}
@@ -215,7 +211,7 @@ Examples:
 			os.Exit(1)
 		}
 
-		fmt.Printf("\n%s\n", deployStepHeaderStyle.Render("Step 3/4: Configure server"))
+		fmt.Printf("\n%s\n", deployStepHeaderStyle.Render("Step 3/4: Configuring server"))
 		isCalledFromDeploy = true
 		if err := configureTarget(target, targetName, deployForceFlag); err != nil {
 			fmt.Fprintf(os.Stderr, "Error configuring server: %v\n", err)
@@ -240,7 +236,7 @@ Examples:
 
 		// Branch on deployment strategy
 		if !target.RequiresSSHDeployment() {
-			// Container-based deployment (e.g., Fly.io)
+			// Container-based deployment (e.g., fly.io)
 			if err := deployViaContainer(target, targetName, projectPath, &detection); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
@@ -337,7 +333,7 @@ Examples:
 		}
 		fmt.Printf("%s %s\n", deploySuccessStyle.Render("✓"), deployMutedStyle.Render("Deploying and running health checks..."))
 
-		executor.CleanupOldReleases(cfg.KeepReleases)
+		executor.CleanupOldReleases(cfg.NumReleases)
 		fmt.Printf("%s %s\n", deploySuccessStyle.Render("✓"), deployMutedStyle.Render("Cleaning up old releases..."))
 
 		releaseTimestamp := filepath.Base(releasePath)
@@ -394,11 +390,11 @@ func init() {
 	deployCmd.Flags().BoolVar(&skipBuild, "skip-build", false, "Skip the build step during deployment")
 }
 
-// deployViaContainer handles deployment for container-based providers (e.g., Fly.io)
+// deployViaContainer handles deployment for container-based providers (e.g., fly.io)
 func deployViaContainer(target config.TargetConfig, targetName, projectPath string, detection *detector.Detection) error {
 	ctx := context.Background()
 
-	// Route to Fly.io deployer for container-based deployments
+	// Route to fly.io deployer for container-based deployments
 	if target.Provider == "flyio" {
 		tokens, err := config.LoadTokens()
 		if err != nil {
@@ -407,22 +403,22 @@ func deployViaContainer(target config.TargetConfig, targetName, projectPath stri
 
 		token := tokens.GetToken("flyio")
 		if token == "" {
-			return fmt.Errorf("Fly.io API token not found. Run 'lightfold config set-token flyio' first")
+			return fmt.Errorf("fly.io API token not found. Run 'lightfold config set-token flyio' first")
 		}
 
 		flyioConfig, err := target.GetFlyioConfig()
 		if err != nil {
-			return fmt.Errorf("failed to get Fly.io config: %w", err)
+			return fmt.Errorf("failed to get fly.io config: %w", err)
 		}
 
 		projectName := util.GetTargetName(projectPath)
 		deployer := deploy.NewFlyioDeployer(projectName, projectPath, targetName, detection, flyioConfig, token)
 
-		fmt.Printf("%s %s\n", deployMutedStyle.Render("→"), deployMutedStyle.Render("Starting Fly.io deployment..."))
+		fmt.Printf("%s %s\n", deployMutedStyle.Render("→"), deployMutedStyle.Render("Starting fly.io deployment..."))
 		fmt.Println()
 
 		if err := deployer.Deploy(ctx, target.Deploy); err != nil {
-			state.MarkPushFailed(targetName, fmt.Sprintf("Fly.io deployment failed: %v", err))
+			state.MarkPushFailed(targetName, fmt.Sprintf("fly.io deployment failed: %v", err))
 			return fmt.Errorf("deployment failed: %w", err)
 		}
 
@@ -443,7 +439,7 @@ func deployViaContainer(target config.TargetConfig, targetName, projectPath stri
 			Render(
 				lipgloss.JoinVertical(
 					lipgloss.Left,
-					deploySuccessStyle.Render(fmt.Sprintf("✓ Successfully deployed '%s' to Fly.io", targetName)),
+					deploySuccessStyle.Render(fmt.Sprintf("✓ Successfully deployed '%s' to fly.io", targetName)),
 					"",
 					fmt.Sprintf("%s %s", deployMutedStyle.Render("App:"), deployValueStyle.Render(flyioConfig.AppName)),
 					fmt.Sprintf("%s %s", deployMutedStyle.Render("Region:"), deployValueStyle.Render(flyioConfig.Region)),

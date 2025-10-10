@@ -12,7 +12,7 @@ import (
 	"github.com/superfly/fly-go/tokens"
 )
 
-// Register the Fly.io provider with the global registry
+// Register the fly.io provider with the global registry
 func init() {
 	providers.Register("flyio", func(token string) providers.Provider {
 		return NewClient(token)
@@ -42,7 +42,7 @@ func (c *Client) Name() string {
 }
 
 func (c *Client) DisplayName() string {
-	return "Fly.io"
+	return "fly.io"
 }
 
 func (c *Client) SupportsProvisioning() bool {
@@ -54,7 +54,7 @@ func (c *Client) SupportsBYOS() bool {
 }
 
 func (c *Client) SupportsSSH() bool {
-	return false // Fly.io uses container-based deployments, not SSH
+	return false // fly.io uses container-based deployments, not SSH
 }
 
 func (c *Client) ValidateCredentials(ctx context.Context) error {
@@ -63,7 +63,7 @@ func (c *Client) ValidateCredentials(ctx context.Context) error {
 		return &providers.ProviderError{
 			Provider: "flyio",
 			Code:     "invalid_credentials",
-			Message:  "Invalid Fly.io API token",
+			Message:  "Invalid fly.io API token",
 			Details:  map[string]interface{}{"error": err.Error()},
 		}
 	}
@@ -103,17 +103,17 @@ func (c *Client) GetRegions(ctx context.Context) ([]providers.Region, error) {
 }
 
 func (c *Client) GetSizes(ctx context.Context, region string) ([]providers.Size, error) {
-	// Fly.io SDK doesn't expose VM sizes via API - use static fallback
+	// fly.io SDK doesn't expose VM sizes via API - use static fallback
 	return getStaticSizes(), nil
 }
 
 func (c *Client) GetImages(ctx context.Context) ([]providers.Image, error) {
-	// Fly.io uses Docker images, not traditional VPS images
+	// fly.io uses Docker images, not traditional VPS images
 	return getStaticImages(), nil
 }
 
 func (c *Client) UploadSSHKey(ctx context.Context, name, publicKey string) (*providers.SSHKey, error) {
-	// Fly.io doesn't use SSH keys for deployment
+	// fly.io doesn't use SSH keys for deployment
 	// Return a dummy key for compatibility
 	return &providers.SSHKey{
 		ID:          "embedded",
@@ -187,7 +187,7 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 				return nil, &providers.ProviderError{
 					Provider: "flyio",
 					Code:     "create_app_failed",
-					Message:  fmt.Sprintf("Failed to create Fly.io app after retry: %s", err.Error()),
+					Message:  fmt.Sprintf("Failed to create fly.io app after retry: %s", err.Error()),
 					Details:  map[string]interface{}{"app_name": appName},
 				}
 			}
@@ -195,7 +195,7 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 			return nil, &providers.ProviderError{
 				Provider: "flyio",
 				Code:     "create_app_failed",
-				Message:  fmt.Sprintf("Failed to create Fly.io app: %s", err.Error()),
+				Message:  fmt.Sprintf("Failed to create fly.io app: %s", err.Error()),
 				Details:  map[string]interface{}{"app_name": appName},
 			}
 		}

@@ -732,11 +732,11 @@ func CreateVultrPlanStepDynamic(id, token, region string) Step {
 		Build()
 }
 
-// CreateFlyioAPITokenStep creates an API token step for Fly.io
+// CreateFlyioAPITokenStep creates an API token step for fly.io
 func CreateFlyioAPITokenStep(id string) Step {
-	return NewStep(id, "Fly.io API Token").
+	return NewStep(id, "fly.io API Token").
 		Type(StepTypePassword).
-		Placeholder("Enter your Fly.io API token").
+		Placeholder("Enter your fly.io API token").
 		Required().
 		Validate(ValidateRequired).
 		Build()
@@ -762,7 +762,7 @@ func CreateFlyioRegionStepDynamic(id, token string) Step {
 		regionDescs = append(regionDescs, region.Location)
 	}
 
-	return NewStep(id, "Fly.io Region").
+	return NewStep(id, "fly.io Region").
 		Type(StepTypeSelect).
 		DefaultValue(regionIDs[0]).
 		Options(regionIDs...).
@@ -794,7 +794,7 @@ func createFlyioRegionStepStatic(id string) Step {
 		regionDescs = append(regionDescs, region.Location)
 	}
 
-	return NewStep(id, "Fly.io Region").
+	return NewStep(id, "fly.io Region").
 		Type(StepTypeSelect).
 		DefaultValue(regionIDs[0]).
 		Options(regionIDs...).

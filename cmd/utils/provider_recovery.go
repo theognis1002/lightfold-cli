@@ -90,7 +90,7 @@ func updateProviderConfigWithIP(target *config.TargetConfig, providerName, ip, s
 	}
 }
 
-// RecoverIPFromFlyio handles Fly.io-specific IP recovery with interactive fallback
+// RecoverIPFromFlyio handles fly.io-specific IP recovery with interactive fallback
 func RecoverIPFromFlyio(target *config.TargetConfig, targetName, machineID string) error {
 	tokens, err := config.LoadTokens()
 	if err != nil {
@@ -99,27 +99,27 @@ func RecoverIPFromFlyio(target *config.TargetConfig, targetName, machineID strin
 
 	flyioToken := tokens.GetToken("flyio")
 	if flyioToken == "" {
-		return fmt.Errorf("Fly.io API token not found")
+		return fmt.Errorf("fly.io API token not found")
 	}
 
 	flyioConfig, err := target.GetFlyioConfig()
 	if err != nil {
-		return fmt.Errorf("failed to get Fly.io config: %w", err)
+		return fmt.Errorf("failed to get fly.io config: %w", err)
 	}
 
 	if flyioConfig.AppName == "" {
-		return fmt.Errorf("Fly.io app name not found in config. This usually means the app wasn't fully created. Please check Fly.io console or run 'lightfold destroy' and try again")
+		return fmt.Errorf("fly.io app name not found in config. This usually means the app wasn't fully created. Please check fly.io console or run 'lightfold destroy' and try again")
 	}
 
-	// Get Fly.io client to fetch IP directly via GraphQL
+	// Get fly.io client to fetch IP directly via GraphQL
 	provider, err := providers.GetProvider("flyio", flyioToken)
 	if err != nil {
-		return fmt.Errorf("failed to get Fly.io provider: %w", err)
+		return fmt.Errorf("failed to get fly.io provider: %w", err)
 	}
 
 	flyioClient, ok := provider.(*flyio.Client)
 	if !ok {
-		return fmt.Errorf("failed to get Fly.io client")
+		return fmt.Errorf("failed to get fly.io client")
 	}
 
 	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
@@ -129,8 +129,8 @@ func RecoverIPFromFlyio(target *config.TargetConfig, targetName, machineID strin
 	ipAddress, err := flyioClient.GetAppIP(context.Background(), flyioConfig.AppName)
 	if err != nil {
 		fmt.Println()
-		fmt.Printf("%s %s\n", warningStyle.Render("⚠"), warningStyle.Render("Unable to fetch IP automatically from Fly.io API"))
-		fmt.Printf("  %s\n", mutedStyle.Render("This is a known Fly.io API propagation issue."))
+		fmt.Printf("%s %s\n", warningStyle.Render("⚠"), warningStyle.Render("Unable to fetch IP automatically from fly.io API"))
+		fmt.Printf("  %s\n", mutedStyle.Render("This is a known fly.io API propagation issue."))
 		fmt.Println()
 		linkStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("33")).Underline(true)
 		fmt.Printf("  Please get your app's IP address from:\n")

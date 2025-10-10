@@ -24,7 +24,7 @@ func CreateProviderSelectionStep(id string) Step {
 			"DigitalOcean",
 			"Vultr",
 			"Hetzner",
-			"Fly.io",
+			"fly.io",
 			"BYOS",
 			"Existing server",
 		).

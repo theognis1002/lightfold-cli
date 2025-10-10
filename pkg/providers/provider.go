@@ -21,7 +21,7 @@ type Provider interface {
 	SupportsBYOS() bool
 
 	// SupportsSSH returns true if this provider uses SSH-based deployments
-	// Returns false for container platforms like Fly.io that use API-based deployments
+	// Returns false for container platforms like fly.io that use API-based deployments
 	SupportsSSH() bool
 
 	// ValidateCredentials validates the provider's API credentials

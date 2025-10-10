@@ -68,7 +68,7 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 
 	var provider string
 	if providerFlag == "" {
-		fmt.Println("") // Blank line for spacing
+		fmt.Println("")
 		selectedProvider, providerConfig, err := sequential.RunProviderSelectionWithConfigFlow(targetName)
 		if err != nil {
 			return config.TargetConfig{}, fmt.Errorf("interactive configuration failed: %w", err)
@@ -238,7 +238,7 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 var isCalledFromDeploy bool
 
 func configureTarget(target config.TargetConfig, targetName string, force bool) error {
-	// Skip SSH configuration for container providers (e.g., Fly.io)
+	// Skip SSH configuration for container providers (e.g., fly.io)
 	tokens, _ := config.LoadTokens()
 	if tokens != nil {
 		token := tokens.GetToken(target.Provider)
@@ -342,7 +342,7 @@ func configureTarget(target config.TargetConfig, targetName string, force bool) 
 		defer sshExecutor.Disconnect()
 
 		executor := deploy.NewExecutor(sshExecutor, projectName, projectPath, &detection)
-		if err := executor.CleanupOldReleases(cfg.KeepReleases); err != nil {
+		if err := executor.CleanupOldReleases(cfg.NumReleases); err != nil {
 			fmt.Printf("Warning: failed to cleanup old releases: %v\n", err)
 		}
 	}

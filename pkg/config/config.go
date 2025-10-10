@@ -69,15 +69,15 @@ func (v *VultrConfig) IsProvisioned() bool { return v.Provisioned }
 func (v *VultrConfig) GetServerID() string { return v.InstanceID }
 
 type FlyioConfig struct {
-	MachineID      string `json:"machine_id,omitempty"`      // For provisioned machines
-	AppName        string `json:"app_name,omitempty"`        // Fly.io requires app context
-	OrganizationID string `json:"organization_id,omitempty"` // Fly.io organization ID
+	MachineID      string `json:"machine_id,omitempty"`
+	AppName        string `json:"app_name,omitempty"`        // fly.io requires app context
+	OrganizationID string `json:"organization_id,omitempty"` // fly.io organization ID
 	IP             string `json:"ip"`
 	SSHKey         string `json:"ssh_key"`
 	SSHKeyName     string `json:"ssh_key_name,omitempty"`
 	Username       string `json:"username"`
 	Region         string `json:"region,omitempty"`
-	Size           string `json:"size,omitempty"` // VM preset (shared-cpu-1x, etc.)
+	Size           string `json:"size,omitempty"`
 	Provisioned    bool   `json:"provisioned,omitempty"`
 }
 
@@ -124,8 +124,8 @@ type TargetConfig struct {
 	Framework      string                     `json:"framework"`
 	Provider       string                     `json:"provider"`
 	Builder        string                     `json:"builder,omitempty"`
-	ServerIP       string                     `json:"server_ip,omitempty"` // Track which server this target is on
-	Port           int                        `json:"port,omitempty"`      // Assigned port for this app
+	ServerIP       string                     `json:"server_ip,omitempty"`
+	Port           int                        `json:"port,omitempty"`
 	ProviderConfig map[string]json.RawMessage `json:"provider_config"`
 	Deploy         *DeploymentOptions         `json:"deploy,omitempty"`
 	Domain         *DomainConfig              `json:"domain,omitempty"`
@@ -261,8 +261,8 @@ func (t *TargetConfig) RequiresSSHDeployment() bool {
 }
 
 type Config struct {
-	Targets      map[string]TargetConfig `json:"targets"`
-	KeepReleases int                     `json:"keep_releases,omitempty"` // Number of releases to keep (default: 5)
+	Targets     map[string]TargetConfig `json:"targets"`
+	NumReleases int                     `json:"keep_releases,omitempty"` // Number of releases to keep
 }
 
 func GetConfigPath() string {
@@ -283,8 +283,8 @@ func LoadConfig() (*Config, error) {
 
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return &Config{
-			Targets:      make(map[string]TargetConfig),
-			KeepReleases: DefaultKeepReleases,
+			Targets:     make(map[string]TargetConfig),
+			NumReleases: DefaultNumReleases,
 		}, nil
 	}
 
@@ -302,8 +302,8 @@ func LoadConfig() (*Config, error) {
 		config.Targets = make(map[string]TargetConfig)
 	}
 
-	if config.KeepReleases == 0 {
-		config.KeepReleases = DefaultKeepReleases
+	if config.NumReleases == 0 {
+		config.NumReleases = DefaultNumReleases
 	}
 
 	return &config, nil

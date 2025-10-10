@@ -557,10 +557,9 @@ func (m FlowModel) renderHelp() string {
 }
 
 func (m FlowModel) renderCompleted() string {
-	s := "\n"
+	mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
-	valueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
+	var content string
 
 	for i, step := range m.Steps {
 		if stepState, exists := m.StepStates[i]; exists {
@@ -594,13 +593,17 @@ func (m FlowModel) renderCompleted() string {
 			}
 
 			if value != "" {
-				s += labelStyle.Render(label) + " " + valueStyle.Render(value) + "\n"
+				content += fmt.Sprintf("%s %s\n", label, value)
 			}
 		}
 	}
 
-	s += "\n"
-	return s
+	mutedBox := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("245")).
+		Padding(0, 1)
+
+	return "\n" + mutedBox.Render(mutedStyle.Render(content)) + "\n"
 }
 
 func (m FlowModel) GetResults() map[string]string {

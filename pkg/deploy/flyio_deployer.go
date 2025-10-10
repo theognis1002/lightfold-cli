@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// FlyioDeployer handles Fly.io-specific container deployments
+// FlyioDeployer handles fly.io-specific container deployments
 type FlyioDeployer struct {
 	appName     string
 	projectPath string
@@ -24,7 +24,7 @@ type FlyioDeployer struct {
 	callback    ProgressCallback
 }
 
-// NewFlyioDeployer creates a new Fly.io deployer
+// NewFlyioDeployer creates a new fly.io deployer
 func NewFlyioDeployer(appName, projectPath, targetName string, detection *detector.Detection, flyConfig *config.FlyioConfig, token string) *FlyioDeployer {
 	return &FlyioDeployer{
 		appName:     appName,
@@ -41,7 +41,7 @@ func (d *FlyioDeployer) SetProgressCallback(callback ProgressCallback) {
 	d.callback = callback
 }
 
-// Deploy executes a full Fly.io deployment using native nixpacks
+// Deploy executes a full fly.io deployment using native nixpacks
 func (d *FlyioDeployer) Deploy(ctx context.Context, deployOpts *config.DeploymentOptions) error {
 	// Step 1: Check flyctl availability and authenticate
 	d.updateProgress("Checking flyctl availability", 10)
@@ -72,7 +72,7 @@ func (d *FlyioDeployer) Deploy(ctx context.Context, deployOpts *config.Deploymen
 		return fmt.Errorf("failed to write fly.toml: %w", err)
 	}
 	if !existingFlyToml {
-		defer os.Remove(flyTomlPath) // Clean up if we created it
+		defer os.Remove(flyTomlPath)
 	}
 
 	// Step 3: Set secrets/env vars
@@ -85,13 +85,13 @@ func (d *FlyioDeployer) Deploy(ctx context.Context, deployOpts *config.Deploymen
 		}
 	}
 
-	// Step 4: Deploy with Fly.io's native nixpacks builder
-	d.updateProgress("Deploying with Fly.io nixpacks (remote build)", 50)
+	// Step 4: Deploy with fly.io's native nixpacks builder
+	d.updateProgress("Deploying with fly.io nixpacks (remote build)", 50)
 	output, err := client.Deploy(ctx, flyctl.DeployOptions{
 		ProjectPath: d.projectPath,
 		Region:      d.flyConfig.Region,
 		RemoteOnly:  true,
-		UseNixpacks: true, // Use Fly.io's native nixpacks - no Dockerfile needed!
+		UseNixpacks: true, // Use fly.io's native nixpacks - no Dockerfile needed!
 	})
 
 	if err != nil {
@@ -131,14 +131,12 @@ func (d *FlyioDeployer) waitForHealthy(ctx context.Context, client *flyctl.Clien
 				return fmt.Errorf("timeout waiting for app to become healthy")
 			}
 
-			// Check status
 			status, err := client.GetStatus(ctx)
 			if err != nil {
 				// Non-fatal, continue waiting
 				continue
 			}
 
-			// Look for "running" or "started" in status output
 			statusLower := strings.ToLower(status)
 			if strings.Contains(statusLower, "running") || strings.Contains(statusLower, "started") {
 				return nil
@@ -158,13 +156,13 @@ func (d *FlyioDeployer) updateProgress(description string, progress int) {
 	}
 }
 
-// GetLogs retrieves logs from Fly.io
+// GetLogs retrieves logs from fly.io
 func (d *FlyioDeployer) GetLogs(ctx context.Context, lines int, follow bool) (string, error) {
 	client := flyctl.NewClient(d.token, d.flyConfig.AppName)
 	return client.GetLogs(ctx, lines, follow)
 }
 
-// GetStatus retrieves app status from Fly.io
+// GetStatus retrieves app status from fly.io
 func (d *FlyioDeployer) GetStatus(ctx context.Context) (string, error) {
 	client := flyctl.NewClient(d.token, d.flyConfig.AppName)
 	return client.GetStatus(ctx)

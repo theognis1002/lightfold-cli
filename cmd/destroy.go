@@ -265,7 +265,6 @@ Examples:
 		}
 		fmt.Printf("%s %s\n", destroySuccessStyle.Render("✓"), destroyMutedStyle.Render("Removed target from config"))
 
-		fmt.Printf("%s %s\n", destroyMutedStyle.Render("→"), destroyMutedStyle.Render("Checking for unused SSH keys..."))
 		keysDeleted, err := sshpkg.CleanupUnusedKeys(cfg.Targets)
 		if err != nil {
 			fmt.Printf("%s %s\n", destroyWarningStyle.Render("⚠"), destroyMutedStyle.Render(fmt.Sprintf("SSH key cleanup warning: %v", err)))
