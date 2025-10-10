@@ -1,6 +1,7 @@
 package ssh
 
 import (
+	"lightfold/pkg/config"
 	"lightfold/pkg/ssh"
 	"os"
 	"path/filepath"
@@ -244,4 +245,135 @@ func TestLoadPublicKey(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for non-existent file")
 	}
+}
+
+func TestCleanupUnusedKeys(t *testing.T) {
+	tempDir := t.TempDir()
+
+	originalHome := os.Getenv("HOME")
+	os.Setenv("HOME", tempDir)
+	defer os.Setenv("HOME", originalHome)
+
+	keysDir, err := ssh.GetKeysDirectory()
+	if err != nil {
+		t.Fatalf("Failed to get keys directory: %v", err)
+	}
+
+	// Create test SSH keys
+	key1 := "lightfold_project1_ed25519"
+	key2 := "lightfold_project2_ed25519"
+	key3 := "lightfold_project3_ed25519"
+	sharedKey := "lightfold_ed25519"
+
+	_, err = ssh.GenerateKeyPair(key1)
+	if err != nil {
+		t.Fatalf("Failed to generate key1: %v", err)
+	}
+
+	_, err = ssh.GenerateKeyPair(key2)
+	if err != nil {
+		t.Fatalf("Failed to generate key2: %v", err)
+	}
+
+	_, err = ssh.GenerateKeyPair(key3)
+	if err != nil {
+		t.Fatalf("Failed to generate key3: %v", err)
+	}
+
+	_, err = ssh.GenerateKeyPair(sharedKey)
+	if err != nil {
+		t.Fatalf("Failed to generate shared key: %v", err)
+	}
+
+	// Test DeleteKeyPair first
+	t.Run("DeleteKeyPair", func(t *testing.T) {
+		// Verify key3 exists
+		key3Path := filepath.Join(keysDir, key3)
+		if _, err := os.Stat(key3Path); os.IsNotExist(err) {
+			t.Fatal("key3 should exist")
+		}
+
+		// Delete key3
+		err := ssh.DeleteKeyPair(key3Path)
+		if err != nil {
+			t.Fatalf("Failed to delete key pair: %v", err)
+		}
+
+		// Verify key3 and its pub key are deleted
+		if _, err := os.Stat(key3Path); !os.IsNotExist(err) {
+			t.Error("key3 private key should be deleted")
+		}
+
+		if _, err := os.Stat(key3Path + ".pub"); !os.IsNotExist(err) {
+			t.Error("key3 public key should be deleted")
+		}
+
+		// Verify other keys still exist
+		if _, err := os.Stat(filepath.Join(keysDir, key1)); os.IsNotExist(err) {
+			t.Error("key1 should still exist")
+		}
+
+		if _, err := os.Stat(filepath.Join(keysDir, key2)); os.IsNotExist(err) {
+			t.Error("key2 should still exist")
+		}
+	})
+
+	// Regenerate key3 for the next test
+	_, err = ssh.GenerateKeyPair(key3)
+	if err != nil {
+		t.Fatalf("Failed to regenerate key3: %v", err)
+	}
+
+	// Test CleanupUnusedKeys
+	t.Run("CleanupUnusedKeys", func(t *testing.T) {
+		// Create mock targets using only key1 and shared key
+		// key2 and key3 should be cleaned up
+		target1 := config.TargetConfig{
+			Provider: "digitalocean",
+		}
+		target1.SetProviderConfig("digitalocean", &config.DigitalOceanConfig{
+			SSHKey: filepath.Join(keysDir, key1),
+		})
+
+		target2 := config.TargetConfig{
+			Provider: "digitalocean",
+		}
+		target2.SetProviderConfig("digitalocean", &config.DigitalOceanConfig{
+			SSHKey: filepath.Join(keysDir, sharedKey),
+		})
+
+		targets := map[string]config.TargetConfig{
+			"target1": target1,
+			"target2": target2,
+		}
+
+		// Run cleanup
+		keysDeleted, err := ssh.CleanupUnusedKeys(targets)
+		if err != nil {
+			t.Fatalf("CleanupUnusedKeys failed: %v", err)
+		}
+
+		// Should delete key2 and key3 (2 keys)
+		if keysDeleted != 2 {
+			t.Errorf("Expected 2 keys deleted, got %d", keysDeleted)
+		}
+
+		// Verify key1 and sharedKey still exist
+		if _, err := os.Stat(filepath.Join(keysDir, key1)); os.IsNotExist(err) {
+			t.Error("key1 should still exist (in use by target1)")
+		}
+
+		if _, err := os.Stat(filepath.Join(keysDir, sharedKey)); os.IsNotExist(err) {
+			t.Error("shared key should still exist (in use by target2)")
+		}
+
+		// Verify key2 and key3 are deleted
+		if _, err := os.Stat(filepath.Join(keysDir, key2)); !os.IsNotExist(err) {
+			t.Error("key2 should be deleted (not in use)")
+		}
+
+		if _, err := os.Stat(filepath.Join(keysDir, key3)); !os.IsNotExist(err) {
+			t.Error("key3 should be deleted (not in use)")
+		}
+	})
 }

@@ -24,19 +24,16 @@ type KeyPair struct {
 
 // GenerateKeyPair generates a new Ed25519 SSH key pair
 func GenerateKeyPair(keyName string) (*KeyPair, error) {
-	// Generate Ed25519 key pair
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate key pair: %w", err)
 	}
 
-	// Create SSH public key
 	sshPublicKey, err := ssh.NewPublicKey(publicKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SSH public key: %w", err)
 	}
 
-	// Convert private key to PEM format
 	privateKeyBytes, err := x509.MarshalPKCS8PrivateKey(privateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal private key: %w", err)
@@ -47,29 +44,23 @@ func GenerateKeyPair(keyName string) (*KeyPair, error) {
 		Bytes: privateKeyBytes,
 	})
 
-	// Format SSH public key
 	sshPublicKeyBytes := ssh.MarshalAuthorizedKey(sshPublicKey)
 	sshPublicKeyString := strings.TrimSpace(string(sshPublicKeyBytes))
 
-	// Get fingerprint
 	fingerprint := ssh.FingerprintSHA256(sshPublicKey)
 
-	// Get lightfold keys directory
 	keysDir, err := GetKeysDirectory()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get keys directory: %w", err)
 	}
 
-	// Create key file paths
 	privateKeyPath := filepath.Join(keysDir, keyName)
 	publicKeyPath := privateKeyPath + ".pub"
 
-	// Write private key
 	if err := os.WriteFile(privateKeyPath, privateKeyPEM, config.PermPrivateKey); err != nil {
 		return nil, fmt.Errorf("failed to write private key: %w", err)
 	}
 
-	// Write public key
 	if err := os.WriteFile(publicKeyPath, sshPublicKeyBytes, config.PermPublicKey); err != nil {
 		return nil, fmt.Errorf("failed to write public key: %w", err)
 	}
@@ -91,7 +82,6 @@ func GetKeysDirectory() (string, error) {
 
 	keysDir := filepath.Join(homeDir, config.LocalConfigDir, config.LocalKeysDir)
 
-	// Create directory if it doesn't exist
 	if err := os.MkdirAll(keysDir, 0700); err != nil {
 		return "", fmt.Errorf("failed to create keys directory: %w", err)
 	}
@@ -111,24 +101,19 @@ func LoadPublicKey(publicKeyPath string) (string, error) {
 
 // ValidateSSHKey validates that an SSH key file exists and is valid
 func ValidateSSHKey(keyPath string) error {
-	// Check if file exists
 	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
 		return fmt.Errorf("SSH key file does not exist: %s", keyPath)
 	}
 
-	// Try to read and parse the key
 	data, err := os.ReadFile(keyPath)
 	if err != nil {
 		return fmt.Errorf("failed to read SSH key file: %w", err)
 	}
 
-	// Try to parse as private key first
 	block, _ := pem.Decode(data)
 	if block != nil {
-		// It's a PEM-encoded private key
 		_, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 		if err != nil {
-			// Try parsing as RSA private key
 			_, err = x509.ParsePKCS1PrivateKey(block.Bytes)
 			if err != nil {
 				return fmt.Errorf("invalid private key format: %w", err)
@@ -137,7 +122,6 @@ func ValidateSSHKey(keyPath string) error {
 		return nil
 	}
 
-	// Try to parse as SSH public key
 	_, _, _, _, err = ssh.ParseAuthorizedKey(data)
 	if err != nil {
 		return fmt.Errorf("invalid SSH key format: %w", err)
@@ -148,7 +132,6 @@ func ValidateSSHKey(keyPath string) error {
 
 // GetKeyName generates a key name for a project
 func GetKeyName(projectName string) string {
-	// Sanitize project name for file system
 	keyName := strings.ReplaceAll(projectName, " ", "_")
 	keyName = strings.ReplaceAll(keyName, "/", "_")
 	keyName = strings.ReplaceAll(keyName, "\\", "_")
@@ -167,7 +150,6 @@ func KeyExists(keyName string) (bool, error) {
 	privateKeyPath := filepath.Join(keysDir, keyName)
 	publicKeyPath := privateKeyPath + ".pub"
 
-	// Check if both files exist
 	if _, err := os.Stat(privateKeyPath); os.IsNotExist(err) {
 		return false, nil
 	}
@@ -176,4 +158,84 @@ func KeyExists(keyName string) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// DeleteKeyPair deletes an SSH key pair
+func DeleteKeyPair(keyPath string) error {
+	if err := os.Remove(keyPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to delete private key: %w", err)
+	}
+
+	publicKeyPath := keyPath + ".pub"
+	if err := os.Remove(publicKeyPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to delete public key: %w", err)
+	}
+
+	return nil
+}
+
+// GetSSHKeyFromPath extracts the base key name from a full path
+// Example: "/home/user/.lightfold/keys/lightfold_my-project_ed25519" -> "lightfold_my-project_ed25519"
+func GetSSHKeyFromPath(keyPath string) string {
+	return filepath.Base(keyPath)
+}
+
+// CleanupUnusedKeys removes SSH keys that are not used by any targets.
+// Returns the number of keys deleted.
+func CleanupUnusedKeys(allTargets map[string]config.TargetConfig) (int, error) {
+	keysDir, err := GetKeysDirectory()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get keys directory: %w", err)
+	}
+
+	keysInUse := make(map[string]bool)
+
+	for _, target := range allTargets {
+		providerCfg, err := target.GetSSHProviderConfig()
+		if err != nil || providerCfg == nil {
+			continue
+		}
+
+		sshKey := providerCfg.GetSSHKey()
+		if sshKey != "" {
+			keyName := filepath.Base(sshKey)
+			keysInUse[keyName] = true
+		}
+	}
+
+	entries, err := os.ReadDir(keysDir)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read keys directory: %w", err)
+	}
+
+	var keysToDelete []string
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		filename := entry.Name()
+
+		// Skip public keys - we'll delete them with their private keys
+		if strings.HasSuffix(filename, ".pub") {
+			continue
+		}
+
+		if !strings.HasPrefix(filename, "lightfold_") || !strings.HasSuffix(filename, "_ed25519") {
+			continue
+		}
+
+		if !keysInUse[filename] {
+			keysToDelete = append(keysToDelete, filepath.Join(keysDir, filename))
+		}
+	}
+
+	for _, keyPath := range keysToDelete {
+		if err := DeleteKeyPair(keyPath); err != nil {
+			return len(keysToDelete), fmt.Errorf("failed to delete key %s: %w", filepath.Base(keyPath), err)
+		}
+	}
+
+	return len(keysToDelete), nil
 }
