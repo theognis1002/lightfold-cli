@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"fmt"
 	"lightfold/pkg/config"
+	sshpkg "lightfold/pkg/ssh"
+	"lightfold/pkg/state"
 	"os"
 	"strings"
 
@@ -81,6 +83,29 @@ func promptDomainConfiguration(target *config.TargetConfig, targetName string) {
 	fmt.Println()
 	promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("86"))
 	hintStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
+	warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("226"))
+
+	// Check if this is a multi-app deployment
+	providerCfg, err := target.GetSSHProviderConfig()
+	if err != nil {
+		fmt.Printf("\n%s\n", hintStyle.Render(fmt.Sprintf("NOTE: You can add a domain later with: lightfold domain add --target %s --domain example.com", targetName)))
+		return
+	}
+
+	serverIP := providerCfg.GetIP()
+	serverState, err := state.GetServerState(serverIP)
+	isMultiApp := err == nil && len(serverState.DeployedApps) > 1
+
+	// Find the port allocated to this app
+	var appPort int
+	if isMultiApp {
+		for _, app := range serverState.DeployedApps {
+			if app.TargetName == targetName {
+				appPort = app.Port
+				break
+			}
+		}
+	}
 
 	fmt.Printf("%s", promptStyle.Render("Want to add a custom domain? (y/N): "))
 
@@ -92,6 +117,46 @@ func promptDomainConfiguration(target *config.TargetConfig, targetName string) {
 	if response == "" || response == "n" || response == "no" {
 		domainHint := fmt.Sprintf("NOTE: You can add a domain later with: lightfold domain add --target %s --domain example.com", targetName)
 		fmt.Printf("\n%s\n", hintStyle.Render(domainHint))
+
+		// If multi-app, offer port-based access
+		if isMultiApp && appPort > 0 {
+			fmt.Println()
+			fmt.Printf("%s\n", warningStyle.Render(fmt.Sprintf("ℹ Multi-app deployment detected: This server hosts %d apps", len(serverState.DeployedApps))))
+			fmt.Printf("%s\n", hintStyle.Render(fmt.Sprintf("  • App '%s' is running on port %d", targetName, appPort)))
+			fmt.Printf("%s\n", hintStyle.Render("  • Without a domain, only the last deployed app is accessible via http://"+serverIP))
+			fmt.Println()
+
+			// Prompt to open port
+			fmt.Printf("%s", promptStyle.Render(fmt.Sprintf("Open port %d for direct access? (y/N): ", appPort)))
+			portResponse, _ := reader.ReadString('\n')
+			portResponse = strings.TrimSpace(strings.ToLower(portResponse))
+
+			if portResponse == "y" || portResponse == "yes" {
+				fmt.Println()
+				fmt.Printf("%s\n", warningStyle.Render("⚠ SECURITY WARNING:"))
+				fmt.Printf("%s\n", hintStyle.Render("  Opening application ports directly exposes your app without nginx's security layer."))
+				fmt.Printf("%s\n", hintStyle.Render("  Consider using custom domains instead for better security and SSL support."))
+				fmt.Println()
+				fmt.Printf("%s", promptStyle.Render("Continue? (y/N): "))
+				confirmResponse, _ := reader.ReadString('\n')
+				confirmResponse = strings.TrimSpace(strings.ToLower(confirmResponse))
+
+				if confirmResponse == "y" || confirmResponse == "yes" {
+					if err := openPort(serverIP, appPort, providerCfg); err != nil {
+						fmt.Printf("%s\n", warningStyle.Render(fmt.Sprintf("Failed to open port: %v", err)))
+					} else {
+						successStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("82"))
+						fmt.Printf("\n%s\n", successStyle.Render(fmt.Sprintf("✓ Port %d opened successfully!", appPort)))
+						fmt.Printf("%s\n", hintStyle.Render(fmt.Sprintf("  Access your app at: http://%s:%d", serverIP, appPort)))
+					}
+				}
+			} else {
+				fmt.Println()
+				fmt.Printf("%s\n", hintStyle.Render("  Recommended: Add a custom domain for proper multi-app routing"))
+				fmt.Printf("%s\n", hintStyle.Render(fmt.Sprintf("  Run: lightfold domain add --target %s --domain your-app.example.com", targetName)))
+			}
+		}
+
 		return
 	}
 
@@ -116,6 +181,22 @@ func promptDomainConfiguration(target *config.TargetConfig, targetName string) {
 		fmt.Printf("Warning: domain/SSL setup failed: %v\n", err)
 		fmt.Println("You can try again with: lightfold domain add --domain", domain)
 	}
+}
+
+// openPort opens a firewall port on the server via UFW
+func openPort(serverIP string, port int, providerCfg config.ProviderConfig) error {
+	// Create SSH executor
+	sshExecutor := sshpkg.NewExecutor(serverIP, "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
+
+	// Open the port with UFW
+	cmd := fmt.Sprintf("sudo ufw allow %d/tcp", port)
+	result := sshExecutor.Execute(cmd)
+
+	if result.ExitCode != 0 {
+		return fmt.Errorf("failed to open port: %s", result.Stderr)
+	}
+
+	return nil
 }
 
 func init() {
