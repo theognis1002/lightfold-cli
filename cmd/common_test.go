@@ -60,11 +60,10 @@ func TestResolveBuilder_AutoSelect_Dockerfile(t *testing.T) {
 		t.Fatalf("Failed to create Dockerfile: %v", err)
 	}
 
-	// Test: Should fallback to nixpacks since dockerfile builder is not yet implemented
-	// TODO: When dockerfile builder is implemented, this should expect 'dockerfile'
+	// Test: Should select dockerfile builder since it's now implemented
 	builderName := resolveBuilder(target, tmpDir, detection, "")
-	if builderName != "nixpacks" && builderName != "native" {
-		t.Errorf("Expected auto-select 'nixpacks' or 'native' (fallback from dockerfile), got '%s'", builderName)
+	if builderName != "dockerfile" {
+		t.Errorf("Expected auto-select 'dockerfile', got '%s'", builderName)
 	}
 }
 

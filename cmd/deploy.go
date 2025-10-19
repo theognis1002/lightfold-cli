@@ -120,18 +120,7 @@ Examples:
 
 		builderName := resolveBuilder(target, projectPath, &detection, deployBuilderFlag)
 
-		dockerfilePath := filepath.Join(projectPath, "Dockerfile")
-		_, dockerfileExists := os.Stat(dockerfilePath)
-		showFallback := dockerfileExists == nil && builderName != "dockerfile"
-
-		if showFallback {
-			fmt.Printf("  %s %s %s\n",
-				deployMutedStyle.Render("Builder:"),
-				deployMutedStyle.Render(builderName),
-				deployMutedStyle.Render("(dockerfile not implemented yet)"))
-		} else {
-			fmt.Printf("  %s %s\n", deployMutedStyle.Render("Builder:"), deployMutedStyle.Render(builderName))
-		}
+		fmt.Printf("  %s %s\n", deployMutedStyle.Render("Builder:"), deployMutedStyle.Render(builderName))
 
 		if target.Builder != builderName {
 			target.Builder = builderName

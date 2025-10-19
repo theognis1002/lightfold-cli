@@ -115,10 +115,10 @@ func TestAutoSelectBuilder_Dockerfile(t *testing.T) {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	// Since dockerfile builder is not available (not yet implemented),
-	// should fallback to nixpacks for JavaScript projects
-	if builderName != "nixpacks" && builderName != "native" {
-		t.Errorf("Expected 'nixpacks' or 'native' builder for project with Dockerfile (fallback), got '%s'", builderName)
+	// Dockerfile builder is now implemented and available
+	// Should select dockerfile builder when Dockerfile exists
+	if builderName != "dockerfile" {
+		t.Errorf("Expected 'dockerfile' builder for project with Dockerfile, got '%s'", builderName)
 	}
 }
 
@@ -231,10 +231,10 @@ func TestAutoSelectBuilder_Priority_DockerfileOverNixpacks(t *testing.T) {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	// Since dockerfile builder is not available, should fallback to nixpacks for JavaScript
-	// TODO: When dockerfile is implemented, this test should expect 'dockerfile' with priority
-	if builderName != "nixpacks" && builderName != "native" {
-		t.Errorf("Expected 'nixpacks' or 'native' (fallback from dockerfile), got '%s'", builderName)
+	// Dockerfile builder is now implemented and has highest priority
+	// Should select dockerfile over nixpacks when Dockerfile exists
+	if builderName != "dockerfile" {
+		t.Errorf("Expected 'dockerfile' (highest priority), got '%s'", builderName)
 	}
 }
 
@@ -273,15 +273,10 @@ func TestAutoSelectBuilder_Dockerfile_Fallback_ToNixpacks(t *testing.T) {
 		t.Fatalf("Expected no error, got: %v", err)
 	}
 
-	// Since dockerfile builder is not available (not implemented), should fallback to nixpacks (if available) or native
-	// The dockerfile builder returns IsAvailable() = false, so it should fallback
-	if builderName == "dockerfile" {
-		t.Errorf("Expected fallback from 'dockerfile' since it's not available, got 'dockerfile'")
-	}
-
-	// Should be either nixpacks or native depending on availability
-	if builderName != "nixpacks" && builderName != "native" {
-		t.Errorf("Expected 'nixpacks' or 'native' as fallback, got '%s'", builderName)
+	// Dockerfile builder is now implemented and IsAvailable() returns true when Docker is installed
+	// Should select dockerfile when Dockerfile exists and Docker is available
+	if builderName != "dockerfile" {
+		t.Errorf("Expected 'dockerfile' since it's now available, got '%s'", builderName)
 	}
 }
 
