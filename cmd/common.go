@@ -15,6 +15,7 @@ import (
 	"lightfold/pkg/providers"
 	_ "lightfold/pkg/providers/digitalocean"
 	_ "lightfold/pkg/providers/hetzner"
+	_ "lightfold/pkg/providers/linode"
 	_ "lightfold/pkg/providers/vultr"
 	"lightfold/pkg/proxy"
 	_ "lightfold/pkg/proxy/nginx"

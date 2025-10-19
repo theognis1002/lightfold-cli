@@ -87,6 +87,23 @@ func (f *FlyioConfig) GetSSHKey() string   { return f.SSHKey }
 func (f *FlyioConfig) IsProvisioned() bool { return f.Provisioned }
 func (f *FlyioConfig) GetServerID() string { return f.MachineID }
 
+type LinodeConfig struct {
+	InstanceID  string `json:"instance_id,omitempty"` // For provisioned instances
+	IP          string `json:"ip"`
+	SSHKey      string `json:"ssh_key"`
+	SSHKeyName  string `json:"ssh_key_name,omitempty"`
+	Username    string `json:"username"`
+	Region      string `json:"region,omitempty"`
+	Plan        string `json:"plan,omitempty"` // Linode uses "plan" or "type"
+	Provisioned bool   `json:"provisioned,omitempty"`
+}
+
+func (l *LinodeConfig) GetIP() string       { return l.IP }
+func (l *LinodeConfig) GetUsername() string { return l.Username }
+func (l *LinodeConfig) GetSSHKey() string   { return l.SSHKey }
+func (l *LinodeConfig) IsProvisioned() bool { return l.Provisioned }
+func (l *LinodeConfig) GetServerID() string { return l.InstanceID }
+
 type S3Config struct {
 	Bucket    string `json:"bucket"`
 	Region    string `json:"region"`
@@ -198,6 +215,14 @@ func (t *TargetConfig) GetFlyioConfig() (*FlyioConfig, error) {
 	return &config, nil
 }
 
+func (t *TargetConfig) GetLinodeConfig() (*LinodeConfig, error) {
+	var config LinodeConfig
+	if err := t.GetProviderConfig("linode", &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
 func (t *TargetConfig) GetSSHProviderConfig() (ProviderConfig, error) {
 	switch t.Provider {
 	case "digitalocean":
@@ -208,6 +233,8 @@ func (t *TargetConfig) GetSSHProviderConfig() (ProviderConfig, error) {
 		return t.GetVultrConfig()
 	case "flyio":
 		return t.GetFlyioConfig()
+	case "linode":
+		return t.GetLinodeConfig()
 	case "s3":
 		return nil, fmt.Errorf("S3 is not an SSH-based provider")
 	default:
@@ -225,6 +252,8 @@ func (t *TargetConfig) GetAnyProviderConfig() (ProviderConfig, error) {
 		return t.GetVultrConfig()
 	case "flyio":
 		return t.GetFlyioConfig()
+	case "linode":
+		return t.GetLinodeConfig()
 	case "s3":
 		return t.GetS3Config()
 	default:

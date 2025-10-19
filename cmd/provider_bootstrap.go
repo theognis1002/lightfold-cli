@@ -147,6 +147,36 @@ var providerBootstraps = []*providerBootstrap{
 			}, nil
 		},
 	},
+	{
+		canonical:       "linode",
+		aliases:         []string{"linode"},
+		configKey:       "linode",
+		tokenKey:        "linode",
+		defaultUsername: "deploy",
+		fallbackFlow: func(targetName string) (config.ProviderConfig, error) {
+			cfg, err := sequential.RunProvisionLinodeFlow(targetName)
+			if err != nil {
+				return nil, err
+			}
+			return cfg, nil
+		},
+		flagConfigurator: func(opts provisionInputs, sshKeyPath, sshKeyName string) (config.ProviderConfig, error) {
+			if opts.Region == "" {
+				return nil, fmt.Errorf("region is required for Linode provisioning")
+			}
+			if opts.Size == "" {
+				return nil, fmt.Errorf("plan is required for Linode provisioning")
+			}
+			return &config.LinodeConfig{
+				Region:      opts.Region,
+				Plan:        opts.Size,
+				SSHKey:      sshKeyPath,
+				SSHKeyName:  sshKeyName,
+				Username:    "deploy",
+				Provisioned: true,
+			}, nil
+		},
+	},
 }
 
 var providerAliasMap map[string]*providerBootstrap
@@ -203,6 +233,9 @@ func (p *providerBootstrap) applyConfig(targetConfig *config.TargetConfig, provi
 		targetConfig.Provider = p.canonical
 		return targetConfig.SetProviderConfig(p.configKey, cfg)
 	case *config.FlyioConfig:
+		targetConfig.Provider = p.canonical
+		return targetConfig.SetProviderConfig(p.configKey, cfg)
+	case *config.LinodeConfig:
 		targetConfig.Provider = p.canonical
 		return targetConfig.SetProviderConfig(p.configKey, cfg)
 	default:

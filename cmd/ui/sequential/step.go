@@ -3,7 +3,9 @@ package sequential
 import (
 	"context"
 	"fmt"
+	"lightfold/pkg/config"
 	"lightfold/pkg/providers"
+	"lightfold/pkg/ssh"
 	"lightfold/pkg/state"
 	"net"
 	"os"
@@ -11,6 +13,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 type StepBuilder struct {
@@ -967,4 +971,224 @@ func getUsedPortsDescription(serverIP string) string {
 
 	// Build description with used ports
 	return fmt.Sprintf("%s | Used: %s", baseDesc, strings.Join(usedPorts, ", "))
+}
+
+// Linode-specific step creation functions
+
+func CreateLinodeAPITokenStep(id string) Step {
+	return NewStep(id, "Linode API Token").
+		Type(StepTypePassword).
+		Placeholder("Enter your Linode API token").
+		Required().
+		Validate(ValidateRequired).
+		Build()
+}
+
+// CreateLinodeRegionStepDynamic creates region step with dynamic API data
+func CreateLinodeRegionStepDynamic(id, token string) Step {
+	ctx := context.Background()
+	provider, err := providers.GetProvider("linode", token)
+	if err != nil {
+		return createLinodeRegionStepStatic(id)
+	}
+
+	regions, err := provider.GetRegions(ctx)
+	if err != nil || len(regions) == 0 {
+		return createLinodeRegionStepStatic(id)
+	}
+
+	var regionIDs []string
+	var regionDescs []string
+	for _, region := range regions {
+		regionIDs = append(regionIDs, region.ID)
+		regionDescs = append(regionDescs, region.Location)
+	}
+
+	return NewStep(id, "Linode Region").
+		Type(StepTypeSelect).
+		DefaultValue(regionIDs[0]).
+		Options(regionIDs...).
+		OptionDescriptions(regionDescs...).
+		Required().
+		Build()
+}
+
+// createLinodeRegionStepStatic creates region step with static fallback data
+func createLinodeRegionStepStatic(id string) Step {
+	regions := []struct {
+		ID       string
+		Location string
+	}{
+		{"us-east", "Newark, NJ (US)"},
+		{"us-central", "Dallas, TX (US)"},
+		{"us-west", "Fremont, CA (US)"},
+		{"us-southeast", "Atlanta, GA (US)"},
+		{"eu-west", "London, UK"},
+		{"eu-central", "Frankfurt, DE"},
+		{"ap-south", "Singapore, SG"},
+		{"ap-northeast", "Tokyo, JP"},
+	}
+
+	var regionIDs []string
+	var regionDescs []string
+	for _, region := range regions {
+		regionIDs = append(regionIDs, region.ID)
+		regionDescs = append(regionDescs, region.Location)
+	}
+
+	return NewStep(id, "Linode Region").
+		Type(StepTypeSelect).
+		DefaultValue(regionIDs[0]).
+		Options(regionIDs...).
+		OptionDescriptions(regionDescs...).
+		Required().
+		Build()
+}
+
+// CreateLinodePlanStepDynamic creates plan step with dynamic API data
+func CreateLinodePlanStepDynamic(id, token, region string) Step {
+	ctx := context.Background()
+	provider, err := providers.GetProvider("linode", token)
+	if err != nil {
+		return createLinodePlanStepStatic(id)
+	}
+
+	sizes, err := provider.GetSizes(ctx, region)
+	if err != nil || len(sizes) == 0 {
+		return createLinodePlanStepStatic(id)
+	}
+
+	var planIDs []string
+	var planDescs []string
+	for _, size := range sizes {
+		planIDs = append(planIDs, size.ID)
+		desc := fmt.Sprintf("%d vCPU, %d MB RAM", size.VCPUs, size.Memory)
+		if size.PriceMonthly > 0 {
+			desc = fmt.Sprintf("%s ($%.2f/mo)", desc, size.PriceMonthly)
+		}
+		planDescs = append(planDescs, desc)
+	}
+
+	defaultValue := "g6-nanode-1"
+	if len(planIDs) > 0 {
+		defaultValue = planIDs[0]
+	}
+
+	return NewStep(id, "Linode Plan").
+		Type(StepTypeSelect).
+		DefaultValue(defaultValue).
+		Options(planIDs...).
+		OptionDescriptions(planDescs...).
+		Required().
+		Build()
+}
+
+// createLinodePlanStepStatic creates plan step with static fallback data
+func createLinodePlanStepStatic(id string) Step {
+	plans := []struct {
+		ID           string
+		Name         string
+		PriceMonthly float64
+	}{
+		{"g6-nanode-1", "1 GB RAM, 1 vCPU", 5.0},
+		{"g6-standard-1", "2 GB RAM, 1 vCPU", 10.0},
+		{"g6-standard-2", "4 GB RAM, 2 vCPUs", 20.0},
+		{"g6-standard-4", "8 GB RAM, 4 vCPUs", 40.0},
+		{"g6-standard-6", "16 GB RAM, 6 vCPUs", 80.0},
+		{"g6-dedicated-2", "4 GB RAM, 2 vCPUs", 30.0},
+		{"g6-dedicated-4", "8 GB RAM, 4 vCPUs", 60.0},
+	}
+
+	var planIDs []string
+	var planDescs []string
+	for _, plan := range plans {
+		planIDs = append(planIDs, plan.ID)
+		desc := fmt.Sprintf("%s ($%.2f/mo)", plan.Name, plan.PriceMonthly)
+		planDescs = append(planDescs, desc)
+	}
+
+	return NewStep(id, "Linode Plan").
+		Type(StepTypeSelect).
+		DefaultValue(planIDs[0]).
+		Options(planIDs...).
+		OptionDescriptions(planDescs...).
+		Required().
+		Build()
+}
+
+// RunProvisionLinodeFlow runs the full Linode provisioning flow
+func RunProvisionLinodeFlow(projectName string) (*config.LinodeConfig, error) {
+	tokens, err := config.LoadTokens()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load tokens: %w", err)
+	}
+
+	existingToken := tokens.GetToken("linode")
+	hasExistingToken := existingToken != ""
+
+	var steps []Step
+	if !hasExistingToken {
+		steps = append(steps, CreateLinodeAPITokenStep("api_token"))
+	}
+
+	activeToken := existingToken
+	if hasExistingToken {
+		steps = append(steps,
+			CreateLinodeRegionStepDynamic("region", activeToken),
+			CreateLinodePlanStepDynamic("plan", activeToken, ""),
+		)
+	} else {
+		// Will be added dynamically after token entry
+		steps = append(steps,
+			createLinodeRegionStepStatic("region"),
+			createLinodePlanStepStatic("plan"),
+		)
+	}
+
+	flow := NewFlow("Provision Linode Instance", steps)
+	flow.SetProjectName(projectName)
+
+	p := tea.NewProgram(flow)
+	finalModel, err := p.Run()
+	if err != nil {
+		return nil, err
+	}
+
+	final := finalModel.(FlowModel)
+	if final.Cancelled {
+		return nil, fmt.Errorf("provisioning cancelled")
+	}
+
+	if !final.Completed {
+		return nil, fmt.Errorf("provisioning not completed")
+	}
+
+	results := final.GetResults()
+
+	// Save token if provided
+	if token, ok := results["api_token"]; ok && token != "" {
+		tokens.SetToken("linode", token)
+		tokens.SaveTokens()
+	}
+
+	keyName := ssh.GetKeyName(projectName)
+	keyPath := filepath.Join(os.Getenv("HOME"), ".lightfold", "keys", keyName)
+
+	// Generate SSH key if it doesn't exist
+	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+		_, err := ssh.GenerateKeyPair(keyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate SSH key: %w", err)
+		}
+	}
+
+	return &config.LinodeConfig{
+		IP:          "",
+		Username:    "deploy",
+		SSHKey:      keyPath,
+		SSHKeyName:  keyName,
+		Region:      results["region"],
+		Plan:        results["plan"],
+		Provisioned: true,
+	}, nil
 }

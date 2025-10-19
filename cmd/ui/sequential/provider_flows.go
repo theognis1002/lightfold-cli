@@ -16,6 +16,7 @@ func CreateProviderSelectionStep(id string) Step {
 			"digitalocean",
 			"vultr",
 			"hetzner",
+			"linode",
 			"flyio",
 			"byos",
 			"existing",
@@ -24,11 +25,13 @@ func CreateProviderSelectionStep(id string) Step {
 			"DigitalOcean",
 			"Vultr",
 			"Hetzner",
+			"Linode",
 			"fly.io",
 			"BYOS",
 			"Existing server",
 		).
 		OptionDescriptions(
+			"",
 			"",
 			"",
 			"",
@@ -97,6 +100,10 @@ func RunProviderSelectionWithConfigFlow(projectName string) (provider string, cf
 	case "flyio":
 		flyioConfig := buildFlyioConfig(results, final, projectName)
 		return "flyio", flyioConfig, nil
+
+	case "linode":
+		linodeConfig := buildLinodeConfig(results, final, projectName)
+		return "linode", linodeConfig, nil
 
 	case "existing":
 		existingConfig := buildExistingServerConfig(results)
@@ -205,6 +212,11 @@ func (m *DynamicProviderFlow) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					newSteps = []Step{
 						CreateFlyioRegionStepDynamic("region", token),
 						CreateFlyioSizeStepDynamic("size", token, ""),
+					}
+				case "linode":
+					newSteps = []Step{
+						CreateLinodeRegionStepDynamic("region", token),
+						CreateLinodePlanStepDynamic("plan", token, ""),
 					}
 				}
 
@@ -352,6 +364,25 @@ func (m *DynamicProviderFlow) addProviderSteps(provider string) error {
 			newSteps = append(newSteps,
 				CreateFlyioRegionStepDynamic("region", activeToken),
 				CreateFlyioSizeStepDynamic("size", activeToken, ""),
+			)
+		}
+
+	case "linode":
+		existingToken := tokens.GetToken("linode")
+		hasToken := existingToken != ""
+
+		if !hasToken {
+			newSteps = append(newSteps, CreateLinodeAPITokenStep("api_token"))
+		}
+
+		activeToken := existingToken
+		if !hasToken {
+			m.NeedsDynamicSteps = true
+			m.ProviderForDynamic = "linode"
+		} else {
+			newSteps = append(newSteps,
+				CreateLinodeRegionStepDynamic("region", activeToken),
+				CreateLinodePlanStepDynamic("plan", activeToken, ""),
 			)
 		}
 
@@ -541,6 +572,40 @@ func buildFlyioConfig(results map[string]string, _ *DynamicProviderFlow, project
 		Size:        sizeID,
 		Provisioned: true,
 		AppName:     "", // Will be set after app creation via SDK
+	}
+}
+
+func buildLinodeConfig(results map[string]string, _ *DynamicProviderFlow, projectName string) *config.LinodeConfig {
+	if token, ok := results["api_token"]; ok && token != "" {
+		tokens, _ := config.LoadTokens()
+		if !tokens.HasToken("linode") {
+			tokens.SetToken("linode", token)
+			tokens.SaveTokens()
+		}
+	}
+
+	keyName := sshpkg.GetKeyName(projectName)
+	keyPath := generateSSHKeyIfNeeded(keyName)
+
+	planStr, hasPlan := results["plan"]
+	if !hasPlan || planStr == "" {
+		planStr = "g6-nanode-1"
+	}
+	planID := extractID(planStr)
+
+	regionStr := results["region"]
+	if regionStr == "" {
+		regionStr = "us-east"
+	}
+
+	return &config.LinodeConfig{
+		IP:          "",
+		Username:    "deploy",
+		SSHKey:      keyPath,
+		SSHKeyName:  keyName,
+		Region:      regionStr,
+		Plan:        planID,
+		Provisioned: true,
 	}
 }
 
