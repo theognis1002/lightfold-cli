@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"lightfold/pkg/providers"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -22,21 +21,16 @@ func init() {
 
 type Client struct {
 	client *linodego.Client
-	token  string
 }
 
 func NewClient(token string) *Client {
 	tokenSource := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
-	oauth2Client := &http.Client{
-		Transport: &oauth2.Transport{
-			Source: tokenSource,
-		},
-	}
+	oauth2Client := oauth2.NewClient(context.Background(), tokenSource)
+
 	linodeClient := linodego.NewClient(oauth2Client)
 
 	return &Client{
 		client: &linodeClient,
-		token:  token,
 	}
 }
 
@@ -61,7 +55,6 @@ func (c *Client) SupportsSSH() bool {
 }
 
 func (c *Client) ValidateCredentials(ctx context.Context) error {
-	// Test API token by listing regions
 	_, err := c.client.ListRegions(ctx, &linodego.ListOptions{})
 	if err != nil {
 		return &providers.ProviderError{
@@ -87,7 +80,6 @@ func (c *Client) GetRegions(ctx context.Context) ([]providers.Region, error) {
 
 	var regions []providers.Region
 	for _, region := range linodeRegions {
-		// Filter out unavailable regions
 		if region.Status == "ok" {
 			regions = append(regions, providers.Region{
 				ID:       region.ID,
@@ -100,7 +92,7 @@ func (c *Client) GetRegions(ctx context.Context) ([]providers.Region, error) {
 	return regions, nil
 }
 
-func (c *Client) GetSizes(ctx context.Context, region string) ([]providers.Size, error) {
+func (c *Client) GetSizes(ctx context.Context, _ string) ([]providers.Size, error) {
 	linodeTypes, err := c.client.ListTypes(ctx, &linodego.ListOptions{})
 	if err != nil {
 		return nil, &providers.ProviderError{
@@ -113,7 +105,6 @@ func (c *Client) GetSizes(ctx context.Context, region string) ([]providers.Size,
 
 	var sizes []providers.Size
 	for _, t := range linodeTypes {
-		// Filter by memory >= 512MB and only show available types
 		if t.Memory >= 512 {
 			sizes = append(sizes, providers.Size{
 				ID:           t.ID,
@@ -143,8 +134,11 @@ func (c *Client) GetImages(ctx context.Context) ([]providers.Image, error) {
 
 	var providerImages []providers.Image
 	for _, image := range images {
-		// Only include Ubuntu images that are public and available
-		if strings.Contains(strings.ToLower(image.Label), "ubuntu") && image.IsPublic && image.Status == "available" {
+		label := strings.ToLower(image.Label)
+		if strings.Contains(label, "ubuntu") &&
+			image.IsPublic &&
+			image.Status == "available" &&
+			strings.HasPrefix(image.ID, "linode/") {
 			providerImages = append(providerImages, providers.Image{
 				ID:           image.ID,
 				Name:         image.Label,
@@ -154,14 +148,22 @@ func (c *Client) GetImages(ctx context.Context) ([]providers.Image, error) {
 		}
 	}
 
-	// Fallback to a known Ubuntu image if none found
+	// Fallback to known stable Ubuntu LTS images if none found
 	if len(providerImages) == 0 {
-		providerImages = append(providerImages, providers.Image{
-			ID:           "linode/ubuntu22.04",
-			Name:         "Ubuntu 22.04 LTS",
-			Distribution: "Ubuntu",
-			Version:      "22.04",
-		})
+		providerImages = []providers.Image{
+			{
+				ID:           "linode/ubuntu22.04",
+				Name:         "Ubuntu 22.04 LTS",
+				Distribution: "Ubuntu",
+				Version:      "22.04",
+			},
+			{
+				ID:           "linode/ubuntu24.04",
+				Name:         "Ubuntu 24.04 LTS",
+				Distribution: "Ubuntu",
+				Version:      "24.04",
+			},
+		}
 	}
 
 	return providerImages, nil
@@ -174,16 +176,17 @@ func (c *Client) UploadSSHKey(ctx context.Context, name, publicKey string) (*pro
 	})
 
 	if err != nil {
-		// Handle duplicate key error
-		if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "duplicate") {
+		if strings.Contains(err.Error(), "already exists") ||
+			strings.Contains(err.Error(), "duplicate") ||
+			strings.Contains(err.Error(), "Label must be unique") {
 			keys, listErr := c.client.ListSSHKeys(ctx, &linodego.ListOptions{})
 			if listErr == nil {
 				for _, k := range keys {
 					if k.Label == name {
 						return &providers.SSHKey{
-							ID:          strconv.Itoa(k.ID),
+							ID:          intToString(k.ID),
 							Name:        k.Label,
-							Fingerprint: "", // Linode doesn't expose fingerprint
+							Fingerprint: "", // Linode doesn't expose fingerprint in API
 							PublicKey:   k.SSHKey,
 						}, nil
 					}
@@ -200,7 +203,7 @@ func (c *Client) UploadSSHKey(ctx context.Context, name, publicKey string) (*pro
 	}
 
 	return &providers.SSHKey{
-		ID:          strconv.Itoa(key.ID),
+		ID:          intToString(key.ID),
 		Name:        key.Label,
 		Fingerprint: "", // Linode doesn't expose SSH key fingerprint in API
 		PublicKey:   key.SSHKey,
@@ -208,12 +211,10 @@ func (c *Client) UploadSSHKey(ctx context.Context, name, publicKey string) (*pro
 }
 
 func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig) (*providers.Server, error) {
-	// Convert SSH key IDs from string to int
+	// Linode's AuthorizedKeys expects raw public keys, not key IDs
 	var authorizedKeys []string
 	for _, keyIDStr := range config.SSHKeys {
-		// Linode accepts both key IDs and raw public keys
-		// We'll use the key IDs from uploaded keys
-		keyID, err := strconv.Atoi(keyIDStr)
+		keyID, err := stringToInt(keyIDStr)
 		if err != nil {
 			return nil, &providers.ProviderError{
 				Provider: "linode",
@@ -223,7 +224,6 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 			}
 		}
 
-		// Fetch the SSH key to get its public key content
 		key, err := c.client.GetSSHKey(ctx, keyID)
 		if err != nil {
 			return nil, &providers.ProviderError{
@@ -236,7 +236,7 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 		authorizedKeys = append(authorizedKeys, key.SSHKey)
 	}
 
-	// Create the Linode instance
+	booted := true
 	createOpts := linodego.InstanceCreateOptions{
 		Label:          config.Name,
 		Region:         config.Region,
@@ -244,17 +244,15 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 		Image:          config.Image,
 		AuthorizedKeys: authorizedKeys,
 		BackupsEnabled: config.BackupsEnabled,
-		Booted:         linodego.Pointer(true),
+		Booted:         &booted,
 	}
 
-	// Add metadata/user data if provided
 	if config.UserData != "" {
 		createOpts.Metadata = &linodego.InstanceMetadataOptions{
 			UserData: config.UserData,
 		}
 	}
 
-	// Add tags if provided
 	if len(config.Tags) > 0 {
 		createOpts.Tags = config.Tags
 	}
@@ -273,7 +271,7 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 }
 
 func (c *Client) GetServer(ctx context.Context, serverID string) (*providers.Server, error) {
-	instanceID, err := strconv.Atoi(serverID)
+	instanceID, err := stringToInt(serverID)
 	if err != nil {
 		return nil, &providers.ProviderError{
 			Provider: "linode",
@@ -297,7 +295,7 @@ func (c *Client) GetServer(ctx context.Context, serverID string) (*providers.Ser
 }
 
 func (c *Client) Destroy(ctx context.Context, serverID string) error {
-	instanceID, err := strconv.Atoi(serverID)
+	instanceID, err := stringToInt(serverID)
 	if err != nil {
 		return &providers.ProviderError{
 			Provider: "linode",
@@ -321,7 +319,7 @@ func (c *Client) Destroy(ctx context.Context, serverID string) error {
 }
 
 func (c *Client) WaitForActive(ctx context.Context, serverID string, timeout time.Duration) (*providers.Server, error) {
-	instanceID, err := strconv.Atoi(serverID)
+	instanceID, err := stringToInt(serverID)
 	if err != nil {
 		return nil, &providers.ProviderError{
 			Provider: "linode",
@@ -344,7 +342,6 @@ func (c *Client) WaitForActive(ctx context.Context, serverID string, timeout tim
 			}
 		}
 
-		// Linode instance status: "running", "offline", "booting", etc.
 		if instance.Status == linodego.InstanceRunning {
 			return convertInstanceToServer(instance), nil
 		}
@@ -366,34 +363,33 @@ func (c *Client) WaitForActive(ctx context.Context, serverID string, timeout tim
 }
 
 func convertInstanceToServer(instance *linodego.Instance) *providers.Server {
-	var publicIPv4, privateIPv4 string
+	var publicIPv4 string
 
-	// Get IPv4 addresses
 	if len(instance.IPv4) > 0 {
 		publicIPv4 = instance.IPv4[0].String()
 	}
 
-	// Linode private IPs are in a separate field
-	// For simplicity, we'll use the first private IP if available
-	// Note: This would require fetching instance IPs separately for full accuracy
-
 	metadata := map[string]string{
-		"vcpus":      fmt.Sprintf("%d", instance.Specs.VCPUs),
-		"memory":     fmt.Sprintf("%d", instance.Specs.Memory),
-		"disk":       fmt.Sprintf("%d", instance.Specs.Disk),
 		"hypervisor": instance.Hypervisor,
 	}
 
-	if instance.Specs.Transfer > 0 {
-		metadata["transfer"] = fmt.Sprintf("%d", instance.Specs.Transfer)
+	// Add specs to metadata if available
+	if instance.Specs != nil {
+		metadata["vcpus"] = fmt.Sprintf("%d", instance.Specs.VCPUs)
+		metadata["memory"] = fmt.Sprintf("%d", instance.Specs.Memory)
+		metadata["disk"] = fmt.Sprintf("%d", instance.Specs.Disk)
+
+		if instance.Specs.Transfer > 0 {
+			metadata["transfer"] = fmt.Sprintf("%d", instance.Specs.Transfer)
+		}
 	}
 
 	return &providers.Server{
-		ID:          strconv.Itoa(instance.ID),
+		ID:          intToString(instance.ID),
 		Name:        instance.Label,
 		Status:      string(instance.Status),
 		PublicIPv4:  publicIPv4,
-		PrivateIPv4: privateIPv4,
+		PrivateIPv4: "",
 		Region:      instance.Region,
 		Size:        instance.Type,
 		Image:       instance.Image,
@@ -404,7 +400,6 @@ func convertInstanceToServer(instance *linodego.Instance) *providers.Server {
 }
 
 func extractVersionFromLabel(label string) string {
-	// Extract version from labels like "Ubuntu 22.04 LTS"
 	parts := strings.Fields(label)
 	for _, part := range parts {
 		if strings.Contains(part, ".") && len(part) <= 6 {
@@ -412,4 +407,12 @@ func extractVersionFromLabel(label string) string {
 		}
 	}
 	return ""
+}
+
+func stringToInt(s string) (int, error) {
+	return strconv.Atoi(s)
+}
+
+func intToString(i int) string {
+	return strconv.Itoa(i)
 }
