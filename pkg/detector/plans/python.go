@@ -40,7 +40,7 @@ func FlaskPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[s
 		packagemanagers.GetPythonInstallCommand(pm),
 	}
 	run := []string{
-		"gunicorn --bind 0.0.0.0:5000 --workers 2 app:app",
+		"gunicorn --bind 0.0.0.0:$PORT --workers 2 app:app",
 	}
 	health := map[string]any{"path": "/health", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"FLASK_ENV", "FLASK_APP", "DATABASE_URL", "SECRET_KEY"}
@@ -55,7 +55,7 @@ func FastAPIPlan(fs FSReader) ([]string, []string, map[string]any, []string, map
 		packagemanagers.GetPythonInstallCommand(pm),
 	}
 	run := []string{
-		"uvicorn main:app --host 0.0.0.0 --port 8000",
+		"uvicorn main:app --host 0.0.0.0 --port $PORT",
 	}
 	health := map[string]any{"path": "/health", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"DATABASE_URL", "SECRET_KEY", "DEBUG"}

@@ -183,7 +183,7 @@ func (d *DockerfileBuilder) Build(ctx context.Context, opts *builders.BuildOptio
 	// We'll create a simple run script that can be used by systemd
 	port := extractPortFromEnv(opts.EnvVars)
 	if port == "" {
-		port = "3000" // Default port
+		port = fmt.Sprintf("%d", config.DefaultApplicationPort) // Default port
 	}
 
 	runScript := fmt.Sprintf(`#!/bin/bash

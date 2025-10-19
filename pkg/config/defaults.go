@@ -109,3 +109,40 @@ const (
 	// DefaultRebootDelayMinutes is the delay in minutes before system reboot after updates
 	DefaultRebootDelayMinutes = 5
 )
+
+// Application Deployment Defaults
+const (
+	// DefaultApplicationPort is the default port for deployed applications
+	DefaultApplicationPort = 3000
+
+	// DefaultBindAddress is the default bind address for applications (localhost only)
+	DefaultBindAddress = "127.0.0.1"
+
+	// DefaultWorkerCount is the default number of workers for WSGI/ASGI servers
+	DefaultWorkerCount = 2
+
+	// DefaultDeployUser is the default system user for deployments
+	DefaultDeployUser = "deploy"
+)
+
+// DefaultIgnorePatterns is the list of patterns to ignore when creating deployment tarballs
+var DefaultIgnorePatterns = []string{
+	".git",
+	".github",
+	".gitignore",
+	"node_modules",
+	".next",
+	".nuxt",
+	".output",
+	".vercel",
+	".netlify",
+	"__pycache__",
+	"*.pyc",
+	".pytest_cache",
+	".venv",
+	"venv",
+	"env",
+	".env",
+	".DS_Store",
+	"Thumbs.db",
+}

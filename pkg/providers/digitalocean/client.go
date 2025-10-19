@@ -161,7 +161,7 @@ func (c *Client) GetImages(ctx context.Context) ([]providers.Image, error) {
 
 	if len(images) == 0 {
 		images = append(images, providers.Image{
-			ID:           "ubuntu-22-04-x64",
+			ID:           providers.GetDefaultImage("digitalocean"),
 			Name:         "Ubuntu 22.04 LTS",
 			Distribution: "Ubuntu",
 			Version:      "22.04",

@@ -267,7 +267,7 @@ Examples:
 			fmt.Printf("%s %s\n", pushSuccessStyle.Render("✓"), pushMutedStyle.Render("Configuring environment variables..."))
 		}
 
-		if err := executor.DeployWithHealthCheck(releasePath, 5, 3*time.Second); err != nil {
+		if err := executor.DeployWithHealthCheck(releasePath, target.Port, 5, 3*time.Second); err != nil {
 			state.MarkPushFailed(targetNameResolved, fmt.Sprintf("deployment failed: %v", err))
 			fmt.Fprintf(os.Stderr, "Error during deployment: %v\n", err)
 			os.Exit(1)

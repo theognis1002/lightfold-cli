@@ -5,7 +5,7 @@ After=network.target
 [Service]
 WorkingDirectory=/srv/{{APP_NAME}}/current
 EnvironmentFile=-/srv/{{APP_NAME}}/shared/env/.env
-Environment=PORT=8000
+Environment=PORT={{PORT}}
 ExecStart={{EXEC_START}}
 Restart=always
 RestartSec=5

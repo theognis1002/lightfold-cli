@@ -100,13 +100,13 @@ func DetectDjangoServerType(fs FSReader) string {
 func GetDjangoRunCommand(serverType, projectName string) string {
 	if serverType == "asgi" {
 		if projectName != "" {
-			return "uvicorn " + projectName + ".asgi:application --host 0.0.0.0 --port 8000"
+			return "uvicorn " + projectName + ".asgi:application --host 0.0.0.0 --port $PORT"
 		}
-		return "uvicorn asgi:application --host 0.0.0.0 --port 8000"
+		return "uvicorn asgi:application --host 0.0.0.0 --port $PORT"
 	}
 
 	if projectName != "" {
-		return "gunicorn " + projectName + ".wsgi:application --bind 0.0.0.0:8000 --workers 2"
+		return "gunicorn " + projectName + ".wsgi:application --bind 0.0.0.0:$PORT --workers 2"
 	}
-	return "gunicorn <yourproject>.wsgi:application --bind 0.0.0.0:8000 --workers 2"
+	return "gunicorn <yourproject>.wsgi:application --bind 0.0.0.0:$PORT --workers 2"
 }

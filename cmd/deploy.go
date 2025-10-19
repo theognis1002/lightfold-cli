@@ -315,7 +315,7 @@ Examples:
 			fmt.Printf("%s %s\n", deploySuccessStyle.Render("✓"), deployMutedStyle.Render("Configuring environment variables..."))
 		}
 
-		if err := executor.DeployWithHealthCheck(releasePath, 5, 3*time.Second); err != nil {
+		if err := executor.DeployWithHealthCheck(releasePath, target.Port, 5, 3*time.Second); err != nil {
 			state.MarkPushFailed(targetName, fmt.Sprintf("deployment failed: %v", err))
 			fmt.Fprintf(os.Stderr, "Error during deployment: %v\n", err)
 			os.Exit(1)
@@ -349,13 +349,26 @@ Examples:
 			fmt.Sprintf("%s %s", deployMutedStyle.Render("Release:"), deployValueStyle.Render(releaseTimestamp)),
 		}
 
-		// Add port information
+		// Check if this is a multi-app deployment
+		serverState, serverStateErr := state.GetServerState(sshProviderCfg.GetIP())
+		isMultiApp := serverStateErr == nil && len(serverState.DeployedApps) > 1
+
+		// Add port and access information
 		if target.Port > 0 {
 			if target.Domain != nil && target.Domain.Domain != "" {
-				successLines = append(successLines, fmt.Sprintf("%s %s (proxied via nginx)", deployMutedStyle.Render("Port:"), deployValueStyle.Render(fmt.Sprintf("%d", target.Port))))
+				// Has custom domain - nginx proxies to app port
+				// Don't show port for single-app with domain
+				if isMultiApp {
+					successLines = append(successLines, fmt.Sprintf("%s %s (proxied via nginx)", deployMutedStyle.Render("Port:"), deployValueStyle.Render(fmt.Sprintf("%d", target.Port))))
+				}
+			} else if !isMultiApp {
+				// Single-app without domain - nginx proxies port 80 to app port
+				// Don't show internal port, just the access URL
+				successLines = append(successLines, fmt.Sprintf("%s %s", deployMutedStyle.Render("Access:"), deployValueStyle.Render(fmt.Sprintf("http://%s", sshProviderCfg.GetIP()))))
 			} else {
+				// Multi-app without domain - needs domain or direct port access
 				successLines = append(successLines, fmt.Sprintf("%s %s", deployMutedStyle.Render("Port:"), deployValueStyle.Render(fmt.Sprintf("%d", target.Port))))
-				successLines = append(successLines, fmt.Sprintf("%s %s", deployMutedStyle.Render("Access:"), deployValueStyle.Render(fmt.Sprintf("http://%s:%d", sshProviderCfg.GetIP(), target.Port))))
+				successLines = append(successLines, fmt.Sprintf("%s %s", deployMutedStyle.Render("Access:"), deployValueStyle.Render(fmt.Sprintf("http://%s:%d (direct port access)", sshProviderCfg.GetIP(), target.Port))))
 			}
 		}
 

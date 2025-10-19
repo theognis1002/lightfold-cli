@@ -3,6 +3,7 @@ package plans
 import (
 	"lightfold/pkg/config"
 	"lightfold/pkg/detector/helpers"
+	porthelpers "lightfold/pkg/detector/helpers"
 	"lightfold/pkg/detector/packagemanagers"
 )
 
@@ -55,6 +56,12 @@ func NextPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[st
 		meta["deployment_type"] = "static"
 	}
 
+	// Add port detection
+	if detectedPort := porthelpers.DetectPort(fs, "Next.js"); detectedPort != "" {
+		meta["detected_port"] = detectedPort
+	}
+	meta["default_port"] = porthelpers.GetDefaultPortForFramework("Next.js")
+
 	AddMonorepoMeta(fs, meta)
 
 	return build, run, health, env, meta
@@ -94,6 +101,12 @@ func RemixPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[s
 		"adapter":         adapter.Type,
 	}
 
+	// Add port detection
+	if detectedPort := porthelpers.DetectPort(fs, "Remix"); detectedPort != "" {
+		meta["detected_port"] = detectedPort
+	}
+	meta["default_port"] = porthelpers.GetDefaultPortForFramework("Remix")
+
 	AddMonorepoMeta(fs, meta)
 
 	return build, run, health, env, meta
@@ -112,6 +125,13 @@ func NuxtPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[st
 	health := map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"NUXT_PUBLIC_*", "NITRO_*"}
 	meta := map[string]string{"package_manager": pm, "build_output": ".output/"}
+
+	// Add port detection
+	if detectedPort := porthelpers.DetectPort(fs, "Nuxt.js"); detectedPort != "" {
+		meta["detected_port"] = detectedPort
+	}
+	meta["default_port"] = porthelpers.GetDefaultPortForFramework("Nuxt.js")
+
 	return build, run, health, env, meta
 }
 
@@ -159,6 +179,12 @@ func AstroPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[s
 		meta["deployment_type"] = "static"
 	}
 
+	// Add port detection
+	if detectedPort := porthelpers.DetectPort(fs, "Astro"); detectedPort != "" {
+		meta["detected_port"] = detectedPort
+	}
+	meta["default_port"] = porthelpers.GetDefaultPortForFramework("Astro")
+
 	AddMonorepoMeta(fs, meta)
 
 	return build, run, health, env, meta
@@ -177,6 +203,13 @@ func GatsbyPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[
 	health := map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"GATSBY_*, any build-time envs"}
 	meta := map[string]string{"package_manager": pm, "build_output": "public/"}
+
+	// Add port detection
+	if detectedPort := porthelpers.DetectPort(fs, "Gatsby"); detectedPort != "" {
+		meta["detected_port"] = detectedPort
+	}
+	meta["default_port"] = porthelpers.GetDefaultPortForFramework("Gatsby")
+
 	return build, run, health, env, meta
 }
 
@@ -224,6 +257,12 @@ func SveltePlan(fs FSReader) ([]string, []string, map[string]any, []string, map[
 		meta["deployment_type"] = "static"
 	}
 
+	// Add port detection
+	if detectedPort := porthelpers.DetectPort(fs, "SvelteKit"); detectedPort != "" {
+		meta["detected_port"] = detectedPort
+	}
+	meta["default_port"] = porthelpers.GetDefaultPortForFramework("SvelteKit")
+
 	AddMonorepoMeta(fs, meta)
 
 	return build, run, health, env, meta
@@ -259,6 +298,12 @@ func VuePlan(fs FSReader) ([]string, []string, map[string]any, []string, map[str
 		}
 	}
 
+	// Add port detection
+	if detectedPort := porthelpers.DetectPort(fs, "Vue.js"); detectedPort != "" {
+		meta["detected_port"] = detectedPort
+	}
+	meta["default_port"] = porthelpers.GetDefaultPortForFramework("Vue.js")
+
 	AddMonorepoMeta(fs, meta)
 
 	return build, run, health, env, meta
@@ -287,6 +332,13 @@ func AngularPlan(fs FSReader) ([]string, []string, map[string]any, []string, map
 	health := map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"NG_APP_*, any environment-specific configs"}
 	meta := map[string]string{"package_manager": pm, "build_output": "dist/"}
+
+	// Add port detection
+	if detectedPort := porthelpers.DetectPort(fs, "Angular"); detectedPort != "" {
+		meta["detected_port"] = detectedPort
+	}
+	meta["default_port"] = porthelpers.GetDefaultPortForFramework("Angular")
+
 	return build, run, health, env, meta
 }
 
@@ -304,6 +356,13 @@ func NestJSPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[
 	health := map[string]any{"path": "/health", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"NODE_ENV", "PORT", "DATABASE_URL"}
 	meta := map[string]string{"package_manager": pm}
+
+	// Add port detection
+	if detectedPort := porthelpers.DetectPort(fs, "NestJS"); detectedPort != "" {
+		meta["detected_port"] = detectedPort
+	}
+	meta["default_port"] = porthelpers.GetDefaultPortForFramework("NestJS")
+
 	return build, run, health, env, meta
 }
 
@@ -355,6 +414,12 @@ func TRPCPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[st
 		"build_output":    "dist/",
 	}
 
+	// Add port detection
+	if detectedPort := porthelpers.DetectPort(fs, "tRPC"); detectedPort != "" {
+		meta["detected_port"] = detectedPort
+	}
+	meta["default_port"] = porthelpers.GetDefaultPortForFramework("tRPC")
+
 	AddMonorepoMeta(fs, meta)
 
 	return build, run, health, env, meta
@@ -373,6 +438,13 @@ func EleventyPlan(fs FSReader) ([]string, []string, map[string]any, []string, ma
 	health := map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"ELEVENTY_ENV"}
 	meta := map[string]string{"package_manager": pm, "build_output": "_site/", "static": "true"}
+
+	// Add port detection
+	if detectedPort := porthelpers.DetectPort(fs, "Eleventy"); detectedPort != "" {
+		meta["detected_port"] = detectedPort
+	}
+	meta["default_port"] = porthelpers.GetDefaultPortForFramework("Eleventy")
+
 	return build, run, health, env, meta
 }
 
@@ -389,6 +461,13 @@ func DocusaurusPlan(fs FSReader) ([]string, []string, map[string]any, []string, 
 	health := map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{}
 	meta := map[string]string{"package_manager": pm, "build_output": "build/"}
+
+	// Add port detection
+	if detectedPort := porthelpers.DetectPort(fs, "Docusaurus"); detectedPort != "" {
+		meta["detected_port"] = detectedPort
+	}
+	meta["default_port"] = porthelpers.GetDefaultPortForFramework("Docusaurus")
+
 	return build, run, health, env, meta
 }
 

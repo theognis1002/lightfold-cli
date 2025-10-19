@@ -85,6 +85,14 @@ func updateProviderConfigWithIP(target *config.TargetConfig, providerName, ip, s
 		vultrConfig.IP = ip
 		vultrConfig.InstanceID = serverID
 		return target.SetProviderConfig("vultr", vultrConfig)
+	case "linode":
+		linodeConfig, err := target.GetLinodeConfig()
+		if err != nil {
+			return err
+		}
+		linodeConfig.IP = ip
+		linodeConfig.InstanceID = serverID
+		return target.SetProviderConfig("linode", linodeConfig)
 	default:
 		return fmt.Errorf("unsupported provider: %s", providerName)
 	}

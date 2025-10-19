@@ -96,6 +96,7 @@ type LinodeConfig struct {
 	Region      string `json:"region,omitempty"`
 	Plan        string `json:"plan,omitempty"` // Linode uses "plan" or "type"
 	Provisioned bool   `json:"provisioned,omitempty"`
+	RootPass    string `json:"root_pass,omitempty"` // Generated root password for emergency access
 }
 
 func (l *LinodeConfig) GetIP() string       { return l.IP }

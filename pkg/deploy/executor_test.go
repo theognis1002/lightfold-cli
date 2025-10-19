@@ -100,12 +100,10 @@ func TestAdjustBuildCommand_NoDetection(t *testing.T) {
 }
 
 func TestCreateReleaseTarball(t *testing.T) {
-	// Create temporary test project
 	tmpDir := t.TempDir()
 	projectDir := filepath.Join(tmpDir, "project")
 	os.Mkdir(projectDir, 0755)
 
-	// Create test files
 	testFiles := map[string]string{
 		"main.go":              "package main",
 		"src/app.js":           "console.log('hello')",
@@ -122,22 +120,18 @@ func TestCreateReleaseTarball(t *testing.T) {
 		os.WriteFile(fullPath, []byte(content), 0644)
 	}
 
-	// Create executor
 	exec := NewExecutor(nil, "test-app", projectDir, nil)
 
-	// Create tarball
 	tarballPath := filepath.Join(tmpDir, "release.tar.gz")
 	err := exec.CreateReleaseTarball(tarballPath)
 	if err != nil {
 		t.Fatalf("CreateReleaseTarball() error = %v", err)
 	}
 
-	// Verify tarball was created
 	if _, err := os.Stat(tarballPath); os.IsNotExist(err) {
 		t.Errorf("Tarball was not created at %s", tarballPath)
 	}
 
-	// Verify tarball size is reasonable (should contain some files)
 	info, err := os.Stat(tarballPath)
 	if err != nil {
 		t.Fatalf("Failed to stat tarball: %v", err)
@@ -160,7 +154,6 @@ func TestCreateReleaseTarball_EmptyProject(t *testing.T) {
 		t.Fatalf("CreateReleaseTarball() error = %v", err)
 	}
 
-	// Should create tarball even for empty project
 	if _, err := os.Stat(tarballPath); os.IsNotExist(err) {
 		t.Errorf("Tarball was not created for empty project")
 	}
@@ -171,7 +164,6 @@ func TestCreateReleaseTarball_IgnorePatterns(t *testing.T) {
 	projectDir := filepath.Join(tmpDir, "project")
 	os.Mkdir(projectDir, 0755)
 
-	// Create files that should be ignored
 	ignoredDirs := []string{
 		"node_modules",
 		".git",
@@ -189,7 +181,6 @@ func TestCreateReleaseTarball_IgnorePatterns(t *testing.T) {
 		os.WriteFile(filepath.Join(dirPath, "test.txt"), []byte("content"), 0644)
 	}
 
-	// Create file that should be included
 	os.WriteFile(filepath.Join(projectDir, "main.go"), []byte("package main"), 0644)
 
 	exec := NewExecutor(nil, "test-app", projectDir, nil)
@@ -200,14 +191,11 @@ func TestCreateReleaseTarball_IgnorePatterns(t *testing.T) {
 		t.Fatalf("CreateReleaseTarball() error = %v", err)
 	}
 
-	// Verify tarball exists and has reasonable size
-	// (should be small since most directories are ignored)
 	info, err := os.Stat(tarballPath)
 	if err != nil {
 		t.Fatalf("Failed to stat tarball: %v", err)
 	}
 
-	// Should be relatively small since ignored dirs are excluded
 	if info.Size() > 10000 {
 		t.Logf("Warning: Tarball size = %d bytes, might include ignored directories", info.Size())
 	}
@@ -225,7 +213,6 @@ func TestDirectoryStructurePaths(t *testing.T) {
 		"/srv/my-app/shared/media",
 	}
 
-	// Verify path construction logic
 	appPath := "/srv/" + appName
 	directories := []string{
 		appPath,
@@ -251,7 +238,6 @@ func TestWriteEnvironmentFile_Content(t *testing.T) {
 		"DATABASE_URL": "postgres://localhost/mydb",
 	}
 
-	// Build expected content (order doesn't matter for map iteration)
 	var content strings.Builder
 	for key, value := range envVars {
 		content.WriteString(key + "=" + value + "\n")
@@ -259,7 +245,6 @@ func TestWriteEnvironmentFile_Content(t *testing.T) {
 
 	result := content.String()
 
-	// Verify all key-value pairs are present
 	for key, value := range envVars {
 		expected := key + "=" + value
 		if !strings.Contains(result, expected) {
@@ -271,7 +256,6 @@ func TestWriteEnvironmentFile_Content(t *testing.T) {
 func TestWriteEnvironmentFile_Empty(t *testing.T) {
 	envVars := map[string]string{}
 
-	// Empty env vars should result in empty content
 	var content strings.Builder
 	for key, value := range envVars {
 		content.WriteString(key + "=" + value + "\n")
@@ -293,7 +277,6 @@ func TestReleasePathGeneration(t *testing.T) {
 		t.Errorf("Release path = %v, want %v", releasePath, expected)
 	}
 
-	// Verify path components
 	if !strings.HasPrefix(releasePath, "/srv/") {
 		t.Error("Release path should start with /srv/")
 	}
@@ -340,7 +323,6 @@ func TestCleanupOldReleases_Logic(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Calculate how many to delete
 			toDeleteCount := 0
 			if len(tt.releases) > tt.keepCount {
 				toDeleteCount = len(tt.releases) - tt.keepCount
@@ -350,7 +332,6 @@ func TestCleanupOldReleases_Logic(t *testing.T) {
 				t.Errorf("Would delete %d releases, want %d", toDeleteCount, tt.wantDelete)
 			}
 
-			// Verify we keep the most recent ones
 			if len(tt.releases) > tt.keepCount {
 				kept := tt.releases[len(tt.releases)-tt.keepCount:]
 				if len(kept) != tt.keepCount {
@@ -364,7 +345,6 @@ func TestCleanupOldReleases_Logic(t *testing.T) {
 func TestBuildRelease_NoDetection(t *testing.T) {
 	exec := NewExecutor(nil, "test-app", "/path", nil)
 
-	// Should not error when detection is nil
 	err := exec.BuildRelease("/srv/test-app/releases/20240101000000")
 	if err != nil {
 		t.Errorf("BuildRelease() with nil detection should not error, got %v", err)
@@ -381,7 +361,6 @@ func TestBuildRelease_NoBuildPlan(t *testing.T) {
 
 	exec := NewExecutor(nil, "test-app", "/path", detection)
 
-	// Should not error when build plan is empty
 	err := exec.BuildRelease("/srv/test-app/releases/20240101000000")
 	if err != nil {
 		t.Errorf("BuildRelease() with empty build plan should not error, got %v", err)
@@ -395,9 +374,9 @@ func TestGetExecStartCommand_Python(t *testing.T) {
 		framework string
 		want      string
 	}{
-		{"Django", "/srv/test-app/shared/venv/bin/gunicorn --bind 127.0.0.1:8000 --workers 2 wsgi:application"},
-		{"FastAPI", "/srv/test-app/shared/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 --workers 2"},
-		{"Flask", "/srv/test-app/shared/venv/bin/gunicorn --bind 127.0.0.1:8000 --workers 2 app:app"},
+		{"Django", "/srv/test-app/shared/venv/bin/gunicorn --bind 127.0.0.1:$PORT --workers 2 wsgi:application"},
+		{"FastAPI", "/srv/test-app/shared/venv/bin/uvicorn main:app --host 127.0.0.1 --port $PORT --workers 2"},
+		{"Flask", "/srv/test-app/shared/venv/bin/gunicorn --bind 127.0.0.1:$PORT --workers 2 app:app"},
 	}
 
 	for _, tt := range tests {
@@ -450,7 +429,7 @@ func TestGetExecStartCommand_Go(t *testing.T) {
 	exec := NewExecutor(nil, "test-app", "/path", detection)
 	result := exec.getExecStartCommand()
 
-	want := "/srv/test-app/current/app --port 8000"
+	want := "/srv/test-app/current/app --port $PORT"
 	if result != want {
 		t.Errorf("getExecStartCommand() = %v, want %v", result, want)
 	}
@@ -560,7 +539,7 @@ func TestPerformHealthCheck_NoHealthcheck(t *testing.T) {
 	exec := NewExecutor(nil, "test-app", "/path", detection)
 
 	// Should succeed when no healthcheck is configured
-	err := exec.PerformHealthCheck(3, 2*time.Second)
+	err := exec.PerformHealthCheck(3000, 3, 2*time.Second)
 	if err != nil {
 		t.Errorf("PerformHealthCheck() with nil healthcheck should succeed, got %v", err)
 	}
@@ -570,7 +549,7 @@ func TestPerformHealthCheck_NoDetection(t *testing.T) {
 	exec := NewExecutor(nil, "test-app", "/path", nil)
 
 	// Should succeed when detection is nil
-	err := exec.PerformHealthCheck(3, 2*time.Second)
+	err := exec.PerformHealthCheck(3000, 3, 2*time.Second)
 	if err != nil {
 		t.Errorf("PerformHealthCheck() with nil detection should succeed, got %v", err)
 	}
@@ -657,9 +636,6 @@ func TestPerformHealthCheck_Configuration(t *testing.T) {
 			}
 			_ = NewExecutor(nil, "test-app", "/path", detection)
 
-			// We can't actually test the health check without SSH connection,
-			// but we can verify the configuration is parsed correctly
-
 			healthPath := "/"
 			expectedStatus := 200
 			timeout := 30
@@ -690,7 +666,6 @@ func TestPerformHealthCheck_Configuration(t *testing.T) {
 				t.Errorf("timeout = %v, want %v", timeout, tt.wantTimeout)
 			}
 
-			// Verify URL construction
 			url := "http://127.0.0.1:8000" + healthPath
 			expectedURL := "http://127.0.0.1:8000" + tt.wantPath
 			if url != expectedURL {
@@ -847,13 +822,12 @@ func TestGetBuildPlan_EmptyCustomCommands(t *testing.T) {
 	}
 
 	deployOptions := &config.DeploymentOptions{
-		BuildCommands: []string{}, // Empty array
+		BuildCommands: []string{},
 	}
 
 	exec := NewExecutorWithOptions(nil, "test-app", "/path", detection, deployOptions)
 	buildPlan := exec.getBuildPlan()
 
-	// Empty custom commands should fall back to detection
 	if len(buildPlan) != 1 {
 		t.Errorf("getBuildPlan() with empty custom commands should use detection, got length %v", len(buildPlan))
 	}
@@ -926,7 +900,6 @@ func TestGetExecStartCommand_WithCustomRunCommands(t *testing.T) {
 	exec := NewExecutorWithOptions(nil, "test-app", "/path", detection, deployOptions)
 	cmd := exec.getExecStartCommand()
 
-	// Should use custom run command
 	if cmd != "node dist/server.js" {
 		t.Errorf("getExecStartCommand() with custom run commands = %v, want 'node dist/server.js'", cmd)
 	}
@@ -939,7 +912,6 @@ func TestGetExecStartCommand_FallbackToDetection(t *testing.T) {
 		RunPlan:   []string{"flask run"},
 	}
 
-	// No custom commands - should fall back to detection RunPlan
 	exec := NewExecutor(nil, "test-app", "/path", detection)
 	cmd := exec.getExecStartCommand()
 
@@ -1025,7 +997,6 @@ func TestGetExecStartCommand_UsesFirstRunCommand(t *testing.T) {
 	exec := NewExecutorWithOptions(nil, "test-app", "/path", detection, deployOptions)
 	cmd := exec.getExecStartCommand()
 
-	// Should use the first run command
 	if cmd != "./migrate.sh" {
 		t.Errorf("getExecStartCommand() = %v, want first run command './migrate.sh'", cmd)
 	}

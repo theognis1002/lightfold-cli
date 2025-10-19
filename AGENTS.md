@@ -320,7 +320,7 @@ When adding framework detection:
 
 ### Provider Registry System
 
-Lightfold uses a provider registry pattern that makes adding new cloud providers trivial. All providers implement the `Provider` interface and auto-register themselves at init time.
+Lightfold uses a provider registry pattern that makes adding new cloud providers straightforward. All providers implement the `Provider` interface and auto-register themselves at init time.
 
 **Key Components:**
 1. **Provider Interface** (`pkg/providers/provider.go`): Defines standard methods all providers must implement
@@ -328,6 +328,10 @@ Lightfold uses a provider registry pattern that makes adding new cloud providers
 3. **Provider Implementations**: Self-contained packages (e.g., `pkg/providers/digitalocean/`, `pkg/providers/hetzner/`)
 
 **Adding a New Provider:**
+
+See **[docs/ADDING_NEW_PROVIDERS.md](docs/ADDING_NEW_PROVIDERS.md)** for a complete step-by-step integration guide.
+
+Quick overview:
 ```go
 // 1. Create pkg/providers/newprovider/client.go
 package newprovider
@@ -345,7 +349,11 @@ func (c *Client) DisplayName() string { return "New Provider" }
 // ... implement remaining interface methods
 ```
 
-That's it! The provider is now available throughout the application with zero changes to orchestrator, CLI, or config layers.
+**Critical Integration Points** (see guide for details):
+- Import provider in `pkg/deploy/orchestrator.go` (blank import)
+- Add config struct to `pkg/config/config.go`
+- Add switch cases to 5 key functions (orchestrator + utilities)
+- Test provisioning, IP recovery, and multi-app flows
 
 ### Deployment Flow Architecture
 

@@ -255,24 +255,8 @@ func (e *Executor) CreateReleaseTarball(outputPath string) error {
 	tarWriter := tar.NewWriter(gzipWriter)
 	defer tarWriter.Close()
 
-	ignorePatterns := []string{
-		".git",
-		"node_modules",
-		"__pycache__",
-		".venv",
-		"venv",
-		".env",
-		".env.local",
-		"*.pyc",
-		"*.pyo",
-		".DS_Store",
-		"dist",
-		".next",
-		"build",
-		"target",
-		".idea",
-		".vscode",
-	}
+	// Use default ignore patterns from config
+	ignorePatterns := config.DefaultIgnorePatterns
 
 	err = filepath.WalkDir(e.projectPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -743,6 +727,10 @@ func (e *Executor) CleanupOldReleases(keepCount int) error {
 }
 
 func (e *Executor) GenerateSystemdUnit(releasePath string) error {
+	return e.GenerateSystemdUnitWithPort(releasePath, config.DefaultApplicationPort)
+}
+
+func (e *Executor) GenerateSystemdUnitWithPort(releasePath string, port int) error {
 	// Static sites don't need a systemd service (nginx serves files directly)
 	if e.isStaticSite() {
 		return nil
@@ -753,6 +741,7 @@ func (e *Executor) GenerateSystemdUnit(releasePath string) error {
 	data := map[string]string{
 		"APP_NAME":   e.appName,
 		"EXEC_START": execStart,
+		"PORT":       fmt.Sprintf("%d", port),
 	}
 
 	tmpPath := fmt.Sprintf("/tmp/%s.service", e.appName)
@@ -783,18 +772,10 @@ func (e *Executor) GenerateSystemdUnit(releasePath string) error {
 // This is necessary because systemd doesn't execute with user's shell environment
 // Only replaces if the command starts with the package manager name
 func adjustPackageManagerPath(runCommand, packageManager string) string {
-	var fullPath string
-
-	switch packageManager {
-	case "bun":
-		fullPath = "/home/deploy/.bun/bin/bun"
-	case "pnpm":
-		fullPath = "/home/deploy/.local/share/pnpm/pnpm"
-	case "npm":
-		fullPath = "/usr/bin/npm"
-	case "yarn":
-		fullPath = "/usr/bin/yarn"
-	default:
+	// Get package manager path from config
+	fullPath := config.GetPackageManagerPath(packageManager)
+	if fullPath == packageManager {
+		// No specific path configured for this package manager
 		return runCommand
 	}
 
@@ -845,25 +826,26 @@ func (e *Executor) getExecStartCommand() string {
 		venvBin := fmt.Sprintf("%s/shared/venv/bin", appPath)
 		switch framework {
 		case "Django":
-			return fmt.Sprintf("%s/gunicorn --bind 127.0.0.1:8000 --workers 2 wsgi:application", venvBin)
+			return fmt.Sprintf("%s/gunicorn --bind %s:$PORT --workers %d wsgi:application", venvBin, config.DefaultBindAddress, config.DefaultWorkerCount)
 		case "FastAPI":
-			return fmt.Sprintf("%s/uvicorn main:app --host 127.0.0.1 --port 8000 --workers 2", venvBin)
+			return fmt.Sprintf("%s/uvicorn main:app --host %s --port $PORT --workers %d", venvBin, config.DefaultBindAddress, config.DefaultWorkerCount)
 		case "Flask":
-			return fmt.Sprintf("%s/gunicorn --bind 127.0.0.1:8000 --workers 2 app:app", venvBin)
+			return fmt.Sprintf("%s/gunicorn --bind %s:$PORT --workers %d app:app", venvBin, config.DefaultBindAddress, config.DefaultWorkerCount)
 		}
 
 	case "JavaScript/TypeScript":
+		nodePath := config.GetPackageManagerPath("node")
 		switch framework {
 		case "Next.js":
-			return fmt.Sprintf("/usr/bin/node %s/current/.next/standalone/server.js", appPath)
+			return fmt.Sprintf("%s %s/current/.next/standalone/server.js", nodePath, appPath)
 		case "Express.js":
-			return fmt.Sprintf("/usr/bin/node %s/current/server.js", appPath)
+			return fmt.Sprintf("%s %s/current/server.js", nodePath, appPath)
 		case "NestJS":
-			return fmt.Sprintf("/usr/bin/node %s/current/dist/main.js", appPath)
+			return fmt.Sprintf("%s %s/current/dist/main.js", nodePath, appPath)
 		}
 
 	case "Go":
-		return fmt.Sprintf("%s/current/app --port 8000", appPath)
+		return fmt.Sprintf("%s/current/app --port $PORT", appPath)
 
 	case "Ruby":
 		if framework == "Rails" {
@@ -877,15 +859,18 @@ func (e *Executor) getExecStartCommand() string {
 // GenerateNginxConfig creates an nginx configuration (reverse proxy for SSR or static file server for static sites)
 // If domain is empty, nginx configuration is skipped (app listens directly on port)
 func (e *Executor) GenerateNginxConfig(port int, domain string) error {
-	// Skip nginx if no domain is configured (multi-app without domain scenario)
-	if domain == "" {
-		return nil
-	}
-
 	data := map[string]string{
 		"APP_NAME": e.appName,
 		"PORT":     fmt.Sprintf("%d", port),
-		"DOMAIN":   domain,
+	}
+
+	// If no domain, use default_server to catch all requests
+	if domain == "" {
+		data["SERVER_NAME"] = "_"
+		data["DEFAULT_SERVER"] = "default_server"
+	} else {
+		data["SERVER_NAME"] = domain
+		data["DEFAULT_SERVER"] = ""
 	}
 
 	// Use different templates for static vs SSR sites
@@ -1001,7 +986,7 @@ func (e *Executor) SwitchRelease(releasePath string) error {
 	return nil
 }
 
-func (e *Executor) PerformHealthCheck(maxRetries int, retryDelay time.Duration) error {
+func (e *Executor) PerformHealthCheck(port int, maxRetries int, retryDelay time.Duration) error {
 	if e.detection == nil || e.detection.Healthcheck == nil {
 		return nil
 	}
@@ -1026,7 +1011,7 @@ func (e *Executor) PerformHealthCheck(maxRetries int, retryDelay time.Duration) 
 		timeout = int(timeoutFloat)
 	}
 
-	url := fmt.Sprintf("http://127.0.0.1:8000%s", healthPath)
+	url := fmt.Sprintf("http://%s:%d%s", config.DefaultBindAddress, port, healthPath)
 	curlCmd := fmt.Sprintf("curl -s -o /dev/null -w '%%{http_code}' --max-time %d %s", timeout, url)
 
 	var lastErr error
@@ -1105,7 +1090,7 @@ func (e *Executor) RollbackToRelease(timestamp string) error {
 	return nil
 }
 
-func (e *Executor) DeployWithHealthCheck(releasePath string, healthCheckRetries int, healthCheckDelay time.Duration) error {
+func (e *Executor) DeployWithHealthCheck(releasePath string, port int, healthCheckRetries int, healthCheckDelay time.Duration) error {
 	currentRelease, err := e.GetCurrentRelease()
 	if err != nil {
 		return fmt.Errorf("failed to get current release: %w", err)
@@ -1135,7 +1120,7 @@ func (e *Executor) DeployWithHealthCheck(releasePath string, healthCheckRetries 
 		}
 	}
 
-	if err := e.PerformHealthCheck(healthCheckRetries, healthCheckDelay); err != nil {
+	if err := e.PerformHealthCheck(port, healthCheckRetries, healthCheckDelay); err != nil {
 		if currentRelease != "" {
 			e.StopService()
 			e.SwitchRelease(currentRelease)

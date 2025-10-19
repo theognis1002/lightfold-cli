@@ -548,7 +548,7 @@ func getStaticSizes() []providers.Size {
 
 func getStaticImages() []providers.Image {
 	return []providers.Image{
-		{ID: "ubuntu:22.04", Name: "Ubuntu 22.04 LTS", Distribution: "Ubuntu", Version: "22.04"},
+		{ID: providers.GetDefaultImage("flyio"), Name: "Ubuntu 22.04 LTS", Distribution: "Ubuntu", Version: "22.04"},
 		{ID: "ubuntu:20.04", Name: "Ubuntu 20.04 LTS", Distribution: "Ubuntu", Version: "20.04"},
 		{ID: "ubuntu:24.04", Name: "Ubuntu 24.04 LTS", Distribution: "Ubuntu", Version: "24.04"},
 	}

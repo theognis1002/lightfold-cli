@@ -239,6 +239,56 @@ func (n *NixpacksBuilder) Build(ctx context.Context, opts *builders.BuildOptions
 			// Replace with full path to venv binary
 			startCommand = strings.Replace(startCommand, "uvicorn ", "/opt/venv/bin/uvicorn ", 1)
 			startCommand = strings.Replace(startCommand, "gunicorn ", "/opt/venv/bin/gunicorn ", 1)
+
+			// Replace any hardcoded ports with $PORT environment variable
+			// Match patterns like: --port 8000, --port=8000, --bind 0.0.0.0:8000, etc.
+			if strings.Contains(startCommand, "--port") {
+				// Replace --port 8000 or --port=8000 with --port $PORT
+				parts := strings.Fields(startCommand)
+				for i, part := range parts {
+					if part == "--port" && i+1 < len(parts) {
+						// --port 8000 format
+						parts[i+1] = "$PORT"
+					} else if strings.HasPrefix(part, "--port=") {
+						// --port=8000 format
+						parts[i] = "--port=$PORT"
+					}
+				}
+				startCommand = strings.Join(parts, " ")
+			}
+			if strings.Contains(startCommand, "--bind") && strings.Contains(startCommand, ":") {
+				// Replace --bind 0.0.0.0:8000 with --bind 127.0.0.1:$PORT
+				parts := strings.Fields(startCommand)
+				for i, part := range parts {
+					if part == "--bind" && i+1 < len(parts) && strings.Contains(parts[i+1], ":") {
+						// Split on : and replace port part (and use 127.0.0.1 for security)
+						bindParts := strings.Split(parts[i+1], ":")
+						if len(bindParts) == 2 {
+							parts[i+1] = config.DefaultBindAddress + ":$PORT"
+						}
+					} else if strings.HasPrefix(part, "--bind=") && strings.Contains(part, ":") {
+						// --bind=0.0.0.0:8000 format
+						bindParts := strings.Split(part, "=")
+						if len(bindParts) == 2 && strings.Contains(bindParts[1], ":") {
+							parts[i] = "--bind=" + config.DefaultBindAddress + ":$PORT"
+						}
+					}
+				}
+				startCommand = strings.Join(parts, " ")
+			}
+			// Also handle --host parameter for uvicorn
+			if strings.Contains(startCommand, "--host") {
+				parts := strings.Fields(startCommand)
+				for i, part := range parts {
+					if part == "--host" && i+1 < len(parts) {
+						// Replace with 127.0.0.1
+						parts[i+1] = config.DefaultBindAddress
+					} else if strings.HasPrefix(part, "--host=") {
+						parts[i] = "--host=" + config.DefaultBindAddress
+					}
+				}
+				startCommand = strings.Join(parts, " ")
+			}
 			buildLog.WriteString(fmt.Sprintf("==> Using nixpacks start command with venv: %s\n", startCommand))
 		} else if strings.HasPrefix(startCommand, "python ") {
 			// Nixpacks sometimes returns "python main.py" for FastAPI apps, which is incorrect
@@ -252,17 +302,17 @@ func (n *NixpacksBuilder) Build(ctx context.Context, opts *builders.BuildOptions
 				checkApp := fmt.Sprintf("cd %s && grep -E 'app\\s*=.*FastAPI|from fastapi import' main.py 2>/dev/null", opts.ReleasePath)
 				appCheck := ssh.Execute(checkApp)
 				if appCheck.ExitCode == 0 {
-					startCommand = "/opt/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8000"
+					startCommand = fmt.Sprintf("/opt/venv/bin/uvicorn main:app --host %s --port $PORT", config.DefaultBindAddress)
 					buildLog.WriteString("==> Detected FastAPI, overriding to use uvicorn\n")
 				} else {
 					startCommand = strings.Replace(startCommand, "python ", "/opt/venv/bin/python ", 1)
 					buildLog.WriteString(fmt.Sprintf("==> Using nixpacks start command with venv: %s\n", startCommand))
 				}
 			} else if strings.Contains(pipList, "flask") {
-				startCommand = "/opt/venv/bin/gunicorn main:app --bind 0.0.0.0:8000 --workers 2"
+				startCommand = fmt.Sprintf("/opt/venv/bin/gunicorn main:app --bind %s:$PORT --workers %d", config.DefaultBindAddress, config.DefaultWorkerCount)
 				buildLog.WriteString("==> Detected Flask, overriding to use gunicorn\n")
 			} else if strings.Contains(pipList, "django") {
-				startCommand = "/opt/venv/bin/gunicorn wsgi:application --bind 0.0.0.0:8000 --workers 2"
+				startCommand = fmt.Sprintf("/opt/venv/bin/gunicorn wsgi:application --bind %s:$PORT --workers %d", config.DefaultBindAddress, config.DefaultWorkerCount)
 				buildLog.WriteString("==> Detected Django, overriding to use gunicorn\n")
 			} else {
 				// No web framework detected, use python with venv

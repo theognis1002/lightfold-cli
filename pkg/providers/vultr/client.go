@@ -385,7 +385,7 @@ func getStaticPlans() []providers.Size {
 // getStaticImages returns fallback images when API is unavailable
 func getStaticImages() []providers.Image {
 	return []providers.Image{
-		{ID: "1743", Name: "Ubuntu 22.04 LTS x64", Distribution: "Ubuntu", Version: "22.04"},
+		{ID: providers.GetDefaultImage("vultr"), Name: "Ubuntu 22.04 LTS x64", Distribution: "Ubuntu", Version: "22.04"},
 		{ID: "387", Name: "Ubuntu 20.04 LTS x64", Distribution: "Ubuntu", Version: "20.04"},
 	}
 }

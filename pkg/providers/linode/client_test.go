@@ -1,21 +1,21 @@
 package linode
 
 import (
+	"encoding/base64"
 	"lightfold/pkg/providers"
 	"net"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/linode/linodego"
 )
 
-// Helper function to convert string to *net.IP
 func parseIP(ipStr string) *net.IP {
 	ip := net.ParseIP(ipStr)
 	return &ip
 }
 
-// TestNewClient tests client creation
 func TestNewClient(t *testing.T) {
 	token := "test-token"
 	client := NewClient(token)
@@ -29,7 +29,6 @@ func TestNewClient(t *testing.T) {
 	}
 }
 
-// TestName tests provider name
 func TestName(t *testing.T) {
 	client := NewClient("test-token")
 	expected := "linode"
@@ -38,7 +37,6 @@ func TestName(t *testing.T) {
 	}
 }
 
-// TestDisplayName tests provider display name
 func TestDisplayName(t *testing.T) {
 	client := NewClient("test-token")
 	expected := "Linode"
@@ -47,7 +45,6 @@ func TestDisplayName(t *testing.T) {
 	}
 }
 
-// TestSupportsProvisioning tests provisioning support
 func TestSupportsProvisioning(t *testing.T) {
 	client := NewClient("test-token")
 	if !client.SupportsProvisioning() {
@@ -55,7 +52,6 @@ func TestSupportsProvisioning(t *testing.T) {
 	}
 }
 
-// TestSupportsBYOS tests BYOS support
 func TestSupportsBYOS(t *testing.T) {
 	client := NewClient("test-token")
 	if !client.SupportsBYOS() {
@@ -63,7 +59,6 @@ func TestSupportsBYOS(t *testing.T) {
 	}
 }
 
-// TestSupportsSSH tests SSH support
 func TestSupportsSSH(t *testing.T) {
 	client := NewClient("test-token")
 	if !client.SupportsSSH() {
@@ -71,7 +66,6 @@ func TestSupportsSSH(t *testing.T) {
 	}
 }
 
-// TestConvertInstanceToServer tests instance to server conversion
 func TestConvertInstanceToServer(t *testing.T) {
 	instanceID := 12345
 	instanceName := "test-instance"
@@ -153,7 +147,6 @@ func TestConvertInstanceToServer(t *testing.T) {
 	}
 }
 
-// TestConvertInstanceToServer_EdgeCases tests edge cases in instance conversion
 func TestConvertInstanceToServer_EdgeCases(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -296,7 +289,6 @@ func TestConvertInstanceToServer_EdgeCases(t *testing.T) {
 	}
 }
 
-// TestExtractVersionFromLabel tests version extraction from image labels
 func TestExtractVersionFromLabel(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -355,7 +347,6 @@ func TestExtractVersionFromLabel(t *testing.T) {
 	}
 }
 
-// TestHelperFunctions tests ID conversion helper functions
 func TestHelperFunctions(t *testing.T) {
 	t.Run("stringToInt", func(t *testing.T) {
 		tests := []struct {
@@ -409,7 +400,6 @@ func TestHelperFunctions(t *testing.T) {
 
 }
 
-// TestProviderRegistration tests that Linode is properly registered
 func TestProviderRegistration(t *testing.T) {
 	provider, err := providers.GetProvider("linode", "test-token")
 	if err != nil {
@@ -425,12 +415,10 @@ func TestProviderRegistration(t *testing.T) {
 	}
 }
 
-// TestProviderInterface ensures Client implements the Provider interface
 func TestProviderInterface(t *testing.T) {
 	var _ providers.Provider = (*Client)(nil)
 }
 
-// TestClientCreationWithVariousTokens tests client creation with different token formats
 func TestClientCreationWithVariousTokens(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -449,7 +437,7 @@ func TestClientCreationWithVariousTokens(t *testing.T) {
 			token: "token-with_underscores.and.dots",
 		},
 		{
-			name:  "empty token (should still create client)",
+			name:  "empty token",
 			token: "",
 		},
 		{
@@ -493,22 +481,14 @@ func TestClientCreationWithVariousTokens(t *testing.T) {
 	}
 }
 
-// TestValidateCredentials_EmptyToken tests validation with empty token
 func TestValidateCredentials_EmptyToken(t *testing.T) {
-	// Note: This test doesn't make real API calls
-	// Empty tokens will fail validation when API is called,
-	// but client creation succeeds
 	client := NewClient("")
 
 	if client == nil {
 		t.Fatal("Expected client to be created even with empty token")
 	}
-
-	// Validation would fail with real API call, but we don't test that here
-	// to avoid making real network requests
 }
 
-// TestConvertInstanceToServer_NilSpecs tests handling of nil specs
 func TestConvertInstanceToServer_NilSpecs(t *testing.T) {
 	createdTime := time.Now()
 	mockInstance := &linodego.Instance{
@@ -520,26 +500,22 @@ func TestConvertInstanceToServer_NilSpecs(t *testing.T) {
 		Image:      "linode/ubuntu22.04",
 		IPv4:       []*net.IP{parseIP("192.168.1.100")},
 		Created:    &createdTime,
-		Specs:      nil, // nil specs - should handle gracefully
+		Specs:      nil,
 		Hypervisor: "kvm",
 	}
 
-	// This should not panic
 	result := convertInstanceToServer(mockInstance)
 
 	if result == nil {
 		t.Fatal("Expected non-nil server even with nil specs")
 	}
 
-	// Metadata should still be initialized but empty for specs
 	if result.Metadata == nil {
 		t.Error("Expected metadata to be initialized")
 	}
 }
 
-// TestProviderErrorStructure tests that provider errors are properly structured
 func TestProviderErrorStructure(t *testing.T) {
-	// Create a sample provider error as would be returned by methods
 	provErr := &providers.ProviderError{
 		Provider: "linode",
 		Code:     "test_error",
@@ -564,7 +540,6 @@ func TestProviderErrorStructure(t *testing.T) {
 	}
 }
 
-// BenchmarkStringToInt benchmarks the stringToInt helper
 func BenchmarkStringToInt(b *testing.B) {
 	testString := "12345"
 	b.ResetTimer()
@@ -573,7 +548,6 @@ func BenchmarkStringToInt(b *testing.B) {
 	}
 }
 
-// BenchmarkIntToString benchmarks the intToString helper
 func BenchmarkIntToString(b *testing.B) {
 	testInt := 12345
 	b.ResetTimer()
@@ -582,7 +556,6 @@ func BenchmarkIntToString(b *testing.B) {
 	}
 }
 
-// BenchmarkConvertInstanceToServer benchmarks instance conversion
 func BenchmarkConvertInstanceToServer(b *testing.B) {
 	createdTime := time.Now()
 	mockInstance := &linodego.Instance{
@@ -610,11 +583,192 @@ func BenchmarkConvertInstanceToServer(b *testing.B) {
 	}
 }
 
-// BenchmarkExtractVersionFromLabel benchmarks version extraction
 func BenchmarkExtractVersionFromLabel(b *testing.B) {
 	testLabel := "Ubuntu 22.04 LTS"
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = extractVersionFromLabel(testLabel)
+	}
+}
+
+func TestEncodeUserData(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "simple text",
+			input:    "hello world",
+			expected: "aGVsbG8gd29ybGQ=",
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: "",
+		},
+		{
+			name: "cloud-init yaml",
+			input: `#cloud-config
+users:
+  - name: deploy
+    sudo: ALL=(ALL) NOPASSWD:ALL`,
+			expected: "I2Nsb3VkLWNvbmZpZwp1c2VyczoKICAtIG5hbWU6IGRlcGxveQogICAgc3VkbzogQUxMPShBTEwpIE5PUEFTU1dEOkFMTA==",
+		},
+		{
+			name:     "special characters",
+			input:    "test@#$%^&*()",
+			expected: "dGVzdEAjJCVeJiooKQ==",
+		},
+		{
+			name:     "multiline with newlines",
+			input:    "line1\nline2\nline3",
+			expected: "bGluZTEKbGluZTIKbGluZTM=",
+		},
+		{
+			name:     "unicode characters",
+			input:    "Hello 世界 🌍",
+			expected: "SGVsbG8g5LiW55WMIPCfjI0=",
+		},
+		{
+			name:     "single character",
+			input:    "a",
+			expected: "YQ==",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := encodeUserData(tt.input)
+			if result != tt.expected {
+				t.Errorf("encodeUserData(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+
+			if tt.input != "" {
+				decoded, err := base64.StdEncoding.DecodeString(result)
+				if err != nil {
+					t.Errorf("Result is not valid base64: %v", err)
+				}
+				if string(decoded) != tt.input {
+					t.Errorf("Decoded value %q does not match input %q", string(decoded), tt.input)
+				}
+			}
+		})
+	}
+}
+
+func TestEncodeUserData_Integration(t *testing.T) {
+	cloudInitConfig := `#cloud-config
+packages:
+  - nginx
+  - docker.io
+
+runcmd:
+  - systemctl start nginx
+  - systemctl enable nginx
+
+users:
+  - name: deploy
+    groups: sudo
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL`
+
+	encoded := encodeUserData(cloudInitConfig)
+
+	if encoded == "" {
+		t.Error("Expected non-empty encoded string")
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatalf("Encoded string is not valid base64: %v", err)
+	}
+
+	if string(decoded) != cloudInitConfig {
+		t.Errorf("Decoded content does not match original")
+	}
+
+	if strings.Contains(encoded, "\n") {
+		t.Error("Encoded string should not contain newlines")
+	}
+}
+
+func BenchmarkEncodeUserData(b *testing.B) {
+	testData := `#cloud-config
+packages:
+  - nginx
+  - docker.io`
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = encodeUserData(testData)
+	}
+}
+
+func TestGenerateRootPassword(t *testing.T) {
+	password, err := generateRootPassword()
+	if err != nil {
+		t.Fatalf("generateRootPassword() failed: %v", err)
+	}
+
+	if len(password) != 32 {
+		t.Errorf("Expected password length 32, got %d", len(password))
+	}
+
+	allowedChars := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}|;:,.<>?"
+	for _, char := range password {
+		if !strings.ContainsRune(allowedChars, char) {
+			t.Errorf("Password contains disallowed character: %c", char)
+		}
+	}
+
+	passwords := make(map[string]bool)
+	for i := 0; i < 100; i++ {
+		pwd, err := generateRootPassword()
+		if err != nil {
+			t.Fatalf("generateRootPassword() failed on iteration %d: %v", i, err)
+		}
+		if passwords[pwd] {
+			t.Errorf("Duplicate password generated: %s", pwd)
+		}
+		passwords[pwd] = true
+	}
+
+	if len(passwords) != 100 {
+		t.Errorf("Expected 100 unique passwords, got %d", len(passwords))
+	}
+}
+
+func TestGenerateRootPasswordComplexity(t *testing.T) {
+	password, err := generateRootPassword()
+	if err != nil {
+		t.Fatalf("generateRootPassword() failed: %v", err)
+	}
+
+	hasLower := false
+	hasUpper := false
+	hasDigit := false
+	hasSpecial := false
+
+	for _, char := range password {
+		switch {
+		case char >= 'a' && char <= 'z':
+			hasLower = true
+		case char >= 'A' && char <= 'Z':
+			hasUpper = true
+		case char >= '0' && char <= '9':
+			hasDigit = true
+		default:
+			hasSpecial = true
+		}
+	}
+
+	if !(hasLower || hasUpper || hasDigit || hasSpecial) {
+		t.Errorf("Password lacks character diversity: %s", password)
+	}
+}
+
+func BenchmarkGenerateRootPassword(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		_, _ = generateRootPassword()
 	}
 }

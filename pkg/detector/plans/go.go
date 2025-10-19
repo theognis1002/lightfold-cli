@@ -52,7 +52,7 @@ func GoPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[stri
 		"go build -o app .",
 	}
 	run := []string{
-		"./app -port 8080",
+		"./app -port $PORT",
 	}
 	health := map[string]any{"path": "/healthz", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"PORT", "any app-specific envs"}
@@ -66,7 +66,7 @@ func HugoPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[st
 		"hugo --minify",
 	}
 	run := []string{
-		"hugo server --bind 0.0.0.0 --port 1313",
+		"hugo server --bind 0.0.0.0 --port $PORT",
 	}
 	health := map[string]any{"path": "/", "expect": config.DefaultHealthCheckStatus, "timeout_seconds": int(config.DefaultHealthCheckTimeout.Seconds())}
 	env := []string{"HUGO_ENV"}

@@ -2,8 +2,11 @@ package linode
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"lightfold/pkg/providers"
+	"math/big"
 	"strconv"
 	"strings"
 	"time"
@@ -148,11 +151,10 @@ func (c *Client) GetImages(ctx context.Context) ([]providers.Image, error) {
 		}
 	}
 
-	// Fallback to known stable Ubuntu LTS images if none found
 	if len(providerImages) == 0 {
 		providerImages = []providers.Image{
 			{
-				ID:           "linode/ubuntu22.04",
+				ID:           providers.GetDefaultImage("linode"),
 				Name:         "Ubuntu 22.04 LTS",
 				Distribution: "Ubuntu",
 				Version:      "22.04",
@@ -170,70 +172,52 @@ func (c *Client) GetImages(ctx context.Context) ([]providers.Image, error) {
 }
 
 func (c *Client) UploadSSHKey(ctx context.Context, name, publicKey string) (*providers.SSHKey, error) {
-	key, err := c.client.CreateSSHKey(ctx, linodego.SSHKeyCreateOptions{
-		Label:  name,
-		SSHKey: publicKey,
-	})
-
-	if err != nil {
-		if strings.Contains(err.Error(), "already exists") ||
-			strings.Contains(err.Error(), "duplicate") ||
-			strings.Contains(err.Error(), "Label must be unique") {
-			keys, listErr := c.client.ListSSHKeys(ctx, &linodego.ListOptions{})
-			if listErr == nil {
-				for _, k := range keys {
-					if k.Label == name {
-						return &providers.SSHKey{
-							ID:          intToString(k.ID),
-							Name:        k.Label,
-							Fingerprint: "", // Linode doesn't expose fingerprint in API
-							PublicKey:   k.SSHKey,
-						}, nil
-					}
-				}
-			}
-		}
-
-		return nil, &providers.ProviderError{
-			Provider: "linode",
-			Code:     "upload_ssh_key_failed",
-			Message:  fmt.Sprintf("Failed to upload SSH key to Linode: %v", err),
-			Details:  map[string]interface{}{"error": err.Error(), "name": name},
-		}
-	}
-
+	// Bypasses OAuth permission issues with SSH key management endpoints by using raw keys
 	return &providers.SSHKey{
-		ID:          intToString(key.ID),
-		Name:        key.Label,
-		Fingerprint: "", // Linode doesn't expose SSH key fingerprint in API
-		PublicKey:   key.SSHKey,
+		ID:          publicKey,
+		Name:        name,
+		Fingerprint: "",
+		PublicKey:   publicKey,
 	}, nil
 }
 
 func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig) (*providers.Server, error) {
-	// Linode's AuthorizedKeys expects raw public keys, not key IDs
 	var authorizedKeys []string
-	for _, keyIDStr := range config.SSHKeys {
-		keyID, err := stringToInt(keyIDStr)
-		if err != nil {
-			return nil, &providers.ProviderError{
-				Provider: "linode",
-				Code:     "invalid_ssh_key",
-				Message:  fmt.Sprintf("Invalid SSH key ID: %s", keyIDStr),
-				Details:  map[string]interface{}{"error": err.Error()},
+	for _, keyStr := range config.SSHKeys {
+		if strings.HasPrefix(keyStr, "ssh-") {
+			authorizedKeys = append(authorizedKeys, keyStr)
+		} else {
+			keyID, err := stringToInt(keyStr)
+			if err != nil {
+				return nil, &providers.ProviderError{
+					Provider: "linode",
+					Code:     "invalid_ssh_key",
+					Message:  fmt.Sprintf("Invalid SSH key: %s (must be raw public key or numeric ID)", keyStr),
+					Details:  map[string]interface{}{"error": err.Error()},
+				}
 			}
-		}
 
-		key, err := c.client.GetSSHKey(ctx, keyID)
-		if err != nil {
-			return nil, &providers.ProviderError{
-				Provider: "linode",
-				Code:     "ssh_key_not_found",
-				Message:  fmt.Sprintf("SSH key not found: %s", keyIDStr),
-				Details:  map[string]interface{}{"error": err.Error()},
+			key, err := c.client.GetSSHKey(ctx, keyID)
+			if err != nil {
+				return nil, &providers.ProviderError{
+					Provider: "linode",
+					Code:     "ssh_key_not_found",
+					Message:  fmt.Sprintf("SSH key not found: %s", keyStr),
+					Details:  map[string]interface{}{"error": err.Error()},
+				}
 			}
+			authorizedKeys = append(authorizedKeys, key.SSHKey)
 		}
-		authorizedKeys = append(authorizedKeys, key.SSHKey)
+	}
+
+	rootPassword, err := generateRootPassword()
+	if err != nil {
+		return nil, &providers.ProviderError{
+			Provider: "linode",
+			Code:     "password_generation_failed",
+			Message:  "Failed to generate root password",
+			Details:  map[string]interface{}{"error": err.Error()},
+		}
 	}
 
 	booted := true
@@ -242,6 +226,7 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 		Region:         config.Region,
 		Type:           config.Size,
 		Image:          config.Image,
+		RootPass:       rootPassword,
 		AuthorizedKeys: authorizedKeys,
 		BackupsEnabled: config.BackupsEnabled,
 		Booted:         &booted,
@@ -249,7 +234,7 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 
 	if config.UserData != "" {
 		createOpts.Metadata = &linodego.InstanceMetadataOptions{
-			UserData: config.UserData,
+			UserData: encodeUserData(config.UserData),
 		}
 	}
 
@@ -267,7 +252,7 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 		}
 	}
 
-	return convertInstanceToServer(instance), nil
+	return convertInstanceToServer(instance, rootPassword), nil
 }
 
 func (c *Client) GetServer(ctx context.Context, serverID string) (*providers.Server, error) {
@@ -362,7 +347,7 @@ func (c *Client) WaitForActive(ctx context.Context, serverID string, timeout tim
 	}
 }
 
-func convertInstanceToServer(instance *linodego.Instance) *providers.Server {
+func convertInstanceToServer(instance *linodego.Instance, rootPassword ...string) *providers.Server {
 	var publicIPv4 string
 
 	if len(instance.IPv4) > 0 {
@@ -373,7 +358,10 @@ func convertInstanceToServer(instance *linodego.Instance) *providers.Server {
 		"hypervisor": instance.Hypervisor,
 	}
 
-	// Add specs to metadata if available
+	if len(rootPassword) > 0 && rootPassword[0] != "" {
+		metadata["root_pass"] = rootPassword[0]
+	}
+
 	if instance.Specs != nil {
 		metadata["vcpus"] = fmt.Sprintf("%d", instance.Specs.VCPUs)
 		metadata["memory"] = fmt.Sprintf("%d", instance.Specs.Memory)
@@ -415,4 +403,30 @@ func stringToInt(s string) (int, error) {
 
 func intToString(i int) string {
 	return strconv.Itoa(i)
+}
+
+func encodeUserData(userData string) string {
+	if userData == "" {
+		return ""
+	}
+	return base64.StdEncoding.EncodeToString([]byte(userData))
+}
+
+func generateRootPassword() (string, error) {
+	const (
+		length     = 32
+		charSet    = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}|;:,.<>?"
+		charSetLen = int64(len(charSet))
+	)
+
+	password := make([]byte, length)
+	for i := range password {
+		randomIndex, err := rand.Int(rand.Reader, big.NewInt(charSetLen))
+		if err != nil {
+			return "", fmt.Errorf("failed to generate random password: %w", err)
+		}
+		password[i] = charSet[randomIndex.Int64()]
+	}
+
+	return string(password), nil
 }

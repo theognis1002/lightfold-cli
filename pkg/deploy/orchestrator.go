@@ -15,6 +15,7 @@ import (
 	_ "lightfold/pkg/providers/digitalocean"
 	_ "lightfold/pkg/providers/flyio"
 	_ "lightfold/pkg/providers/hetzner"
+	_ "lightfold/pkg/providers/linode"
 	_ "lightfold/pkg/providers/vultr"
 	runtimepkg "lightfold/pkg/runtime"
 	sshpkg "lightfold/pkg/ssh"
@@ -113,15 +114,11 @@ func (o *Orchestrator) deployWithProvider(ctx context.Context) (*DeploymentResul
 		return o.deployS3(ctx)
 	}
 
-	// Check if this is a container provider (fly.io)
 	if o.config.Provider == "flyio" {
-		// Check if app needs to be created first
 		flyioConfig, err := o.config.GetFlyioConfig()
 		if err != nil || flyioConfig.AppName == "" {
-			// App not created yet - provision it first
 			return o.provisionServer(ctx, token)
 		}
-		// App exists - deploy to it
 		return o.deployFlyio(ctx, token)
 	}
 
@@ -157,12 +154,6 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		return nil, fmt.Errorf("failed to initialize provider: %w", err)
 	}
 
-	o.notifyProgress(DeploymentStep{
-		Name:        "validate_credentials",
-		Description: "Validating API credentials...",
-		Progress:    10,
-	})
-
 	if err := client.ValidateCredentials(ctx); err != nil {
 		return nil, fmt.Errorf("failed to validate credentials: %w", err)
 	}
@@ -176,14 +167,7 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 	var publicKey string
 	var userData string
 
-	// Skip SSH setup for container providers
 	if client.SupportsSSH() {
-		o.notifyProgress(DeploymentStep{
-			Name:        "load_ssh_key",
-			Description: "Loading SSH key...",
-			Progress:    20,
-		})
-
 		publicKeyPath := sshKeyPath + ".pub"
 		publicKey, err = sshpkg.LoadPublicKey(publicKeyPath)
 		if err != nil {
@@ -215,12 +199,6 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate cloud-init: %w", err)
 		}
-	} else {
-		o.notifyProgress(DeploymentStep{
-			Name:        "skip_ssh_setup",
-			Description: "Container provider - skipping SSH setup...",
-			Progress:    40,
-		})
 	}
 
 	o.notifyProgress(DeploymentStep{
@@ -231,15 +209,8 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 
 	sanitizedName := util.SanitizeHostname(o.projectName)
 
-	imageName := "ubuntu-22-04-x64"
-	switch o.config.Provider {
-	case "hetzner":
-		imageName = "ubuntu-22.04"
-	case "vultr":
-		imageName = "1743"
-	case "flyio":
-		imageName = "ubuntu:22.04"
-	}
+	// Get default image for this provider
+	imageName := providers.GetDefaultImage(o.config.Provider)
 
 	metadata := map[string]string{
 		"managed_by": "lightfold",
@@ -271,7 +242,6 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		Metadata:          metadata,
 	}
 
-	// Add SSH key for SSH-based providers
 	if uploadedKey != nil {
 		provisionConfig.SSHKeys = []string{uploadedKey.ID}
 	}
@@ -281,7 +251,6 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		return nil, fmt.Errorf("failed to provision server: %w", err)
 	}
 
-	// Skip waiting for container providers - they don't have active servers until deployment
 	if client.SupportsSSH() {
 		o.notifyProgress(DeploymentStep{
 			Name:        "wait_active",
@@ -293,12 +262,6 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 		if err != nil {
 			return nil, fmt.Errorf("failed waiting for server: %w", err)
 		}
-	} else {
-		o.notifyProgress(DeploymentStep{
-			Name:        "skip_wait",
-			Description: "Container provider - skipping server wait...",
-			Progress:    70,
-		})
 	}
 
 	o.notifyProgress(DeploymentStep{
@@ -420,11 +383,12 @@ func (o *Orchestrator) ConfigureServer(ctx context.Context, providerCfg config.P
 		return nil, err
 	}
 
-	if err := o.configureProcessPhase(executor, releasePath, envVars, builder, &detection); err != nil {
+	port, err := o.configureProcessPhase(executor, releasePath, envVars, builder, &detection)
+	if err != nil {
 		return nil, err
 	}
 
-	if err := o.deployPhase(executor, releasePath, isConfigured); err != nil {
+	if err := o.deployPhase(executor, releasePath, port, isConfigured); err != nil {
 		return nil, err
 	}
 
@@ -551,7 +515,6 @@ func (o *Orchestrator) runBuildPhase(ctx context.Context, executor *Executor, de
 		SSHExecutor: executor.ssh,
 	})
 
-	// ALWAYS write build log for debugging, even if no error
 	debugMsg := fmt.Sprintf("Build completed: err=%v, result=%v", err != nil, buildResult != nil)
 	if buildResult != nil {
 		debugMsg += fmt.Sprintf(", success=%v, logLen=%d", buildResult.Success, len(buildResult.BuildLog))
@@ -583,7 +546,31 @@ func (o *Orchestrator) runBuildPhase(ctx context.Context, executor *Executor, de
 	return nil
 }
 
-func (o *Orchestrator) configureProcessPhase(executor *Executor, releasePath string, envVars map[string]string, builder builders.Builder, detection *detector.Detection) error {
+func (o *Orchestrator) configureProcessPhase(executor *Executor, releasePath string, envVars map[string]string, builder builders.Builder, detection *detector.Detection) (int, error) {
+	// Get port and domain from config BEFORE configuring services
+	port := o.config.Port
+	// Default to configured application port for single-app deployments if not set
+	if port == 0 {
+		port = config.DefaultApplicationPort
+		o.config.Port = port // Update config with default port
+
+		// Save port to config file
+		cfg, err := config.LoadConfig()
+		if err == nil {
+			target, exists := cfg.GetTarget(o.targetName)
+			if exists {
+				target.Port = port
+				if err := cfg.SetTarget(o.targetName, target); err == nil {
+					cfg.SaveConfig()
+				}
+			}
+		}
+	}
+	var domain string
+	if o.config.Domain != nil {
+		domain = o.config.Domain.Domain
+	}
+
 	o.notifyProgress(DeploymentStep{
 		Name:        "write_env",
 		Description: "Configuring environment variables...",
@@ -591,7 +578,7 @@ func (o *Orchestrator) configureProcessPhase(executor *Executor, releasePath str
 	})
 
 	if err := executor.WriteEnvironmentFile(envVars); err != nil {
-		return fmt.Errorf("failed to write environment: %w", err)
+		return 0, fmt.Errorf("failed to write environment: %w", err)
 	}
 
 	o.notifyProgress(DeploymentStep{
@@ -600,54 +587,43 @@ func (o *Orchestrator) configureProcessPhase(executor *Executor, releasePath str
 		Progress:    70,
 	})
 
-	if err := executor.GenerateSystemdUnit(releasePath); err != nil {
-		return fmt.Errorf("failed to generate systemd unit: %w", err)
+	if err := executor.GenerateSystemdUnitWithPort(releasePath, port); err != nil {
+		return 0, fmt.Errorf("failed to generate systemd unit: %w", err)
 	}
 
 	if err := executor.EnableService(); err != nil {
-		return fmt.Errorf("failed to enable service: %w", err)
-	}
-
-	// Get port and domain from config
-	port := o.config.Port
-	var domain string
-	if o.config.Domain != nil {
-		domain = o.config.Domain.Domain
+		return 0, fmt.Errorf("failed to enable service: %w", err)
 	}
 
 	if builder.NeedsNginx() {
-		// Handle multi-app deployment scenarios
-		if domain == "" {
-			// No domain: Open firewall port for direct access
-			o.notifyProgress(DeploymentStep{
-				Name:        "open_firewall",
-				Description: fmt.Sprintf("Opening firewall port %d...", port),
-				Progress:    75,
-			})
+		o.notifyProgress(DeploymentStep{
+			Name:        "configure_nginx",
+			Description: "Configuring nginx reverse proxy...",
+			Progress:    75,
+		})
 
-			firewallMgr := firewall.GetDefault(executor.ssh)
-			if err := firewallMgr.OpenPort(port); err != nil {
-				fmt.Printf("Warning: failed to open firewall port %d: %v\n", port, err)
-			}
-		} else {
-			// Domain configured: Setup nginx reverse proxy
-			o.notifyProgress(DeploymentStep{
-				Name:        "configure_nginx",
-				Description: "Configuring nginx reverse proxy...",
-				Progress:    75,
-			})
+		if err := executor.GenerateNginxConfig(port, domain); err != nil {
+			return 0, fmt.Errorf("failed to generate nginx config: %w", err)
+		}
 
-			if err := executor.GenerateNginxConfig(port, domain); err != nil {
-				return fmt.Errorf("failed to generate nginx config: %w", err)
-			}
+		if err := executor.TestNginxConfig(); err != nil {
+			return 0, fmt.Errorf("nginx config test failed: %w", err)
+		}
 
-			if err := executor.TestNginxConfig(); err != nil {
-				return fmt.Errorf("nginx config test failed: %w", err)
-			}
+		if err := executor.ReloadNginx(); err != nil {
+			return 0, fmt.Errorf("failed to reload nginx: %w", err)
+		}
 
-			if err := executor.ReloadNginx(); err != nil {
-				return fmt.Errorf("failed to reload nginx: %w", err)
-			}
+		// Open port 80 for nginx (not the app port)
+		o.notifyProgress(DeploymentStep{
+			Name:        "open_firewall",
+			Description: "Opening firewall port 80...",
+			Progress:    78,
+		})
+
+		firewallMgr := firewall.GetDefault(executor.ssh)
+		if err := firewallMgr.OpenPort(80); err != nil {
+			fmt.Printf("Warning: failed to open firewall port 80: %v\n", err)
 		}
 	} else {
 		o.notifyProgress(DeploymentStep{
@@ -657,17 +633,17 @@ func (o *Orchestrator) configureProcessPhase(executor *Executor, releasePath str
 		})
 	}
 
-	return nil
+	return port, nil
 }
 
-func (o *Orchestrator) deployPhase(executor *Executor, releasePath string, isConfigured bool) error {
+func (o *Orchestrator) deployPhase(executor *Executor, releasePath string, port int, isConfigured bool) error {
 	o.notifyProgress(DeploymentStep{
 		Name:        "deploy_app",
 		Description: "Deploying application with health check...",
 		Progress:    85,
 	})
 
-	if err := executor.DeployWithHealthCheck(releasePath, config.DefaultHealthCheckMaxRetries, config.DefaultHealthCheckRetryDelay); err != nil {
+	if err := executor.DeployWithHealthCheck(releasePath, port, config.DefaultHealthCheckMaxRetries, config.DefaultHealthCheckRetryDelay); err != nil {
 		return fmt.Errorf("deployment failed: %w", err)
 	}
 
@@ -772,6 +748,17 @@ func (o *Orchestrator) getProvisioningParams() (region, size, sshKeyPath, userna
 		sshKeyPath = flyioConfig.SSHKey
 		username = flyioConfig.Username
 		sshKeyName = flyioConfig.SSHKeyName
+	case "linode":
+		linodeConfig, e := o.config.GetLinodeConfig()
+		if e != nil {
+			err = fmt.Errorf("failed to get Linode config: %w", e)
+			return
+		}
+		region = linodeConfig.Region
+		size = linodeConfig.Plan
+		sshKeyPath = linodeConfig.SSHKey
+		username = linodeConfig.Username
+		sshKeyName = linodeConfig.SSHKeyName
 	default:
 		err = fmt.Errorf("unsupported provider for provisioning: %s", o.config.Provider)
 	}
@@ -820,6 +807,19 @@ func (o *Orchestrator) updateProviderConfigWithServerInfo(server *providers.Serv
 		}
 
 		return o.config.SetProviderConfig("flyio", flyioConfig)
+	case "linode":
+		linodeConfig, err := o.config.GetLinodeConfig()
+		if err != nil {
+			return err
+		}
+		linodeConfig.IP = server.PublicIPv4
+		linodeConfig.InstanceID = server.ID
+
+		if rootPass, ok := server.Metadata["root_pass"]; ok {
+			linodeConfig.RootPass = rootPass
+		}
+
+		return o.config.SetProviderConfig("linode", linodeConfig)
 	default:
 		return fmt.Errorf("unsupported provider: %s", o.config.Provider)
 	}

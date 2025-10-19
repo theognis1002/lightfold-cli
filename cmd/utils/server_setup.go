@@ -97,6 +97,15 @@ func SetupTargetWithExistingServer(target *config.TargetConfig, serverIP string,
 				Provisioned: false,
 			}
 			target.SetProviderConfig("vultr", vultrConfig)
+		case "linode":
+			linodeConfig := &config.LinodeConfig{
+				IP:          serverIP,
+				InstanceID:  serverState.ServerID,
+				SSHKey:      sshKey,
+				Username:    "deploy",
+				Provisioned: false,
+			}
+			target.SetProviderConfig("linode", linodeConfig)
 		case "byos":
 			// For BYOS, use the SSH key we found
 			doConfig := &config.DigitalOceanConfig{
