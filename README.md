@@ -170,11 +170,11 @@ State per target in `~/.lightfold/state/<target>.json`:
 - [**DigitalOcean**](https://www.digitalocean.com) - Full provisioning support
 - [**Hetzner Cloud**](https://www.hetzner.com/cloud) - Full provisioning support
 - [**Vultr**](https://www.vultr.com) - Full provisioning support
+- [**Linode**](https://www.linode.com) - Full provisioning support
 - [**Fly.io**](https://fly.io) - Container-based deployment only
 - **BYOS** (Bring Your Own Server) - Use any existing server
 
 ### Coming Soon
-- [ ] [Linode](https://www.linode.com)
 - [ ] [AWS EC2](https://aws.amazon.com/ec2)
 - [ ] [Google Cloud](https://cloud.google.com/compute) (Compute Engine)
 - [ ] [Azure](https://azure.microsoft.com/products/virtual-machines) (VMs)

@@ -584,9 +584,10 @@ This ensures robustness and prevents "stuck in bad state" scenarios.
 - ✅ DigitalOcean (fully implemented with IP recovery)
 - ✅ Vultr (fully implemented with IP recovery)
 - ✅ Hetzner Cloud (fully implemented with IP recovery)
+- ✅ Linode (fully implemented with IP recovery)
 - ✅ BYOS (Bring Your Own Server - no provisioning, just deployment)
 - ✅ Fly.io (fully implemented with flyctl + nixpacks, container-based deployment)
-- 🔜 Linode, AWS EC2, Google Cloud, Azure (trivial to add with IP recovery pattern)
+- 🔜 AWS EC2, Google Cloud, Azure (trivial to add with IP recovery pattern)
 
 ### Fly.io Provider: Container-Based Deployment
 
