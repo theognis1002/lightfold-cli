@@ -9,6 +9,7 @@ import (
 	_ "lightfold/pkg/builders/nixpacks"
 	"lightfold/pkg/config"
 	"lightfold/pkg/detector"
+	"lightfold/pkg/firewall"
 	"lightfold/pkg/providers"
 	"lightfold/pkg/providers/cloudinit"
 	_ "lightfold/pkg/providers/digitalocean"
@@ -607,23 +608,46 @@ func (o *Orchestrator) configureProcessPhase(executor *Executor, releasePath str
 		return fmt.Errorf("failed to enable service: %w", err)
 	}
 
+	// Get port and domain from config
+	port := o.config.Port
+	var domain string
+	if o.config.Domain != nil {
+		domain = o.config.Domain.Domain
+	}
+
 	if builder.NeedsNginx() {
-		o.notifyProgress(DeploymentStep{
-			Name:        "configure_nginx",
-			Description: "Configuring nginx reverse proxy...",
-			Progress:    75,
-		})
+		// Handle multi-app deployment scenarios
+		if domain == "" {
+			// No domain: Open firewall port for direct access
+			o.notifyProgress(DeploymentStep{
+				Name:        "open_firewall",
+				Description: fmt.Sprintf("Opening firewall port %d...", port),
+				Progress:    75,
+			})
 
-		if err := executor.GenerateNginxConfig(); err != nil {
-			return fmt.Errorf("failed to generate nginx config: %w", err)
-		}
+			firewallMgr := firewall.GetDefault(executor.ssh)
+			if err := firewallMgr.OpenPort(port); err != nil {
+				fmt.Printf("Warning: failed to open firewall port %d: %v\n", port, err)
+			}
+		} else {
+			// Domain configured: Setup nginx reverse proxy
+			o.notifyProgress(DeploymentStep{
+				Name:        "configure_nginx",
+				Description: "Configuring nginx reverse proxy...",
+				Progress:    75,
+			})
 
-		if err := executor.TestNginxConfig(); err != nil {
-			return fmt.Errorf("nginx config test failed: %w", err)
-		}
+			if err := executor.GenerateNginxConfig(port, domain); err != nil {
+				return fmt.Errorf("failed to generate nginx config: %w", err)
+			}
 
-		if err := executor.ReloadNginx(); err != nil {
-			return fmt.Errorf("failed to reload nginx: %w", err)
+			if err := executor.TestNginxConfig(); err != nil {
+				return fmt.Errorf("nginx config test failed: %w", err)
+			}
+
+			if err := executor.ReloadNginx(); err != nil {
+				return fmt.Errorf("failed to reload nginx: %w", err)
+			}
 		}
 	} else {
 		o.notifyProgress(DeploymentStep{

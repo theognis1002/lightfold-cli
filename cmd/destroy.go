@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"lightfold/pkg/config"
+	"lightfold/pkg/firewall"
 	"lightfold/pkg/providers"
 	_ "lightfold/pkg/providers/digitalocean"
 	_ "lightfold/pkg/providers/flyio"
@@ -226,6 +227,31 @@ Examples:
 				if err == nil {
 					if len(serverState.DeployedApps) > 0 {
 						fmt.Printf("%s %s\n", destroyMutedStyle.Render("ℹ"), destroyMutedStyle.Render(fmt.Sprintf("Server still hosts %d other app(s)", len(serverState.DeployedApps))))
+					}
+				}
+
+				// Clean up firewall port if not destroying VM (multi-app scenario with no domain)
+				if !shouldDestroyVM && len(otherApps) > 0 && target.Port > 0 {
+					// Only close firewall port if app had no domain configured
+					if target.Domain == nil || target.Domain.Domain == "" {
+						providerCfg, err := target.GetAnyProviderConfig()
+						if err == nil && providerCfg.GetIP() != "" {
+							fmt.Printf("%s %s\n", destroyMutedStyle.Render("→"), destroyMutedStyle.Render(fmt.Sprintf("Closing firewall port %d...", target.Port)))
+
+							sshExecutor := sshpkg.NewExecutor(providerCfg.GetIP(), "22", providerCfg.GetUsername(), providerCfg.GetSSHKey())
+							if err := sshExecutor.Connect(3, 10*time.Second); err == nil {
+								defer sshExecutor.Disconnect()
+
+								firewallMgr := firewall.GetDefault(sshExecutor)
+								if err := firewallMgr.ClosePort(target.Port); err != nil {
+									fmt.Printf("%s %s\n", destroyWarningStyle.Render("⚠"), destroyMutedStyle.Render(fmt.Sprintf("Failed to close firewall port: %v", err)))
+								} else {
+									fmt.Printf("%s %s\n", destroySuccessStyle.Render("✓"), destroyMutedStyle.Render(fmt.Sprintf("Closed firewall port %d", target.Port)))
+								}
+							} else {
+								fmt.Printf("%s %s\n", destroyMutedStyle.Render("ℹ"), destroyMutedStyle.Render("Skipping firewall cleanup (SSH connection failed)"))
+							}
+						}
 					}
 				}
 

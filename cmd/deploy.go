@@ -352,19 +352,58 @@ Examples:
 
 		fmt.Println()
 
+		// Build success message lines
+		successLines := []string{
+			deploySuccessStyle.Render(fmt.Sprintf("✓ Successfully deployed '%s'", targetName)),
+			"",
+			fmt.Sprintf("%s %s", deployMutedStyle.Render("Server:"), deployValueStyle.Render(sshProviderCfg.GetIP())),
+			fmt.Sprintf("%s %s", deployMutedStyle.Render("Release:"), deployValueStyle.Render(releaseTimestamp)),
+		}
+
+		// Add port information
+		if target.Port > 0 {
+			if target.Domain != nil && target.Domain.Domain != "" {
+				successLines = append(successLines, fmt.Sprintf("%s %s (proxied via nginx)", deployMutedStyle.Render("Port:"), deployValueStyle.Render(fmt.Sprintf("%d", target.Port))))
+			} else {
+				successLines = append(successLines, fmt.Sprintf("%s %s", deployMutedStyle.Render("Port:"), deployValueStyle.Render(fmt.Sprintf("%d", target.Port))))
+				successLines = append(successLines, fmt.Sprintf("%s %s", deployMutedStyle.Render("Access:"), deployValueStyle.Render(fmt.Sprintf("http://%s:%d", sshProviderCfg.GetIP(), target.Port))))
+			}
+		}
+
+		// Add domain information if configured
+		if target.Domain != nil && target.Domain.Domain != "" {
+			successLines = append(successLines, fmt.Sprintf("%s %s", deployMutedStyle.Render("Domain:"), deployValueStyle.Render(target.Domain.Domain)))
+		}
+
+		// List other apps on this server
+		targetsOnServer := cfg.GetTargetsByServerIP(sshProviderCfg.GetIP())
+		otherApps := []string{}
+		for name, t := range targetsOnServer {
+			if name != targetName {
+				appInfo := name
+				if t.Port > 0 {
+					appInfo = fmt.Sprintf("%s (port %d)", name, t.Port)
+				}
+				if t.Domain != nil && t.Domain.Domain != "" {
+					appInfo = fmt.Sprintf("%s @ %s", name, t.Domain.Domain)
+				}
+				otherApps = append(otherApps, appInfo)
+			}
+		}
+
+		if len(otherApps) > 0 {
+			successLines = append(successLines, "")
+			successLines = append(successLines, deployMutedStyle.Render("Other apps on this server:"))
+			for _, app := range otherApps {
+				successLines = append(successLines, fmt.Sprintf("  • %s", deployMutedStyle.Render(app)))
+			}
+		}
+
 		successBox := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("82")).
 			Padding(0, 1).
-			Render(
-				lipgloss.JoinVertical(
-					lipgloss.Left,
-					deploySuccessStyle.Render(fmt.Sprintf("✓ Successfully deployed '%s'", targetName)),
-					"",
-					fmt.Sprintf("%s %s", deployMutedStyle.Render("Server:"), deployValueStyle.Render(sshProviderCfg.GetIP())),
-					fmt.Sprintf("%s %s", deployMutedStyle.Render("Release:"), deployValueStyle.Render(releaseTimestamp)),
-				),
-			)
+			Render(lipgloss.JoinVertical(lipgloss.Left, successLines...))
 
 		fmt.Println(successBox)
 		fmt.Println()

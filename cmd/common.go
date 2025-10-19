@@ -148,6 +148,23 @@ func createTarget(targetName, projectPath string, cfg *config.Config) (config.Ta
 			mutedStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("245"))
 			fmt.Printf("%s %s\n", successStyle.Render("✓"), mutedStyle.Render("SSH connection validated"))
 
+			// Allocate port if not already set
+			if targetConfig.Port == 0 {
+				port, err := utils.GetOrAllocatePort(&targetConfig, targetName)
+				if err != nil {
+					return config.TargetConfig{}, fmt.Errorf("failed to allocate port: %w", err)
+				}
+				targetConfig.Port = port
+
+				// Save config with allocated port
+				if err := cfg.SetTarget(targetName, targetConfig); err != nil {
+					return config.TargetConfig{}, fmt.Errorf("failed to save target config: %w", err)
+				}
+				if err := cfg.SaveConfig(); err != nil {
+					return config.TargetConfig{}, fmt.Errorf("failed to save config: %w", err)
+				}
+			}
+
 			// Show port allocation for existing servers
 			if targetConfig.Port > 0 {
 				fmt.Printf("%s %s\n", successStyle.Render("✓"), mutedStyle.Render(fmt.Sprintf("Allocated to port %d", targetConfig.Port)))

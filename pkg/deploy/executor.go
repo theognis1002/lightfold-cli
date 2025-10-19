@@ -875,9 +875,17 @@ func (e *Executor) getExecStartCommand() string {
 }
 
 // GenerateNginxConfig creates an nginx configuration (reverse proxy for SSR or static file server for static sites)
-func (e *Executor) GenerateNginxConfig() error {
+// If domain is empty, nginx configuration is skipped (app listens directly on port)
+func (e *Executor) GenerateNginxConfig(port int, domain string) error {
+	// Skip nginx if no domain is configured (multi-app without domain scenario)
+	if domain == "" {
+		return nil
+	}
+
 	data := map[string]string{
 		"APP_NAME": e.appName,
+		"PORT":     fmt.Sprintf("%d", port),
+		"DOMAIN":   domain,
 	}
 
 	// Use different templates for static vs SSR sites
@@ -911,6 +919,7 @@ func (e *Executor) GenerateNginxConfig() error {
 		return fmt.Errorf("failed to enable nginx site: %s", result.Stderr)
 	}
 
+	// Only remove default site if we have a domain configured
 	e.ssh.ExecuteSudo("rm -f /etc/nginx/sites-enabled/default")
 
 	return nil
