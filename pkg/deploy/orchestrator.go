@@ -210,7 +210,6 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 
 	sanitizedName := util.SanitizeHostname(o.projectName)
 
-	// Get default image for this provider
 	imageName := providers.GetDefaultImage(o.config.Provider)
 
 	metadata := map[string]string{
@@ -226,6 +225,15 @@ func (o *Orchestrator) provisionServer(ctx context.Context, token string) (*Depl
 			}
 			if flyioConfig.AppName != "" {
 				metadata["app_name"] = flyioConfig.AppName
+			}
+		}
+	}
+
+	if o.config.Provider == "aws" {
+		awsConfig, err := o.config.GetAWSConfig()
+		if err == nil {
+			if awsConfig.ElasticIP == "allocate" {
+				metadata["elastic_ip"] = "allocate"
 			}
 		}
 	}
@@ -548,14 +556,10 @@ func (o *Orchestrator) runBuildPhase(ctx context.Context, executor *Executor, de
 }
 
 func (o *Orchestrator) configureProcessPhase(executor *Executor, releasePath string, envVars map[string]string, builder builders.Builder, detection *detector.Detection) (int, error) {
-	// Get port and domain from config BEFORE configuring services
 	port := o.config.Port
-	// Default to configured application port for single-app deployments if not set
 	if port == 0 {
 		port = config.DefaultApplicationPort
-		o.config.Port = port // Update config with default port
-
-		// Save port to config file
+		o.config.Port = port
 		cfg, err := config.LoadConfig()
 		if err == nil {
 			target, exists := cfg.GetTarget(o.targetName)
@@ -615,7 +619,6 @@ func (o *Orchestrator) configureProcessPhase(executor *Executor, releasePath str
 			return 0, fmt.Errorf("failed to reload nginx: %w", err)
 		}
 
-		// Open port 80 for nginx (not the app port)
 		o.notifyProgress(DeploymentStep{
 			Name:        "open_firewall",
 			Description: "Opening firewall port 80...",
@@ -749,6 +752,17 @@ func (o *Orchestrator) getProvisioningParams() (region, size, sshKeyPath, userna
 		sshKeyPath = flyioConfig.SSHKey
 		username = flyioConfig.Username
 		sshKeyName = flyioConfig.SSHKeyName
+	case "aws":
+		awsConfig, e := o.config.GetAWSConfig()
+		if e != nil {
+			err = fmt.Errorf("failed to get AWS config: %w", e)
+			return
+		}
+		region = awsConfig.Region
+		size = awsConfig.InstanceType
+		sshKeyPath = awsConfig.SSHKey
+		username = awsConfig.Username
+		sshKeyName = awsConfig.SSHKeyName
 	case "linode":
 		linodeConfig, e := o.config.GetLinodeConfig()
 		if e != nil {
@@ -808,6 +822,29 @@ func (o *Orchestrator) updateProviderConfigWithServerInfo(server *providers.Serv
 		}
 
 		return o.config.SetProviderConfig("flyio", flyioConfig)
+	case "aws":
+		awsConfig, err := o.config.GetAWSConfig()
+		if err != nil {
+			return err
+		}
+		awsConfig.IP = server.PublicIPv4
+		awsConfig.InstanceID = server.ID
+
+		// Extract metadata for cleanup (critical for destroy flow)
+		if sgID, ok := server.Metadata["security_group_id"]; ok {
+			awsConfig.SecurityGroupID = sgID
+		}
+		if vpcID, ok := server.Metadata["vpc_id"]; ok {
+			awsConfig.VpcID = vpcID
+		}
+		if subnetID, ok := server.Metadata["subnet_id"]; ok {
+			awsConfig.SubnetID = subnetID
+		}
+		if eipAlloc, ok := server.Metadata["elastic_ip_allocation_id"]; ok {
+			awsConfig.ElasticIP = eipAlloc
+		}
+
+		return o.config.SetProviderConfig("aws", awsConfig)
 	case "linode":
 		linodeConfig, err := o.config.GetLinodeConfig()
 		if err != nil {

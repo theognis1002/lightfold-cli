@@ -349,11 +349,42 @@ func (c *Client) DisplayName() string { return "New Provider" }
 // ... implement remaining interface methods
 ```
 
-**Critical Integration Points** (see guide for details):
-- Import provider in `pkg/deploy/orchestrator.go` (blank import)
-- Add config struct to `pkg/config/config.go`
-- Add switch cases to 5 key functions (orchestrator + utilities)
-- Test provisioning, IP recovery, and multi-app flows
+**Critical Integration Points (Complete E2E Checklist):**
+
+See **[docs/ADDING_NEW_PROVIDERS.md](docs/ADDING_NEW_PROVIDERS.md)** for detailed guide. Essential steps:
+
+1. **Provider Package** (`pkg/providers/newprovider/client.go`):
+   - Implement `Provider` interface
+   - Register in `init()` with `providers.Register()`
+   - Add blank import in `pkg/deploy/orchestrator.go`
+
+2. **Config** (`pkg/config/config.go`):
+   - Add `NewProviderConfig` struct with `GetIP()`, `GetUsername()`, `GetSSHKey()`, `IsProvisioned()`, `GetServerID()`
+   - Add `GetNewProviderConfig()` helper method
+   - Add case to `GetSSHProviderConfig()` and `GetAnyProviderConfig()` switches
+
+3. **Orchestrator** (`pkg/deploy/orchestrator.go`):
+   - Add case to `getProvisioningParams()` - extracts region, size, SSH keys from config
+   - Add case to `updateProviderConfigWithServerInfo()` - stores IP, server ID, metadata from provisioned server
+
+4. **Provider Bootstrap** (`cmd/provider_bootstrap.go`):
+   - Add entry to `providerBootstraps` array with canonical name, aliases, config key, default username, fallback flow
+
+5. **Provider State** (`cmd/provider_state.go`):
+   - Add entry to `providerStateHandlers` map with display name, config accessor, IP recovery function
+
+6. **UI Flow** (`cmd/ui/sequential/provision_newprovider.go`):
+   - Create `RunProvisionNewProviderFlow()` function for interactive provisioning prompts
+
+7. **IP Recovery** (`cmd/utils/provider_recovery.go` or inline in `cmd/common.go`):
+   - Implement recovery logic when IP missing but server ID exists (calls provider's `GetServer()`)
+
+**Testing checklist:**
+- Provision new server, verify IP stored
+- Deploy app, verify SSH connection
+- Destroy server, verify cleanup
+- Test IP recovery (delete IP from config, run configure)
+- Test multi-app deployment to same server
 
 ### Deployment Flow Architecture
 

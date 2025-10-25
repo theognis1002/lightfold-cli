@@ -11,7 +11,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
-// convertInstanceToServer converts an EC2 instance to a providers.Server
 func convertInstanceToServer(instance *types.Instance) *providers.Server {
 	var publicIPv4 string
 	var privateIPv4 string
@@ -24,7 +23,6 @@ func convertInstanceToServer(instance *types.Instance) *providers.Server {
 		privateIPv4 = *instance.PrivateIpAddress
 	}
 
-	// Extract instance name from tags
 	instanceName := aws.ToString(instance.InstanceId)
 	for _, tag := range instance.Tags {
 		if aws.ToString(tag.Key) == "Name" {
@@ -33,7 +31,6 @@ func convertInstanceToServer(instance *types.Instance) *providers.Server {
 		}
 	}
 
-	// Build metadata
 	metadata := map[string]string{
 		"instance_type":  string(instance.InstanceType),
 		"architecture":   string(instance.Architecture),
@@ -58,12 +55,10 @@ func convertInstanceToServer(instance *types.Instance) *providers.Server {
 		metadata["subnet_id"] = *instance.SubnetId
 	}
 
-	// Extract security group IDs
 	if len(instance.SecurityGroups) > 0 {
 		metadata["security_group_id"] = aws.ToString(instance.SecurityGroups[0].GroupId)
 	}
 
-	// Extract tags
 	var tagsList []string
 	for _, tag := range instance.Tags {
 		if aws.ToString(tag.Key) != "Name" {
@@ -91,36 +86,7 @@ func convertInstanceToServer(instance *types.Instance) *providers.Server {
 	}
 }
 
-// getInstanceState extracts the instance state as a string
-// Note: Currently unused as convertInstanceToServer handles this directly
-//
-//nolint:unused // Helper function for potential future use
-func getInstanceState(instance *types.Instance) string {
-	if instance.State != nil {
-		return string(instance.State.Name)
-	}
-	return "unknown"
-}
-
-// getPublicIP extracts the public IPv4 address from an instance
-// Note: Currently unused as convertInstanceToServer handles this directly
-//
-//nolint:unused // Helper function for potential future use
-func getPublicIP(instance *types.Instance) string {
-	return aws.ToString(instance.PublicIpAddress)
-}
-
-// getPrivateIP extracts the private IPv4 address from an instance
-// Note: Currently unused as convertInstanceToServer handles this directly
-//
-//nolint:unused // Helper function for potential future use
-func getPrivateIP(instance *types.Instance) string {
-	return aws.ToString(instance.PrivateIpAddress)
-}
-
-// findDefaultVPCAndSubnet finds the default VPC and a subnet for the given region
 func findDefaultVPCAndSubnet(ctx context.Context, client *ec2.Client, region string) (vpcID string, subnetID string, err error) {
-	// Find default VPC
 	vpcOutput, err := client.DescribeVpcs(ctx, &ec2.DescribeVpcsInput{
 		Filters: []types.Filter{
 			{
@@ -148,7 +114,6 @@ func findDefaultVPCAndSubnet(ctx context.Context, client *ec2.Client, region str
 
 	vpcID = aws.ToString(vpcOutput.Vpcs[0].VpcId)
 
-	// Find a subnet in the default VPC
 	subnetOutput, err := client.DescribeSubnets(ctx, &ec2.DescribeSubnetsInput{
 		Filters: []types.Filter{
 			{

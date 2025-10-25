@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"lightfold/pkg/providers"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -11,12 +12,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
-// createSecurityGroup creates a security group for Lightfold with required ports
 func createSecurityGroup(ctx context.Context, client *ec2.Client, vpcID, targetName string) (string, error) {
 	groupName := fmt.Sprintf("lightfold-%s", targetName)
 	description := fmt.Sprintf("Security group for Lightfold deployment: %s", targetName)
 
-	// Check if security group already exists
 	existingGroups, err := client.DescribeSecurityGroups(ctx, &ec2.DescribeSecurityGroupsInput{
 		Filters: []types.Filter{
 			{
@@ -31,11 +30,9 @@ func createSecurityGroup(ctx context.Context, client *ec2.Client, vpcID, targetN
 	})
 
 	if err == nil && len(existingGroups.SecurityGroups) > 0 {
-		// Security group already exists, return its ID
 		return aws.ToString(existingGroups.SecurityGroups[0].GroupId), nil
 	}
 
-	// Create security group
 	createOutput, err := client.CreateSecurityGroup(ctx, &ec2.CreateSecurityGroupInput{
 		GroupName:   aws.String(groupName),
 		Description: aws.String(description),
@@ -63,8 +60,6 @@ func createSecurityGroup(ctx context.Context, client *ec2.Client, vpcID, targetN
 
 	securityGroupID := aws.ToString(createOutput.GroupId)
 
-	// Configure ingress rules
-	// SSH (22), HTTP (80), HTTPS (443), App Ports (3000-9000)
 	_, err = client.AuthorizeSecurityGroupIngress(ctx, &ec2.AuthorizeSecurityGroupIngressInput{
 		GroupId: aws.String(securityGroupID),
 		IpPermissions: []types.IpPermission{
@@ -116,7 +111,6 @@ func createSecurityGroup(ctx context.Context, client *ec2.Client, vpcID, targetN
 	})
 
 	if err != nil {
-		// If ingress rules fail, delete the security group and return error
 		_ = deleteSecurityGroup(ctx, client, securityGroupID)
 		return "", &providers.ProviderError{
 			Provider: "aws",
@@ -129,32 +123,30 @@ func createSecurityGroup(ctx context.Context, client *ec2.Client, vpcID, targetN
 	return securityGroupID, nil
 }
 
-// deleteSecurityGroup deletes a security group with retry logic for dependency violations
 func deleteSecurityGroup(ctx context.Context, client *ec2.Client, securityGroupID string) error {
-	maxRetries := 10
-	retryDelay := 5 * time.Second
+	cfg := defaultRetryConfig()
 
-	for attempt := 0; attempt < maxRetries; attempt++ {
+	for attempt := 0; attempt <= cfg.maxRetries; attempt++ {
 		_, err := client.DeleteSecurityGroup(ctx, &ec2.DeleteSecurityGroupInput{
 			GroupId: aws.String(securityGroupID),
 		})
 
 		if err == nil {
-			// Successfully deleted
 			return nil
 		}
 
-		// Check if error is a dependency violation
 		errStr := err.Error()
-		if contains(errStr, "DependencyViolation") {
-			if attempt < maxRetries-1 {
-				// Wait and retry
-				time.Sleep(retryDelay)
+		if strings.Contains(errStr, "DependencyViolation") {
+			if attempt < cfg.maxRetries {
+				delay := cfg.baseDelay * time.Duration(1<<uint(attempt))
+				if delay > cfg.maxDelay {
+					delay = cfg.maxDelay
+				}
+				time.Sleep(delay)
 				continue
 			}
 		}
 
-		// If it's not a dependency violation or we've exhausted retries, return error
 		return &providers.ProviderError{
 			Provider: "aws",
 			Code:     "delete_security_group_failed",
@@ -169,23 +161,9 @@ func deleteSecurityGroup(ctx context.Context, client *ec2.Client, securityGroupI
 	return &providers.ProviderError{
 		Provider: "aws",
 		Code:     "delete_security_group_timeout",
-		Message:  fmt.Sprintf("Timeout waiting to delete security group (tried %d times)", maxRetries),
+		Message:  fmt.Sprintf("Timeout waiting to delete security group (tried %d times)", cfg.maxRetries),
 		Details: map[string]interface{}{
 			"security_group_id": securityGroupID,
 		},
 	}
-}
-
-// contains checks if a string contains a substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

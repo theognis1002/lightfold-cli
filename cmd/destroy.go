@@ -152,6 +152,34 @@ Examples:
 			}
 		}
 
+		// Fallback check: If current target didn't provision the VM but is the last app on the server,
+		// we should still destroy the VM to avoid orphaned AWS resources
+		if !shouldDestroyVM && target.ServerIP != "" {
+			serverState, err := state.GetServerState(target.ServerIP)
+			if err == nil {
+				// Count remaining apps (excluding the current one being destroyed)
+				remainingApps := 0
+				for _, app := range serverState.DeployedApps {
+					if app.TargetName != destroyTargetFlag {
+						remainingApps++
+					}
+				}
+
+				// If this is the last app and the server was provisioned (not BYOS)
+				if remainingApps == 0 && serverState.ServerID != "" && serverState.Provider != "" && serverState.Provider != "byos" {
+					shouldDestroyVM = true
+					provisionedID = serverState.ServerID
+
+					// Override target.Provider for destroy call if not set
+					if target.Provider == "" || target.Provider == "byos" {
+						target.Provider = serverState.Provider
+					}
+
+					fmt.Printf("%s %s\n", destroyWarningStyle.Render("ℹ"), destroyMutedStyle.Render("Last app on server - will destroy provisioned VM"))
+				}
+			}
+		}
+
 		if shouldDestroyVM {
 			fmt.Printf("%s %s\n", destroyWarningStyle.Render("→"), destroyMutedStyle.Render("Destroying VM..."))
 

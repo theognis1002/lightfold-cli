@@ -24,17 +24,6 @@
 // All created resources are tagged with:
 //   - lightfold:target={target-name} - Identifies the deployment target
 //   - lightfold:managed=true - Marks resources as managed by Lightfold
-//
-// # Example Usage
-//
-//	client := NewClient(credentialsJSON)
-//	server, err := client.Provision(ctx, providers.ProvisionConfig{
-//	    Region: "us-east-1",
-//	    Size:   "t3.small",
-//	    Name:   "my-app",
-//	    Image:  "ubuntu-22.04-amd64",
-//	    SSHKeys: []string{"my-key"},
-//	})
 package aws
 
 import (
@@ -86,14 +75,11 @@ func NewClient(credentialsJSON string) *Client {
 	ctx := context.Background()
 	var awsConfig aws.Config
 
-	// Load config based on authentication method
 	if creds.Profile != "" {
-		// Use AWS profile
 		awsConfig, err = config.LoadDefaultConfig(ctx,
 			config.WithSharedConfigProfile(creds.Profile),
 		)
 	} else if creds.AccessKeyID != "" && creds.SecretAccessKey != "" {
-		// Use explicit credentials
 		awsConfig, err = config.LoadDefaultConfig(ctx,
 			config.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
 				creds.AccessKeyID,
@@ -102,7 +88,6 @@ func NewClient(credentialsJSON string) *Client {
 			)),
 		)
 	} else {
-		// Try to use default credentials chain
 		awsConfig, err = config.LoadDefaultConfig(ctx)
 	}
 
@@ -164,7 +149,7 @@ func (c *Client) ValidateCredentials(ctx context.Context) error {
 
 func (c *Client) GetRegions(ctx context.Context) ([]providers.Region, error) {
 	output, err := c.ec2Client.DescribeRegions(ctx, &ec2.DescribeRegionsInput{
-		AllRegions: aws.Bool(false), // Only enabled regions
+		AllRegions: aws.Bool(false),
 	})
 	if err != nil {
 		return nil, &providers.ProviderError{
@@ -190,8 +175,6 @@ func (c *Client) GetRegions(ctx context.Context) ([]providers.Region, error) {
 }
 
 func (c *Client) GetSizes(ctx context.Context, region string) ([]providers.Size, error) {
-	// Return curated list of common instance types
-	// Prices are approximate and should be verified with AWS pricing API
 	sizes := []providers.Size{
 		{
 			ID:           "t3.micro",
@@ -262,8 +245,6 @@ func (c *Client) GetSizes(ctx context.Context, region string) ([]providers.Size,
 }
 
 func (c *Client) GetImages(ctx context.Context) ([]providers.Image, error) {
-	// Return default Ubuntu 22.04 image
-	// Actual AMI ID will be resolved per-region during provisioning
 	return []providers.Image{
 		{
 			ID:           providers.GetDefaultImage("aws"),
@@ -305,12 +286,10 @@ func (c *Client) UploadSSHKey(ctx context.Context, name, publicKey string) (*pro
 }
 
 func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig) (*providers.Server, error) {
-	// Validate inputs
 	if err := validateProvisionConfig(config); err != nil {
 		return nil, err
 	}
 
-	// Get region-specific client
 	regionClient, err := c.getRegionClient(config.Region)
 	if err != nil {
 		return nil, &providers.ProviderError{
@@ -321,31 +300,26 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 		}
 	}
 
-	// Resolve AMI for the region
-	amiID, err := getUbuntu2204AMI(ctx, regionClient, config.Region, config.Image)
+	amiID, err := getUbuntu2204AMI(ctx, c.awsConfig, config.Region, config.Image)
 	if err != nil {
 		return nil, err
 	}
 
-	// Find default VPC and subnet
 	vpcID, subnetID, err := findDefaultVPCAndSubnet(ctx, regionClient, config.Region)
 	if err != nil {
 		return nil, err
 	}
 
-	// Create security group
 	sgID, err := createSecurityGroup(ctx, regionClient, vpcID, config.Name)
 	if err != nil {
 		return nil, err
 	}
 
-	// Prepare user data (cloud-init)
 	var userData *string
 	if config.UserData != "" {
 		userData = aws.String(config.UserData)
 	}
 
-	// Build tag specifications
 	tagSpecs := []types.TagSpecification{
 		{
 			ResourceType: types.ResourceTypeInstance,
@@ -357,7 +331,6 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 		},
 	}
 
-	// Add custom tags
 	if len(config.Tags) > 0 {
 		for _, tag := range config.Tags {
 			tagSpecs[0].Tags = append(tagSpecs[0].Tags, types.Tag{
@@ -367,14 +340,13 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 		}
 	}
 
-	// Create EC2 instance with retry logic for rate limiting
 	var runOutput *ec2.RunInstancesOutput
 	runInput := &ec2.RunInstancesInput{
 		ImageId:           aws.String(amiID),
 		InstanceType:      types.InstanceType(config.Size),
 		MinCount:          aws.Int32(1),
 		MaxCount:          aws.Int32(1),
-		KeyName:           aws.String(config.SSHKeys[0]), // First SSH key
+		KeyName:           aws.String(config.SSHKeys[0]),
 		SecurityGroupIds:  []string{sgID},
 		SubnetId:          aws.String(subnetID),
 		UserData:          userData,
@@ -383,7 +355,7 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 			{
 				DeviceName: aws.String("/dev/sda1"),
 				Ebs: &types.EbsBlockDevice{
-					VolumeSize:          aws.Int32(20), // 20GB root volume
+					VolumeSize:          aws.Int32(20),
 					VolumeType:          types.VolumeTypeGp3,
 					DeleteOnTermination: aws.Bool(true),
 				},
@@ -409,8 +381,46 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 	}
 
 	instance := &runOutput.Instances[0]
+	instanceID := aws.ToString(instance.InstanceId)
 
-	// Store security group ID in instance metadata for cleanup
+	// Allocate and associate Elastic IP if requested
+	var eipAllocationID string
+	if config.Metadata["elastic_ip"] == "allocate" {
+		// Wait for instance to be running before associating Elastic IP
+		waiter := ec2.NewInstanceRunningWaiter(regionClient)
+		if err := waiter.Wait(ctx, &ec2.DescribeInstancesInput{
+			InstanceIds: []string{instanceID},
+		}, 5*time.Minute); err != nil {
+			// If waiting fails, log warning but don't fail provisioning
+			fmt.Printf("Warning: Failed to wait for instance before EIP allocation: %v\n", err)
+		} else {
+			// Allocate Elastic IP
+			allocationID, err := allocateElasticIP(ctx, regionClient, config.Name)
+			if err != nil {
+				fmt.Printf("Warning: Failed to allocate Elastic IP: %v\n", err)
+			} else {
+				eipAllocationID = allocationID
+
+				// Associate Elastic IP with instance
+				_, err = associateElasticIP(ctx, regionClient, instanceID, allocationID)
+				if err != nil {
+					fmt.Printf("Warning: Failed to associate Elastic IP: %v\n", err)
+					// Try to release the EIP since association failed
+					_ = releaseElasticIP(ctx, regionClient, allocationID)
+					eipAllocationID = ""
+				} else {
+					// Refresh instance data to get the new public IP
+					refreshedOutput, err := regionClient.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
+						InstanceIds: []string{instanceID},
+					})
+					if err == nil && len(refreshedOutput.Reservations) > 0 && len(refreshedOutput.Reservations[0].Instances) > 0 {
+						instance = &refreshedOutput.Reservations[0].Instances[0]
+					}
+				}
+			}
+		}
+	}
+
 	server := convertInstanceToServer(instance)
 	if server.Metadata == nil {
 		server.Metadata = make(map[string]string)
@@ -418,6 +428,9 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 	server.Metadata["security_group_id"] = sgID
 	server.Metadata["vpc_id"] = vpcID
 	server.Metadata["subnet_id"] = subnetID
+	if eipAllocationID != "" {
+		server.Metadata["elastic_ip_allocation_id"] = eipAllocationID
+	}
 
 	return server, nil
 }
@@ -429,8 +442,6 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 //   - Instance type, AMI, region, tags
 //   - Metadata (VPC, subnet, security groups, etc.)
 func (c *Client) GetServer(ctx context.Context, serverID string) (*providers.Server, error) {
-	// Extract region from instance ID if needed (instances are region-specific)
-	// For now, we'll use the configured region
 	output, err := c.ec2Client.DescribeInstances(ctx, &ec2.DescribeInstancesInput{
 		InstanceIds: []string{serverID},
 	})
@@ -464,13 +475,11 @@ func (c *Client) GetServer(ctx context.Context, serverID string) (*providers.Ser
 // Resource cleanup is performed with retry logic to handle dependency violations.
 // Cleanup failures are logged as warnings but don't fail the operation.
 func (c *Client) Destroy(ctx context.Context, serverID string) error {
-	// Get instance details to extract security group
 	instance, err := c.GetServer(ctx, serverID)
 	if err != nil {
 		return err
 	}
 
-	// Terminate instance
 	_, err = c.ec2Client.TerminateInstances(ctx, &ec2.TerminateInstancesInput{
 		InstanceIds: []string{serverID},
 	})
@@ -483,23 +492,19 @@ func (c *Client) Destroy(ctx context.Context, serverID string) error {
 		}
 	}
 
-	// Wait for instance to terminate before cleaning up resources
 	waiter := ec2.NewInstanceTerminatedWaiter(c.ec2Client)
 	if err := waiter.Wait(ctx, &ec2.DescribeInstancesInput{
 		InstanceIds: []string{serverID},
 	}, 5*time.Minute); err != nil {
-		// Log warning but don't fail - instance may already be terminated
 		fmt.Printf("Warning: Failed to wait for instance termination: %v\n", err)
 	}
 
-	// Clean up Elastic IP if present
 	if eipAllocationID, ok := instance.Metadata["elastic_ip_allocation_id"]; ok && eipAllocationID != "" {
 		if err := releaseElasticIP(ctx, c.ec2Client, eipAllocationID); err != nil {
 			fmt.Printf("Warning: Failed to release Elastic IP: %v\n", err)
 		}
 	}
 
-	// Clean up security group if created by Lightfold
 	if sgID, ok := instance.Metadata["security_group_id"]; ok && sgID != "" {
 		if err := deleteSecurityGroup(ctx, c.ec2Client, sgID); err != nil {
 			fmt.Printf("Warning: Failed to delete security group: %v\n", err)
@@ -532,15 +537,11 @@ func (c *Client) WaitForActive(ctx context.Context, serverID string, timeout tim
 	return c.GetServer(ctx, serverID)
 }
 
-// getRegionClient returns an EC2 client configured for a specific region
 func (c *Client) getRegionClient(region string) (*ec2.Client, error) {
-	// Create a new config with the specified region
 	cfg := c.awsConfig.Copy()
 	cfg.Region = region
 	return ec2.NewFromConfig(cfg), nil
 }
-
-// getRegionDisplayName returns a human-readable name for AWS regions
 func getRegionDisplayName(regionID string) string {
 	regionNames := map[string]string{
 		"us-east-1":      "US East (N. Virginia)",

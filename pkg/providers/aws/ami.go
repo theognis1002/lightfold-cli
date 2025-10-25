@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ssm"
 )
 
@@ -20,20 +19,17 @@ var (
 
 // getUbuntu2204AMI resolves the Ubuntu 22.04 LTS AMI for a specific region
 // Uses SSM Parameter Store for latest AMI lookup with fallback to hardcoded map
-func getUbuntu2204AMI(ctx context.Context, client *ec2.Client, region, imageSpec string) (string, error) {
-	// Handle different image specifications
+func getUbuntu2204AMI(ctx context.Context, awsConfig aws.Config, region, imageSpec string) (string, error) {
 	var ssmParameter string
 
 	if strings.Contains(imageSpec, "24.04") || strings.Contains(imageSpec, "ubuntu-24.04") {
 		ssmParameter = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
 	} else {
-		// Default to 22.04
 		ssmParameter = "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id"
 	}
 
 	cacheKey := fmt.Sprintf("%s:%s", region, ssmParameter)
 
-	// Check cache first
 	amiCacheMutex.RLock()
 	if cachedAMI, ok := amiCache[cacheKey]; ok {
 		amiCacheMutex.RUnlock()
@@ -41,8 +37,8 @@ func getUbuntu2204AMI(ctx context.Context, client *ec2.Client, region, imageSpec
 	}
 	amiCacheMutex.RUnlock()
 
-	// Try to get AMI from SSM Parameter Store
-	cfg := aws.Config{Region: region}
+	cfg := awsConfig.Copy()
+	cfg.Region = region
 	ssmClient := ssm.NewFromConfig(cfg)
 
 	output, err := ssmClient.GetParameter(ctx, &ssm.GetParameterInput{
@@ -52,7 +48,6 @@ func getUbuntu2204AMI(ctx context.Context, client *ec2.Client, region, imageSpec
 	if err == nil && output.Parameter != nil && output.Parameter.Value != nil {
 		amiID := aws.ToString(output.Parameter.Value)
 
-		// Cache the result
 		amiCacheMutex.Lock()
 		amiCache[cacheKey] = amiID
 		amiCacheMutex.Unlock()
@@ -60,7 +55,6 @@ func getUbuntu2204AMI(ctx context.Context, client *ec2.Client, region, imageSpec
 		return amiID, nil
 	}
 
-	// Fallback to hardcoded AMI map
 	var amiMap map[string]string
 
 	if strings.Contains(imageSpec, "24.04") {
@@ -70,7 +64,6 @@ func getUbuntu2204AMI(ctx context.Context, client *ec2.Client, region, imageSpec
 	}
 
 	if amiID, ok := amiMap[region]; ok {
-		// Cache the fallback result
 		amiCacheMutex.Lock()
 		amiCache[cacheKey] = amiID
 		amiCacheMutex.Unlock()
