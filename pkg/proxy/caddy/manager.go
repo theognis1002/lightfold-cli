@@ -93,7 +93,7 @@ systemctl start caddy
 	}
 
 	if result.ExitCode != 0 {
-		return fmt.Errorf("Caddy installation failed (exit code %d): %s", result.ExitCode, result.Stderr)
+		return fmt.Errorf("caddy installation failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	return nil
@@ -119,7 +119,7 @@ func (m *Manager) Configure(config proxy.ProxyConfig) error {
 		return fmt.Errorf("failed to check Caddy availability: %w", err)
 	}
 	if !available {
-		return fmt.Errorf("Caddy is not installed on the server")
+		return fmt.Errorf("caddy is not installed on the server")
 	}
 
 	// Generate Caddy configuration block for this app
@@ -179,7 +179,7 @@ func (m *Manager) ConfigureMultiApp(configs []proxy.ProxyConfig) error {
 		return fmt.Errorf("failed to check Caddy availability: %w", err)
 	}
 	if !available {
-		return fmt.Errorf("Caddy is not installed on the server")
+		return fmt.Errorf("caddy is not installed on the server")
 	}
 
 	// Ensure Caddy config directory exists
@@ -238,10 +238,10 @@ func (m *Manager) Reload() error {
 	// Validate configuration first
 	result := m.executor.ExecuteSudo("caddy validate --config /etc/caddy/Caddyfile")
 	if result.Error != nil {
-		return fmt.Errorf("Caddy config validation failed: %w", result.Error)
+		return fmt.Errorf("caddy config validation failed: %w", result.Error)
 	}
 	if result.ExitCode != 0 {
-		return fmt.Errorf("Caddy config validation failed: %s", result.Stderr)
+		return fmt.Errorf("caddy config validation failed: %s", result.Stderr)
 	}
 
 	// Reload via systemctl (graceful reload)
@@ -251,7 +251,7 @@ func (m *Manager) Reload() error {
 	}
 
 	if result.ExitCode != 0 {
-		return fmt.Errorf("Caddy reload failed (exit code %d): %s", result.ExitCode, result.Stderr)
+		return fmt.Errorf("caddy reload failed (exit code %d): %s", result.ExitCode, result.Stderr)
 	}
 
 	return nil

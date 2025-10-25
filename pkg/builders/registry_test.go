@@ -1,7 +1,6 @@
 package builders_test
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -279,16 +278,3 @@ func TestAutoSelectBuilder_Dockerfile_Fallback_ToNixpacks(t *testing.T) {
 		t.Errorf("Expected 'dockerfile' since it's now available, got '%s'", builderName)
 	}
 }
-
-// Mock builder for testing
-type mockBuilder struct {
-	name      string
-	available bool
-}
-
-func (m *mockBuilder) Name() string      { return m.name }
-func (m *mockBuilder) IsAvailable() bool { return m.available }
-func (m *mockBuilder) Build(ctx context.Context, opts *builders.BuildOptions) (*builders.BuildResult, error) {
-	return &builders.BuildResult{Success: true}, nil
-}
-func (m *mockBuilder) NeedsNginx() bool { return true }

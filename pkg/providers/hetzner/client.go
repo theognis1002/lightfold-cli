@@ -258,8 +258,8 @@ func (c *Client) Provision(ctx context.Context, config providers.ProvisionConfig
 		}
 	}
 
-	// Fetch image
-	image, _, err := c.client.Image.GetByName(ctx, config.Image)
+	// Fetch image (x86 architecture for standard servers)
+	image, _, err := c.client.Image.GetByNameAndArchitecture(ctx, config.Image, hcloud.ArchitectureX86)
 	if err != nil {
 		return nil, &providers.ProviderError{
 			Provider: "hetzner",

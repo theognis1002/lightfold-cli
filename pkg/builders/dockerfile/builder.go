@@ -25,13 +25,11 @@ func (d *DockerfileBuilder) Name() string {
 }
 
 func (d *DockerfileBuilder) IsAvailable() bool {
-	// Check if docker command exists
 	_, err := exec.LookPath("docker")
 	if err != nil {
 		return false
 	}
 
-	// Check if Docker daemon is accessible
 	cmd := exec.Command("docker", "info")
 	if err := cmd.Run(); err != nil {
 		return false
@@ -47,15 +45,13 @@ func (d *DockerfileBuilder) NeedsNginx() bool {
 }
 
 func (d *DockerfileBuilder) Build(ctx context.Context, opts *builders.BuildOptions) (*builders.BuildResult, error) {
-	// Verify Dockerfile exists
 	dockerfilePath := filepath.Join(opts.ProjectPath, "Dockerfile")
 	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
 		return &builders.BuildResult{
 			Success: false,
-		}, fmt.Errorf("Dockerfile not found at %s", dockerfilePath)
+		}, fmt.Errorf("dockerfile not found at %s", dockerfilePath)
 	}
 
-	// Extract app name from release path
 	appName := extractAppName(opts.ReleasePath)
 	if appName == "" {
 		return &builders.BuildResult{
@@ -68,7 +64,6 @@ func (d *DockerfileBuilder) Build(ctx context.Context, opts *builders.BuildOptio
 
 	var buildLog strings.Builder
 
-	// Step 1: Build Docker image locally
 	buildLog.WriteString(fmt.Sprintf("Building Docker image: %s\n", imageName))
 	buildCmd := exec.CommandContext(ctx, "docker", "build", "-t", imageName, opts.ProjectPath)
 	buildCmd.Dir = opts.ProjectPath
@@ -83,7 +78,6 @@ func (d *DockerfileBuilder) Build(ctx context.Context, opts *builders.BuildOptio
 		}, fmt.Errorf("docker build failed: %w\nOutput: %s", err, buildOutput)
 	}
 
-	// Step 2: Export image as tarball
 	buildLog.WriteString(fmt.Sprintf("\nExporting image to tarball: %s\n", tarballPath))
 	saveCmd := exec.CommandContext(ctx, "docker", "save", "-o", tarballPath, imageName)
 
@@ -97,10 +91,8 @@ func (d *DockerfileBuilder) Build(ctx context.Context, opts *builders.BuildOptio
 		}, fmt.Errorf("docker save failed: %w\nOutput: %s", err, saveOutput)
 	}
 
-	// Ensure cleanup of tarball
 	defer os.Remove(tarballPath)
 
-	// Step 3: Ensure Docker is installed on remote server
 	buildLog.WriteString("\nChecking Docker on remote server...\n")
 	ssh := opts.SSHExecutor
 
@@ -108,7 +100,6 @@ func (d *DockerfileBuilder) Build(ctx context.Context, opts *builders.BuildOptio
 	if dockerCheck.ExitCode != 0 {
 		buildLog.WriteString("Installing Docker on remote server...\n")
 
-		// Install Docker using official script
 		installCmds := []string{
 			"curl -fsSL https://get.docker.com -o /tmp/get-docker.sh",
 			"sudo sh /tmp/get-docker.sh",
@@ -132,7 +123,6 @@ func (d *DockerfileBuilder) Build(ctx context.Context, opts *builders.BuildOptio
 		buildLog.WriteString("Docker installed successfully\n")
 	}
 
-	// Step 4: Transfer tarball to remote server
 	remoteTarballPath := fmt.Sprintf("/tmp/lightfold-%s-image.tar", appName)
 	buildLog.WriteString(fmt.Sprintf("\nTransferring image to server: %s\n", remoteTarballPath))
 
@@ -143,7 +133,6 @@ func (d *DockerfileBuilder) Build(ctx context.Context, opts *builders.BuildOptio
 		}, fmt.Errorf("failed to transfer image tarball: %w", err)
 	}
 
-	// Step 5: Load Docker image on remote server
 	buildLog.WriteString("\nLoading Docker image on remote server...\n")
 	loadResult := ssh.Execute(fmt.Sprintf("docker load -i %s", remoteTarballPath))
 	buildLog.WriteString(loadResult.Stdout)
@@ -157,10 +146,8 @@ func (d *DockerfileBuilder) Build(ctx context.Context, opts *builders.BuildOptio
 		}, fmt.Errorf("docker load failed: %s", loadResult.Stderr)
 	}
 
-	// Cleanup remote tarball
 	ssh.Execute(fmt.Sprintf("rm %s", remoteTarballPath))
 
-	// Step 6: Write environment variables to .env file if provided
 	if len(opts.EnvVars) > 0 {
 		var envContent strings.Builder
 		for key, value := range opts.EnvVars {
@@ -179,11 +166,10 @@ func (d *DockerfileBuilder) Build(ctx context.Context, opts *builders.BuildOptio
 		buildLog.WriteString(fmt.Sprintf("\nWrote environment variables to %s\n", envPath))
 	}
 
-	// Step 7: Create docker-compose.yml or docker run script
 	// We'll create a simple run script that can be used by systemd
 	port := extractPortFromEnv(opts.EnvVars)
 	if port == "" {
-		port = fmt.Sprintf("%d", config.DefaultApplicationPort) // Default port
+		port = fmt.Sprintf("%d", config.DefaultApplicationPort)
 	}
 
 	runScript := fmt.Sprintf(`#!/bin/bash

@@ -43,15 +43,10 @@ func (d *FlyioDeployer) SetProgressCallback(callback ProgressCallback) {
 
 // Deploy executes a full fly.io deployment using native nixpacks
 func (d *FlyioDeployer) Deploy(ctx context.Context, deployOpts *config.DeploymentOptions) error {
-	// Step 1: Check flyctl availability and authenticate
+	// Step 1: Check flyctl availability
 	d.updateProgress("Checking flyctl availability", 10)
 	if err := flyctl.EnsureFlyctl(); err != nil {
 		return fmt.Errorf("flyctl check failed: %w", err)
-	}
-
-	// Authenticate flyctl with our token
-	if err := flyctl.AuthenticateWithToken(d.token); err != nil {
-		return fmt.Errorf("failed to authenticate flyctl: %w", err)
 	}
 
 	// Step 2: Generate fly.toml (optional - for health checks)

@@ -20,9 +20,8 @@ func init() {
 }
 
 type Client struct {
-	token       string
-	apiClient   *fly.Client
-	flapsClient *flaps.Client
+	token     string
+	apiClient *fly.Client
 }
 
 func NewClient(token string) *Client {

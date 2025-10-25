@@ -3,7 +3,6 @@ package plans
 import (
 	"lightfold/pkg/config"
 	"lightfold/pkg/detector/helpers"
-	porthelpers "lightfold/pkg/detector/helpers"
 	"lightfold/pkg/detector/packagemanagers"
 )
 
@@ -57,10 +56,10 @@ func NextPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[st
 	}
 
 	// Add port detection
-	if detectedPort := porthelpers.DetectPort(fs, "Next.js"); detectedPort != "" {
+	if detectedPort := helpers.DetectPort(fs, "Next.js"); detectedPort != "" {
 		meta["detected_port"] = detectedPort
 	}
-	meta["default_port"] = porthelpers.GetDefaultPortForFramework("Next.js")
+	meta["default_port"] = helpers.GetDefaultPortForFramework("Next.js")
 
 	AddMonorepoMeta(fs, meta)
 
@@ -102,10 +101,10 @@ func RemixPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[s
 	}
 
 	// Add port detection
-	if detectedPort := porthelpers.DetectPort(fs, "Remix"); detectedPort != "" {
+	if detectedPort := helpers.DetectPort(fs, "Remix"); detectedPort != "" {
 		meta["detected_port"] = detectedPort
 	}
-	meta["default_port"] = porthelpers.GetDefaultPortForFramework("Remix")
+	meta["default_port"] = helpers.GetDefaultPortForFramework("Remix")
 
 	AddMonorepoMeta(fs, meta)
 
@@ -127,10 +126,10 @@ func NuxtPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[st
 	meta := map[string]string{"package_manager": pm, "build_output": ".output/"}
 
 	// Add port detection
-	if detectedPort := porthelpers.DetectPort(fs, "Nuxt.js"); detectedPort != "" {
+	if detectedPort := helpers.DetectPort(fs, "Nuxt.js"); detectedPort != "" {
 		meta["detected_port"] = detectedPort
 	}
-	meta["default_port"] = porthelpers.GetDefaultPortForFramework("Nuxt.js")
+	meta["default_port"] = helpers.GetDefaultPortForFramework("Nuxt.js")
 
 	return build, run, health, env, meta
 }
@@ -180,10 +179,10 @@ func AstroPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[s
 	}
 
 	// Add port detection
-	if detectedPort := porthelpers.DetectPort(fs, "Astro"); detectedPort != "" {
+	if detectedPort := helpers.DetectPort(fs, "Astro"); detectedPort != "" {
 		meta["detected_port"] = detectedPort
 	}
-	meta["default_port"] = porthelpers.GetDefaultPortForFramework("Astro")
+	meta["default_port"] = helpers.GetDefaultPortForFramework("Astro")
 
 	AddMonorepoMeta(fs, meta)
 
@@ -205,10 +204,10 @@ func GatsbyPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[
 	meta := map[string]string{"package_manager": pm, "build_output": "public/"}
 
 	// Add port detection
-	if detectedPort := porthelpers.DetectPort(fs, "Gatsby"); detectedPort != "" {
+	if detectedPort := helpers.DetectPort(fs, "Gatsby"); detectedPort != "" {
 		meta["detected_port"] = detectedPort
 	}
-	meta["default_port"] = porthelpers.GetDefaultPortForFramework("Gatsby")
+	meta["default_port"] = helpers.GetDefaultPortForFramework("Gatsby")
 
 	return build, run, health, env, meta
 }
@@ -258,10 +257,10 @@ func SveltePlan(fs FSReader) ([]string, []string, map[string]any, []string, map[
 	}
 
 	// Add port detection
-	if detectedPort := porthelpers.DetectPort(fs, "SvelteKit"); detectedPort != "" {
+	if detectedPort := helpers.DetectPort(fs, "SvelteKit"); detectedPort != "" {
 		meta["detected_port"] = detectedPort
 	}
-	meta["default_port"] = porthelpers.GetDefaultPortForFramework("SvelteKit")
+	meta["default_port"] = helpers.GetDefaultPortForFramework("SvelteKit")
 
 	AddMonorepoMeta(fs, meta)
 
@@ -299,10 +298,10 @@ func VuePlan(fs FSReader) ([]string, []string, map[string]any, []string, map[str
 	}
 
 	// Add port detection
-	if detectedPort := porthelpers.DetectPort(fs, "Vue.js"); detectedPort != "" {
+	if detectedPort := helpers.DetectPort(fs, "Vue.js"); detectedPort != "" {
 		meta["detected_port"] = detectedPort
 	}
-	meta["default_port"] = porthelpers.GetDefaultPortForFramework("Vue.js")
+	meta["default_port"] = helpers.GetDefaultPortForFramework("Vue.js")
 
 	AddMonorepoMeta(fs, meta)
 
@@ -334,10 +333,10 @@ func AngularPlan(fs FSReader) ([]string, []string, map[string]any, []string, map
 	meta := map[string]string{"package_manager": pm, "build_output": "dist/"}
 
 	// Add port detection
-	if detectedPort := porthelpers.DetectPort(fs, "Angular"); detectedPort != "" {
+	if detectedPort := helpers.DetectPort(fs, "Angular"); detectedPort != "" {
 		meta["detected_port"] = detectedPort
 	}
-	meta["default_port"] = porthelpers.GetDefaultPortForFramework("Angular")
+	meta["default_port"] = helpers.GetDefaultPortForFramework("Angular")
 
 	return build, run, health, env, meta
 }
@@ -358,10 +357,10 @@ func NestJSPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[
 	meta := map[string]string{"package_manager": pm}
 
 	// Add port detection
-	if detectedPort := porthelpers.DetectPort(fs, "NestJS"); detectedPort != "" {
+	if detectedPort := helpers.DetectPort(fs, "NestJS"); detectedPort != "" {
 		meta["detected_port"] = detectedPort
 	}
-	meta["default_port"] = porthelpers.GetDefaultPortForFramework("NestJS")
+	meta["default_port"] = helpers.GetDefaultPortForFramework("NestJS")
 
 	return build, run, health, env, meta
 }
@@ -415,10 +414,10 @@ func TRPCPlan(fs FSReader) ([]string, []string, map[string]any, []string, map[st
 	}
 
 	// Add port detection
-	if detectedPort := porthelpers.DetectPort(fs, "tRPC"); detectedPort != "" {
+	if detectedPort := helpers.DetectPort(fs, "tRPC"); detectedPort != "" {
 		meta["detected_port"] = detectedPort
 	}
-	meta["default_port"] = porthelpers.GetDefaultPortForFramework("tRPC")
+	meta["default_port"] = helpers.GetDefaultPortForFramework("tRPC")
 
 	AddMonorepoMeta(fs, meta)
 
@@ -440,10 +439,10 @@ func EleventyPlan(fs FSReader) ([]string, []string, map[string]any, []string, ma
 	meta := map[string]string{"package_manager": pm, "build_output": "_site/", "static": "true"}
 
 	// Add port detection
-	if detectedPort := porthelpers.DetectPort(fs, "Eleventy"); detectedPort != "" {
+	if detectedPort := helpers.DetectPort(fs, "Eleventy"); detectedPort != "" {
 		meta["detected_port"] = detectedPort
 	}
-	meta["default_port"] = porthelpers.GetDefaultPortForFramework("Eleventy")
+	meta["default_port"] = helpers.GetDefaultPortForFramework("Eleventy")
 
 	return build, run, health, env, meta
 }
@@ -463,10 +462,10 @@ func DocusaurusPlan(fs FSReader) ([]string, []string, map[string]any, []string, 
 	meta := map[string]string{"package_manager": pm, "build_output": "build/"}
 
 	// Add port detection
-	if detectedPort := porthelpers.DetectPort(fs, "Docusaurus"); detectedPort != "" {
+	if detectedPort := helpers.DetectPort(fs, "Docusaurus"); detectedPort != "" {
 		meta["detected_port"] = detectedPort
 	}
-	meta["default_port"] = porthelpers.GetDefaultPortForFramework("Docusaurus")
+	meta["default_port"] = helpers.GetDefaultPortForFramework("Docusaurus")
 
 	return build, run, health, env, meta
 }

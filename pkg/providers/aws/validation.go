@@ -149,34 +149,3 @@ func isValidTargetName(name string) bool {
 
 	return true
 }
-
-// validateRegion checks if a region string is valid
-// Reserved for additional region validation if needed
-//
-//nolint:unused // Helper function for potential future use
-func validateRegion(region string) error {
-	if region == "" {
-		return &providers.ProviderError{
-			Provider: "aws",
-			Code:     "invalid_region",
-			Message:  "Region cannot be empty",
-		}
-	}
-
-	// AWS regions follow pattern: <location>-<direction>-<number>
-	// Examples: us-east-1, eu-west-2, ap-southeast-1
-	parts := strings.Split(region, "-")
-	if len(parts) < 3 {
-		return &providers.ProviderError{
-			Provider: "aws",
-			Code:     "invalid_region",
-			Message:  fmt.Sprintf("Invalid AWS region format: %s", region),
-			Details: map[string]interface{}{
-				"region":   region,
-				"expected": "format like us-east-1, eu-west-2, ap-southeast-1",
-			},
-		}
-	}
-
-	return nil
-}

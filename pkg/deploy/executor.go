@@ -796,7 +796,7 @@ func (e *Executor) getExecStartCommand() string {
 		runCommand := runPlan[0]
 
 		if e.detection != nil && e.detection.Language == "JavaScript/TypeScript" {
-			pm, _ := e.detection.Meta["package_manager"]
+			pm := e.detection.Meta["package_manager"]
 			return adjustPackageManagerPath(runCommand, pm)
 		}
 

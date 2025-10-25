@@ -52,15 +52,6 @@ func EnsureFlyctl() error {
 	return fmt.Errorf("flyctl not found\n\n%s", InstallInstructions())
 }
 
-// AuthenticateWithToken is deprecated - flyctl uses FLY_ACCESS_TOKEN environment variable
-// We don't need to explicitly authenticate, just pass the token via env var
-// This function is kept for compatibility but does nothing
-func AuthenticateWithToken(token string) error {
-	// No-op: flyctl automatically uses FLY_ACCESS_TOKEN from environment
-	// which we set in all Deploy/SetSecrets/GetLogs commands
-	return nil
-}
-
 // DeployOptions contains options for flyctl deploy
 type DeployOptions struct {
 	ProjectPath string            // Local project directory
@@ -76,7 +67,6 @@ func (c *Client) Deploy(ctx context.Context, opts DeployOptions) (string, error)
 		return "", err
 	}
 
-	// Build command
 	args := []string{"deploy"}
 
 	// Use fly.io's native nixpacks builder (recommended)
