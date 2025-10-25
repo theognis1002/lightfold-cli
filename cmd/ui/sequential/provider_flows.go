@@ -17,6 +17,7 @@ func CreateProviderSelectionStep(id string) Step {
 			"vultr",
 			"hetzner",
 			"linode",
+			"aws",
 			"flyio",
 			"byos",
 			"existing",
@@ -26,11 +27,13 @@ func CreateProviderSelectionStep(id string) Step {
 			"Vultr",
 			"Hetzner",
 			"Linode",
+			"AWS EC2",
 			"fly.io",
 			"BYOS",
 			"Existing server",
 		).
 		OptionDescriptions(
+			"",
 			"",
 			"",
 			"",
@@ -104,6 +107,10 @@ func RunProviderSelectionWithConfigFlow(projectName string) (provider string, cf
 	case "linode":
 		linodeConfig := buildLinodeConfig(results, final, projectName)
 		return "linode", linodeConfig, nil
+
+	case "aws":
+		awsConfig := buildAWSConfig(results, final, projectName)
+		return "aws", awsConfig, nil
 
 	case "existing":
 		existingConfig := buildExistingServerConfig(results)
@@ -188,35 +195,73 @@ func (m *DynamicProviderFlow) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		if m.NeedsDynamicSteps && m.CurrentStep == m.TokenStepIndex {
+		awsAtSecretKeyStep := m.ProviderForDynamic == "aws" && m.NeedsDynamicSteps && m.CurrentStep == m.TokenStepIndex+1
+		otherAtTokenStep := m.ProviderForDynamic != "aws" && m.ProviderForDynamic != "existing" && m.NeedsDynamicSteps && m.CurrentStep == m.TokenStepIndex
+
+		if awsAtSecretKeyStep || otherAtTokenStep {
 			currentStep := m.getCurrentStep()
-			if currentStep.Value != "" && currentStep.ID == "api_token" {
-				token := currentStep.Value
+
+			shouldProcess := false
+			if m.ProviderForDynamic == "aws" && currentStep.ID == "secret_key" {
+				shouldProcess = true
+			} else if currentStep.Value != "" && currentStep.ID == "api_token" {
+				shouldProcess = true
+			}
+
+			if shouldProcess {
+				results := m.GetResults()
 				tokens, _ := config.LoadTokens()
-				tokens.SetToken(m.ProviderForDynamic, token)
-				tokens.SaveTokens()
 
 				var newSteps []Step
 				switch m.ProviderForDynamic {
 				case "hetzner":
+					token := currentStep.Value
+					tokens.SetToken(m.ProviderForDynamic, token)
+					tokens.SaveTokens()
 					newSteps = []Step{
 						CreateHetznerLocationStepDynamic("location", token),
 						CreateHetznerServerTypeStepDynamic("server_type", token, ""),
 					}
 				case "vultr":
+					token := currentStep.Value
+					tokens.SetToken(m.ProviderForDynamic, token)
+					tokens.SaveTokens()
 					newSteps = []Step{
 						CreateVultrRegionStepDynamic("region", token),
 						CreateVultrPlanStepDynamic("plan", token, ""),
 					}
 				case "flyio":
+					token := currentStep.Value
+					tokens.SetToken(m.ProviderForDynamic, token)
+					tokens.SaveTokens()
 					newSteps = []Step{
 						CreateFlyioRegionStepDynamic("region", token),
 						CreateFlyioSizeStepDynamic("size", token, ""),
 					}
 				case "linode":
+					token := currentStep.Value
+					tokens.SetToken(m.ProviderForDynamic, token)
+					tokens.SaveTokens()
 					newSteps = []Step{
 						CreateLinodeRegionStepDynamic("region", token),
 						CreateLinodePlanStepDynamic("plan", token, ""),
+					}
+				case "aws":
+					accessKey := results["api_token"]
+					secretKey := results["secret_key"]
+					var credJSON string
+					if secretKey != "" {
+						credJSON = fmt.Sprintf(`{"access_key_id":"%s","secret_access_key":"%s"}`, accessKey, secretKey)
+					} else {
+						credJSON = fmt.Sprintf(`{"profile":"%s"}`, accessKey)
+					}
+					tokens.SetToken("aws", credJSON)
+					tokens.SaveTokens()
+
+					newSteps = []Step{
+						CreateAWSRegionStepDynamic("region", credJSON),
+						CreateAWSInstanceTypeStepDynamic("instance_type", credJSON, ""),
+						CreateAWSElasticIPStep("elastic_ip"),
 					}
 				}
 
@@ -230,13 +275,10 @@ func (m *DynamicProviderFlow) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Handle existing server flow - add port step after server selection
 		if m.NeedsDynamicSteps && m.ProviderForDynamic == "existing" && m.CurrentStep == m.TokenStepIndex {
 			currentStep := m.getCurrentStep()
 			if currentStep.Value != "" && currentStep.ID == "server_ip" {
 				serverIP := currentStep.Value
-
-				// Create port step with used ports information
 				portStep := CreatePortStepWithUsedPorts("port", serverIP)
 
 				m.Steps = append(m.Steps, portStep)
@@ -386,10 +428,32 @@ func (m *DynamicProviderFlow) addProviderSteps(provider string) error {
 			)
 		}
 
+	case "aws":
+		existingToken := tokens.GetToken("aws")
+		hasToken := existingToken != ""
+
+		if !hasToken {
+			newSteps = append(newSteps,
+				CreateAWSAPITokenStep("api_token"),
+				CreateAWSSecretKeyPromptStep("secret_key"),
+			)
+		}
+
+		activeToken := existingToken
+		if !hasToken {
+			m.NeedsDynamicSteps = true
+			m.ProviderForDynamic = "aws"
+		} else {
+			newSteps = append(newSteps,
+				CreateAWSRegionStepDynamic("region", activeToken),
+				CreateAWSInstanceTypeStepDynamic("instance_type", activeToken, ""),
+				CreateAWSElasticIPStep("elastic_ip"),
+			)
+		}
+
 	case "existing":
 		newSteps = []Step{
 			CreateExistingServerStep("server_ip"),
-			// Port step will be added dynamically after server selection
 		}
 		m.NeedsDynamicSteps = true
 		m.ProviderForDynamic = "existing"
@@ -424,7 +488,6 @@ func buildDigitalOceanConfig(results map[string]string, _ *DynamicProviderFlow, 
 		sizeStr = "s-1vcpu-512mb-10gb"
 	}
 	sizeID := extractID(sizeStr)
-
 	if sizeID == "" {
 		sizeID = "s-1vcpu-512mb-10gb"
 	}
@@ -609,18 +672,64 @@ func buildLinodeConfig(results map[string]string, _ *DynamicProviderFlow, projec
 	}
 }
 
+func buildAWSConfig(results map[string]string, _ *DynamicProviderFlow, projectName string) *config.AWSConfig {
+	if accessKey, ok := results["api_token"]; ok && accessKey != "" {
+		secretKey := results["secret_key"]
+		var credJSON string
+		if secretKey != "" {
+			credJSON = fmt.Sprintf(`{"access_key_id":"%s","secret_access_key":"%s"}`, accessKey, secretKey)
+		} else {
+			credJSON = fmt.Sprintf(`{"profile":"%s"}`, accessKey)
+		}
+		tokens, _ := config.LoadTokens()
+		if !tokens.HasToken("aws") {
+			tokens.SetToken("aws", credJSON)
+			tokens.SaveTokens()
+		}
+	}
+
+	keyName := sshpkg.GetKeyName(projectName)
+	keyPath := generateSSHKeyIfNeeded(keyName)
+
+	instanceTypeStr, hasInstanceType := results["instance_type"]
+	if !hasInstanceType || instanceTypeStr == "" {
+		instanceTypeStr = "t3.small"
+	}
+	instanceType := extractID(instanceTypeStr)
+
+	if instanceType == "" {
+		instanceType = "t3.small"
+	}
+
+	regionStr := results["region"]
+	if regionStr == "" {
+		regionStr = "us-east-1"
+	}
+
+	elasticIP := ""
+	if results["elastic_ip"] == "yes" {
+		elasticIP = "allocate"
+	}
+
+	return &config.AWSConfig{
+		IP:           "",
+		Username:     "ubuntu",
+		SSHKey:       keyPath,
+		SSHKeyName:   keyName,
+		Region:       regionStr,
+		InstanceType: instanceType,
+		ElasticIP:    elasticIP,
+		Provisioned:  true,
+	}
+}
+
 func buildExistingServerConfig(results map[string]string) map[string]string {
-	// Return server IP and optional port from results
-	// The actual setup will be done in createTarget() using setupTargetWithExistingServer()
 	config := map[string]string{
 		"server_ip": results["server_ip"],
 	}
-
-	// Add port if provided
 	if port, ok := results["port"]; ok && port != "" {
 		config["port"] = port
 	}
-
 	return config
 }
 

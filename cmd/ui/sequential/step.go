@@ -183,18 +183,15 @@ func ValidateAWSRegion(value string) error {
 }
 
 func ValidatePort(value string) error {
-	// Empty is allowed since port is optional
 	if value == "" {
 		return nil
 	}
 
-	// Try to parse as integer
 	matched, err := regexp.MatchString("^[0-9]+$", value)
 	if err != nil || !matched {
 		return fmt.Errorf("port must be a number")
 	}
 
-	// Check range
 	var port int
 	if _, err := fmt.Sscanf(value, "%d", &port); err != nil {
 		return fmt.Errorf("invalid port number")
@@ -430,11 +427,7 @@ func CreateHetznerLocationStepDynamic(id, token string) Step {
 	}
 
 	regions, err := provider.GetRegions(ctx)
-	if err != nil {
-		return CreateHetznerLocationStep(id)
-	}
-
-	if len(regions) == 0 {
+	if err != nil || len(regions) == 0 {
 		return CreateHetznerLocationStep(id)
 	}
 
@@ -463,11 +456,7 @@ func CreateHetznerServerTypeStepDynamic(id, token, location string) Step {
 	}
 
 	sizes, err := provider.GetSizes(ctx, location)
-	if err != nil {
-		return CreateHetznerServerTypeStep(id)
-	}
-
-	if len(sizes) == 0 {
+	if err != nil || len(sizes) == 0 {
 		return CreateHetznerServerTypeStep(id)
 	}
 
@@ -703,11 +692,7 @@ func CreateVultrPlanStepDynamic(id, token, region string) Step {
 	}
 
 	sizes, err := provider.GetSizes(ctx, region)
-	if err != nil {
-		return CreateVultrPlanStep(id)
-	}
-
-	if len(sizes) == 0 {
+	if err != nil || len(sizes) == 0 {
 		return CreateVultrPlanStep(id)
 	}
 
@@ -882,7 +867,6 @@ func createFlyioSizeStepStatic(id string) Step {
 func CreateExistingServerStep(id string) Step {
 	servers, err := state.ListAllServers()
 	if err != nil || len(servers) == 0 {
-		// Return empty step - will be handled by flow
 		return NewStep(id, "Select Server").
 			Type(StepTypeSelect).
 			Options().
@@ -896,15 +880,12 @@ func CreateExistingServerStep(id string) Step {
 	for _, serverIP := range servers {
 		serverState, err := state.GetServerState(serverIP)
 		if err != nil {
-			// If we can't get state, just show IP
 			serverIPs = append(serverIPs, serverIP)
 			serverDescs = append(serverDescs, "")
 			continue
 		}
 
 		serverIPs = append(serverIPs, serverIP)
-
-		// Format: "provider, N apps"
 		appCount := len(serverState.DeployedApps)
 		appWord := "app"
 		if appCount != 1 {
@@ -950,14 +931,11 @@ func CreatePortStepWithUsedPorts(id string, serverIP string) Step {
 // getUsedPortsDescription builds a description string showing which ports are already in use
 func getUsedPortsDescription(serverIP string) string {
 	baseDesc := "Port range: 3000-9000"
-
-	// Get server state
 	serverState, err := state.GetServerState(serverIP)
 	if err != nil || len(serverState.DeployedApps) == 0 {
 		return baseDesc
 	}
 
-	// Collect used ports
 	var usedPorts []string
 	for _, app := range serverState.DeployedApps {
 		if app.Port > 0 {
@@ -969,7 +947,6 @@ func getUsedPortsDescription(serverIP string) string {
 		return baseDesc
 	}
 
-	// Build description with used ports
 	return fmt.Sprintf("%s | Used: %s", baseDesc, strings.Join(usedPorts, ", "))
 }
 
@@ -1165,7 +1142,6 @@ func RunProvisionLinodeFlow(projectName string) (*config.LinodeConfig, error) {
 
 	results := final.GetResults()
 
-	// Save token if provided
 	if token, ok := results["api_token"]; ok && token != "" {
 		tokens.SetToken("linode", token)
 		tokens.SaveTokens()
@@ -1174,7 +1150,6 @@ func RunProvisionLinodeFlow(projectName string) (*config.LinodeConfig, error) {
 	keyName := ssh.GetKeyName(projectName)
 	keyPath := filepath.Join(os.Getenv("HOME"), ".lightfold", "keys", keyName)
 
-	// Generate SSH key if it doesn't exist
 	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
 		_, err := ssh.GenerateKeyPair(keyPath)
 		if err != nil {
@@ -1190,5 +1165,253 @@ func RunProvisionLinodeFlow(projectName string) (*config.LinodeConfig, error) {
 		Region:      results["region"],
 		Plan:        results["plan"],
 		Provisioned: true,
+	}, nil
+}
+
+// AWS EC2 Step Creators
+
+// CreateAWSAPITokenStep creates an API credentials step for AWS
+func CreateAWSAPITokenStep(id string) Step {
+	return NewStep(id, "AWS Credentials").
+		Type(StepTypeText).
+		Placeholder("Enter AWS Access Key ID or Profile Name").
+		Required().
+		Validate(ValidateRequired).
+		Build()
+}
+
+// CreateAWSSecretKeyPromptStep creates a secret key step for AWS
+func CreateAWSSecretKeyPromptStep(id string) Step {
+	return NewStep(id, "AWS Secret Access Key").
+		Type(StepTypePassword).
+		Placeholder("Enter your AWS Secret Access Key (optional if using profile)").
+		Build()
+}
+
+// CreateAWSRegionStepDynamic creates region step with dynamic API data
+func CreateAWSRegionStepDynamic(id, token string) Step {
+	ctx := context.Background()
+	provider, err := providers.GetProvider("aws", token)
+	if err != nil {
+		return createAWSRegionStepStatic(id)
+	}
+
+	regions, err := provider.GetRegions(ctx)
+	if err != nil || len(regions) == 0 {
+		return createAWSRegionStepStatic(id)
+	}
+
+	sort.Slice(regions, func(i, j int) bool {
+		return regions[i].ID < regions[j].ID
+	})
+
+	var regionIDs []string
+	var regionDescs []string
+	for _, region := range regions {
+		regionIDs = append(regionIDs, region.ID)
+		desc := region.Location
+		if desc == "" {
+			desc = region.ID
+		}
+		regionDescs = append(regionDescs, desc)
+	}
+
+	return NewStep(id, "AWS Region").
+		Type(StepTypeSelect).
+		DefaultValue(regionIDs[0]).
+		Options(regionIDs...).
+		OptionDescriptions(regionDescs...).
+		Required().
+		Build()
+}
+
+// createAWSRegionStepStatic creates region step with static data (fallback)
+func createAWSRegionStepStatic(id string) Step {
+	regions := []string{
+		"us-east-1", "us-east-2", "us-west-1", "us-west-2",
+		"eu-west-1", "eu-west-2", "eu-central-1",
+		"ap-southeast-1", "ap-southeast-2", "ap-northeast-1",
+	}
+	regionDescs := []string{
+		"US East (N. Virginia)", "US East (Ohio)", "US West (N. California)", "US West (Oregon)",
+		"EU (Ireland)", "EU (London)", "EU (Frankfurt)",
+		"Asia Pacific (Singapore)", "Asia Pacific (Sydney)", "Asia Pacific (Tokyo)",
+	}
+
+	return NewStep(id, "AWS Region").
+		Type(StepTypeSelect).
+		DefaultValue("us-east-1").
+		Options(regions...).
+		OptionDescriptions(regionDescs...).
+		Required().
+		Build()
+}
+
+// CreateAWSInstanceTypeStepDynamic creates instance type step with dynamic API data
+func CreateAWSInstanceTypeStepDynamic(id, token, region string) Step {
+	ctx := context.Background()
+	provider, err := providers.GetProvider("aws", token)
+	if err != nil {
+		return createAWSInstanceTypeStepStatic(id)
+	}
+
+	sizes, err := provider.GetSizes(ctx, region)
+	if err != nil || len(sizes) == 0 {
+		return createAWSInstanceTypeStepStatic(id)
+	}
+
+	var typeIDs []string
+	var typeDescs []string
+	for _, size := range sizes {
+		typeIDs = append(typeIDs, size.ID)
+		desc := fmt.Sprintf("%d vCPU, %.1f GB RAM", size.VCPUs, float64(size.Memory)/1024.0)
+		if size.PriceMonthly > 0 {
+			desc = fmt.Sprintf("%s ($%.2f/mo)", desc, size.PriceMonthly)
+		}
+		typeDescs = append(typeDescs, desc)
+	}
+
+	return NewStep(id, "Instance Type").
+		Type(StepTypeSelect).
+		DefaultValue(typeIDs[0]).
+		Options(typeIDs...).
+		OptionDescriptions(typeDescs...).
+		Required().
+		Build()
+}
+
+// createAWSInstanceTypeStepStatic creates instance type step with static data (fallback)
+func createAWSInstanceTypeStepStatic(id string) Step {
+	types := []string{
+		"t3.micro", "t3.small", "t3.medium", "t3.large",
+		"t3a.micro", "t3a.small", "t3a.medium", "t3a.large",
+		"m5.large", "m5.xlarge",
+	}
+	typeDescs := []string{
+		"2 vCPU, 1 GB RAM (~$7/mo)", "2 vCPU, 2 GB RAM (~$15/mo)", "2 vCPU, 4 GB RAM (~$30/mo)", "2 vCPU, 8 GB RAM (~$60/mo)",
+		"2 vCPU, 1 GB RAM (~$6/mo)", "2 vCPU, 2 GB RAM (~$13/mo)", "2 vCPU, 4 GB RAM (~$27/mo)", "2 vCPU, 8 GB RAM (~$54/mo)",
+		"2 vCPU, 8 GB RAM (~$70/mo)", "4 vCPU, 16 GB RAM (~$140/mo)",
+	}
+
+	return NewStep(id, "Instance Type").
+		Type(StepTypeSelect).
+		DefaultValue("t3.small").
+		Options(types...).
+		OptionDescriptions(typeDescs...).
+		Required().
+		Build()
+}
+
+// CreateAWSElasticIPStep creates an Elastic IP prompt step
+func CreateAWSElasticIPStep(id string) Step {
+	return NewStep(id, "Allocate Elastic IP?").
+		Type(StepTypeSelect).
+		Description("Elastic IPs ensure your server IP persists across stops/starts (small monthly cost). Ephemeral IPs are free but change on stop/start.").
+		DefaultValue("yes").
+		Options("yes", "no").
+		OptionLabels("Yes, allocate Elastic IP", "No, use ephemeral IP").
+		OptionDescriptions(
+			"Static IP address ($0.005/hour when instance running, $0.005/hour when idle)",
+			"Free, but IP changes if instance is stopped",
+		).
+		Required().
+		Build()
+}
+
+// RunProvisionAWSFlow runs the full AWS provisioning flow
+func RunProvisionAWSFlow(projectName string) (*config.AWSConfig, error) {
+	tokens, err := config.LoadTokens()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load tokens: %w", err)
+	}
+
+	existingToken := tokens.GetToken("aws")
+	hasExistingToken := existingToken != ""
+
+	var steps []Step
+	if !hasExistingToken {
+		steps = append(steps,
+			CreateAWSAPITokenStep("api_token"),
+			CreateAWSSecretKeyPromptStep("secret_key"),
+		)
+	}
+
+	activeToken := existingToken
+	if hasExistingToken {
+		steps = append(steps,
+			CreateAWSRegionStepDynamic("region", activeToken),
+			CreateAWSInstanceTypeStepDynamic("instance_type", activeToken, ""),
+			CreateAWSElasticIPStep("elastic_ip"),
+		)
+	} else {
+		// Will be added dynamically after token entry
+		steps = append(steps,
+			createAWSRegionStepStatic("region"),
+			createAWSInstanceTypeStepStatic("instance_type"),
+			CreateAWSElasticIPStep("elastic_ip"),
+		)
+	}
+
+	flow := NewFlow("Provision AWS EC2 Instance", steps)
+	flow.SetProjectName(projectName)
+
+	p := tea.NewProgram(flow)
+	finalModel, err := p.Run()
+	if err != nil {
+		return nil, err
+	}
+
+	final := finalModel.(FlowModel)
+	if final.Cancelled {
+		return nil, fmt.Errorf("provisioning cancelled")
+	}
+
+	if !final.Completed {
+		return nil, fmt.Errorf("provisioning not completed")
+	}
+
+	results := final.GetResults()
+
+	if accessKey, ok := results["api_token"]; ok && accessKey != "" {
+		secretKey := results["secret_key"]
+		var credJSON string
+		if secretKey != "" {
+			credJSON = fmt.Sprintf(`{"access_key_id":"%s","secret_access_key":"%s"}`, accessKey, secretKey)
+		} else {
+			credJSON = fmt.Sprintf(`{"profile":"%s"}`, accessKey)
+		}
+		tokens.SetToken("aws", credJSON)
+		tokens.SaveTokens()
+	}
+
+	keyName := ssh.GetKeyName(projectName)
+	keyPath := filepath.Join(os.Getenv("HOME"), ".lightfold", "keys", keyName)
+
+	if _, err := os.Stat(keyPath); os.IsNotExist(err) {
+		_, err := ssh.GenerateKeyPair(keyPath)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate SSH key: %w", err)
+		}
+	}
+
+	instanceType := results["instance_type"]
+	if idx := strings.Index(instanceType, " ("); idx > 0 {
+		instanceType = instanceType[:idx]
+	}
+
+	elasticIP := ""
+	if results["elastic_ip"] == "yes" {
+		elasticIP = "allocate"
+	}
+
+	return &config.AWSConfig{
+		IP:           "",
+		Username:     "ubuntu",
+		SSHKey:       keyPath,
+		SSHKeyName:   keyName,
+		Region:       results["region"],
+		InstanceType: instanceType,
+		ElasticIP:    elasticIP,
+		Provisioned:  true,
 	}, nil
 }

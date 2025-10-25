@@ -167,6 +167,7 @@ State per target in `~/.lightfold/state/<target>.json`:
 ## Supported Providers
 
 ### Available
+- [**AWS EC2**](https://aws.amazon.com/ec2) - Full provisioning support with Elastic IP and security group management
 - [**DigitalOcean**](https://www.digitalocean.com) - Full provisioning support
 - [**Hetzner Cloud**](https://www.hetzner.com/cloud) - Full provisioning support
 - [**Vultr**](https://www.vultr.com) - Full provisioning support
@@ -175,7 +176,6 @@ State per target in `~/.lightfold/state/<target>.json`:
 - **BYOS** (Bring Your Own Server) - Use any existing server
 
 ### Coming Soon
-- [ ] [AWS EC2](https://aws.amazon.com/ec2)
 - [ ] [Google Cloud](https://cloud.google.com/compute) (Compute Engine)
 - [ ] [Azure](https://azure.microsoft.com/products/virtual-machines) (VMs)
 - [ ] [Caddy](https://caddyserver.com)

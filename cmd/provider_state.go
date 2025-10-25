@@ -58,6 +58,15 @@ var providerStateHandlers = map[string]providerStateHandler{
 			return utils.RecoverIPFromProvider(target, targetName, "linode", serverID)
 		},
 	},
+	"aws": {
+		displayName: "AWS EC2",
+		cfgAccessor: func(target *config.TargetConfig) (config.ProviderConfig, error) {
+			return target.GetAWSConfig()
+		},
+		recoverFunc: func(target *config.TargetConfig, targetName, serverID string) error {
+			return utils.RecoverIPFromProvider(target, targetName, "aws", serverID)
+		},
+	},
 }
 
 func tryRecoverProviderIP(target *config.TargetConfig, targetName string, targetState *state.TargetState) (bool, string, error) {

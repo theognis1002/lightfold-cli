@@ -177,6 +177,36 @@ var providerBootstraps = []*providerBootstrap{
 			}, nil
 		},
 	},
+	{
+		canonical:       "aws",
+		aliases:         []string{"aws", "ec2"},
+		configKey:       "aws",
+		tokenKey:        "aws",
+		defaultUsername: "ubuntu",
+		fallbackFlow: func(targetName string) (config.ProviderConfig, error) {
+			cfg, err := sequential.RunProvisionAWSFlow(targetName)
+			if err != nil {
+				return nil, err
+			}
+			return cfg, nil
+		},
+		flagConfigurator: func(opts provisionInputs, sshKeyPath, sshKeyName string) (config.ProviderConfig, error) {
+			if opts.Region == "" {
+				return nil, fmt.Errorf("region is required for AWS provisioning")
+			}
+			if opts.Size == "" {
+				return nil, fmt.Errorf("instance type is required for AWS provisioning")
+			}
+			return &config.AWSConfig{
+				Region:       opts.Region,
+				InstanceType: opts.Size,
+				SSHKey:       sshKeyPath,
+				SSHKeyName:   sshKeyName,
+				Username:     "ubuntu",
+				Provisioned:  true,
+			}, nil
+		},
+	},
 }
 
 var providerAliasMap map[string]*providerBootstrap
@@ -236,6 +266,9 @@ func (p *providerBootstrap) applyConfig(targetConfig *config.TargetConfig, provi
 		targetConfig.Provider = p.canonical
 		return targetConfig.SetProviderConfig(p.configKey, cfg)
 	case *config.LinodeConfig:
+		targetConfig.Provider = p.canonical
+		return targetConfig.SetProviderConfig(p.configKey, cfg)
+	case *config.AWSConfig:
 		targetConfig.Provider = p.canonical
 		return targetConfig.SetProviderConfig(p.configKey, cfg)
 	default:

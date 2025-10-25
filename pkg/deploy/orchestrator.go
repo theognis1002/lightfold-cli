@@ -11,6 +11,7 @@ import (
 	"lightfold/pkg/detector"
 	"lightfold/pkg/firewall"
 	"lightfold/pkg/providers"
+	_ "lightfold/pkg/providers/aws"
 	"lightfold/pkg/providers/cloudinit"
 	_ "lightfold/pkg/providers/digitalocean"
 	_ "lightfold/pkg/providers/flyio"

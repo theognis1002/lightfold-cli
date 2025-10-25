@@ -105,6 +105,27 @@ func (l *LinodeConfig) GetSSHKey() string   { return l.SSHKey }
 func (l *LinodeConfig) IsProvisioned() bool { return l.Provisioned }
 func (l *LinodeConfig) GetServerID() string { return l.InstanceID }
 
+type AWSConfig struct {
+	InstanceID      string `json:"instance_id,omitempty"` // EC2 instance ID
+	IP              string `json:"ip"`
+	SSHKey          string `json:"ssh_key"`
+	SSHKeyName      string `json:"ssh_key_name,omitempty"`
+	Username        string `json:"username"`
+	Region          string `json:"region,omitempty"`
+	InstanceType    string `json:"instance_type,omitempty"` // e.g., "t3.small"
+	Provisioned     bool   `json:"provisioned,omitempty"`
+	ElasticIP       string `json:"elastic_ip,omitempty"`        // Allocation ID if EIP used
+	SecurityGroupID string `json:"security_group_id,omitempty"` // Security group ID for cleanup
+	VpcID           string `json:"vpc_id,omitempty"`            // VPC ID
+	SubnetID        string `json:"subnet_id,omitempty"`         // Subnet ID
+}
+
+func (a *AWSConfig) GetIP() string       { return a.IP }
+func (a *AWSConfig) GetUsername() string { return a.Username }
+func (a *AWSConfig) GetSSHKey() string   { return a.SSHKey }
+func (a *AWSConfig) IsProvisioned() bool { return a.Provisioned }
+func (a *AWSConfig) GetServerID() string { return a.InstanceID }
+
 type S3Config struct {
 	Bucket    string `json:"bucket"`
 	Region    string `json:"region"`
@@ -224,6 +245,14 @@ func (t *TargetConfig) GetLinodeConfig() (*LinodeConfig, error) {
 	return &config, nil
 }
 
+func (t *TargetConfig) GetAWSConfig() (*AWSConfig, error) {
+	var config AWSConfig
+	if err := t.GetProviderConfig("aws", &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
 func (t *TargetConfig) GetSSHProviderConfig() (ProviderConfig, error) {
 	switch t.Provider {
 	case "digitalocean":
@@ -236,6 +265,8 @@ func (t *TargetConfig) GetSSHProviderConfig() (ProviderConfig, error) {
 		return t.GetFlyioConfig()
 	case "linode":
 		return t.GetLinodeConfig()
+	case "aws":
+		return t.GetAWSConfig()
 	case "s3":
 		return nil, fmt.Errorf("S3 is not an SSH-based provider")
 	default:
@@ -255,6 +286,8 @@ func (t *TargetConfig) GetAnyProviderConfig() (ProviderConfig, error) {
 		return t.GetFlyioConfig()
 	case "linode":
 		return t.GetLinodeConfig()
+	case "aws":
+		return t.GetAWSConfig()
 	case "s3":
 		return t.GetS3Config()
 	default:
@@ -265,15 +298,12 @@ func (t *TargetConfig) GetAnyProviderConfig() (ProviderConfig, error) {
 // RequiresSSHDeployment returns true if this target uses SSH-based deployment
 // Uses the provider's SupportsSSH() method for polymorphic dispatch
 func (t *TargetConfig) RequiresSSHDeployment() bool {
-	// S3 is a special case - static deployment
 	if t.Provider == "s3" {
 		return false
 	}
 
-	// Use provider interface to determine SSH requirement
 	tokens, err := LoadTokens()
 	if err != nil {
-		// Default to true for safety - will fail gracefully later if SSH not supported
 		return true
 	}
 
@@ -292,7 +322,7 @@ func (t *TargetConfig) RequiresSSHDeployment() bool {
 
 type Config struct {
 	Targets     map[string]TargetConfig `json:"targets"`
-	NumReleases int                     `json:"keep_releases,omitempty"` // Number of releases to keep
+	NumReleases int                     `json:"keep_releases,omitempty"`
 }
 
 func GetConfigPath() string {

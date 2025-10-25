@@ -581,13 +581,14 @@ if target.Provider == "newprovider" {
 This ensures robustness and prevents "stuck in bad state" scenarios.
 
 **Supported Providers:**
+- ✅ AWS EC2 (fully implemented with IP recovery, Elastic IP support, security group management)
 - ✅ DigitalOcean (fully implemented with IP recovery)
 - ✅ Vultr (fully implemented with IP recovery)
 - ✅ Hetzner Cloud (fully implemented with IP recovery)
 - ✅ Linode (fully implemented with IP recovery)
 - ✅ BYOS (Bring Your Own Server - no provisioning, just deployment)
 - ✅ Fly.io (fully implemented with flyctl + nixpacks, container-based deployment)
-- 🔜 AWS EC2, Google Cloud, Azure (trivial to add with IP recovery pattern)
+- 🔜 Google Cloud, Azure (trivial to add with IP recovery pattern)
 
 ### Fly.io Provider: Container-Based Deployment
 
@@ -624,6 +625,28 @@ This ensures robustness and prevents "stuck in bad state" scenarios.
 - `pkg/providers/flyio/toml.go` - fly.toml generator with dynamic VM sizing
 
 **Quota Limits:** Free tier may have CPU/memory limits. Smallest size: `shared-cpu-1x` (256MB, 1 vCPU).
+
+### AWS EC2 Provider: Traditional VPS with Advanced Networking
+
+**Architecture:** AWS EC2 uses traditional SSH-based VPS deployment with automatic security group and optional Elastic IP management.
+
+**Key Features:**
+- **Authentication**: AWS Access Key/Secret Key OR AWS profile support
+- **Security Groups**: Auto-created and cleaned up on destroy
+- **Elastic IP**: Optional static IP allocation (user prompted during provisioning)
+- **AMI Lookup**: Dynamic Ubuntu 22.04 AMI via SSM Parameter Store
+- **IP Recovery**: Automatic IP recovery when config incomplete
+- **Resource Cleanup**: Complete cleanup on destroy (instance, Elastic IP, security group)
+
+**Files:**
+- `pkg/providers/aws/client.go` - AWS SDK client and provider interface
+- `pkg/providers/aws/auth.go` - Credential parsing (access key + profile)
+- `pkg/providers/aws/security_group.go` - Security group lifecycle management
+- `pkg/providers/aws/elastic_ip.go` - Elastic IP allocation and cleanup
+
+**Setup and Examples:**
+- **Setup Guide**: [docs/AWS_SETUP.md](docs/AWS_SETUP.md) - IAM permissions, authentication, troubleshooting
+- **Examples**: [docs/AWS_EXAMPLES.md](docs/AWS_EXAMPLES.md) - Real-world deployment scenarios
 
 ### Domain & SSL Architecture
 

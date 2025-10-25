@@ -7,6 +7,7 @@ import (
 	"lightfold/pkg/config"
 	"lightfold/pkg/firewall"
 	"lightfold/pkg/providers"
+	_ "lightfold/pkg/providers/aws"
 	_ "lightfold/pkg/providers/digitalocean"
 	_ "lightfold/pkg/providers/flyio"
 	_ "lightfold/pkg/providers/hetzner"

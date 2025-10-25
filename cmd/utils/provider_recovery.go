@@ -93,6 +93,14 @@ func updateProviderConfigWithIP(target *config.TargetConfig, providerName, ip, s
 		linodeConfig.IP = ip
 		linodeConfig.InstanceID = serverID
 		return target.SetProviderConfig("linode", linodeConfig)
+	case "aws":
+		awsConfig, err := target.GetAWSConfig()
+		if err != nil {
+			return err
+		}
+		awsConfig.IP = ip
+		awsConfig.InstanceID = serverID
+		return target.SetProviderConfig("aws", awsConfig)
 	default:
 		return fmt.Errorf("unsupported provider: %s", providerName)
 	}
