@@ -42,4 +42,8 @@ const (
 	// Examples: additional config files, secondary directories
 	// Weak signal used for tie-breaking
 	ScoreMinorIndicator = 0.5
+
+	// ScoreDockerCompose represents a docker-compose file
+	// Highest priority - containerized multi-service setup overrides framework detection
+	ScoreDockerCompose = 5.0
 )

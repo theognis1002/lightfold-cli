@@ -170,10 +170,17 @@ func detectEleventy(fs FSReader) Candidate {
 }
 
 func detectDocusaurus(fs FSReader) Candidate {
-	return NewDetectionBuilder("Docusaurus", "JavaScript/TypeScript", fs).
+	builder := NewDetectionBuilder("Docusaurus", "JavaScript/TypeScript", fs).
 		CheckAnyFile([]string{"docusaurus.config.js", "docusaurus.config.ts"}, ScoreConfigFile, "docusaurus config").
-		CheckDependency("package.json", `"@docusaurus/core"`, ScoreDependency, "package.json has @docusaurus/core").
-		CheckAnyDir([]string{"docs", "blog"}, ScoreStructure, "docs/ or blog/ directory").
+		CheckDependency("package.json", `"@docusaurus/core"`, ScoreDependency, "package.json has @docusaurus/core")
+
+	// Only count docs/blog if we have a stronger signal (config or dependency)
+	// Prevents false positives from projects with just a docs/ folder
+	hasStrongSignal := builder.GetScore() > 0
+	hasDocs := fs.DirExists("docs") || fs.DirExists("blog")
+
+	return builder.
+		CheckCondition(hasStrongSignal && hasDocs, ScoreStructure, "docs/ or blog/ directory").
 		Build(plans.DocusaurusPlan)
 }
 

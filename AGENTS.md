@@ -281,9 +281,17 @@ lightfold/
 
 Each framework uses a weighted scoring system:
 
+- **Highest Priority** (5.0 points): Docker Compose files (overrides all framework detection)
 - **High Priority** (3+ points): Framework-specific config files
 - **Medium Priority** (2-2.5 points): Package dependencies, build tools
 - **Low Priority** (0.5-1 points): Directory structure, file patterns
+
+**Detection Priority:**
+- Docker Compose (score 5.0) wins over any framework detection
+- Prevents false positives when monorepos have compose files + framework indicators
+
+**Conditional Signals:**
+Some detectors use `builder.GetScore() > 0` to make weak signals conditional on stronger ones. Example: Docusaurus only counts `docs/` directory if config file or `@docusaurus/core` dependency exists first.
 
 ### Adding New Frameworks
 
