@@ -10,6 +10,7 @@ const (
 	RuntimePHP     Runtime = "php"    // PHP
 	RuntimeRuby    Runtime = "ruby"   // Ruby
 	RuntimeJava    Runtime = "java"   // Java
+	RuntimeDocker  Runtime = "docker" // Docker + Docker Compose V2
 	RuntimeUnknown Runtime = "unknown"
 )
 
@@ -36,6 +37,8 @@ func GetRuntimeFromLanguage(language string) Runtime {
 		return RuntimeRuby
 	case "Java":
 		return RuntimeJava
+	case "Container":
+		return RuntimeDocker
 	default:
 		return RuntimeUnknown
 	}
@@ -128,6 +131,20 @@ func GetRuntimeInfo(rt Runtime) RuntimeInfo {
 			Packages: []string{
 				"default-jre",
 				"default-jdk",
+			},
+			Directories: []string{},
+			Commands:    []string{},
+		}
+
+	case RuntimeDocker:
+		return RuntimeInfo{
+			Runtime: RuntimeDocker,
+			Packages: []string{
+				"docker-ce",
+				"docker-ce-cli",
+				"containerd.io",
+				"docker-buildx-plugin",
+				"docker-compose-plugin",
 			},
 			Directories: []string{},
 			Commands:    []string{},
